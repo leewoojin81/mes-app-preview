@@ -1,0 +1,24 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / tools
+.claude/settings.local.json
+.tools/
+
+# Root-level business data exports / working files (not source)
+*.xlsx
+*.docx
+*.png
+*.PNG
+*.jpg
+*.JPG
+*.jpeg
+*.tmp
+
+# Backups and logs
+/backups/
+/logs/
+
+# Stray/accidental files
+mes-app-preview/UsersAdministratorDesktopmes-systemmes-app-previewdatames-preview.db

@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4f6fb;
+  --foreground: #171f2e;
+  --color-navy: #002060;
+  --color-navy-dark: #001438;
+  --color-navy-light: #1a3a80;
+  --color-gold: #d4a72c;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-navy: var(--color-navy);
+  --color-navy-dark: var(--color-navy-dark);
+  --color-navy-light: var(--color-navy-light);
+  --color-gold: var(--color-gold);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", var(--font-geist-sans),
+    Arial, Helvetica, sans-serif;
+}
+
+/* 모달 배경 오버레이 — Tailwind의 bg-black/40(color-mix() 기반)은 구형 브라우저에서
+   지원되지 않으면 선언 자체가 무시되어 오버레이가 완전히 투명해진다(2026-09-06 실사례:
+   비밀번호 변경 모달 뒤로 배경 화면이 그대로 비쳐 보임). rgba는 모든 브라우저에서
+   동일하게 렌더링되므로 모달 오버레이는 항상 이 클래스를 쓴다. */
+.modal-overlay-bg {
+  background-color: rgba(0, 0, 0, 0.4);
+}
