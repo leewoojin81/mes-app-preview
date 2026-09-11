@@ -405,8 +405,14 @@ export function fetchAttendanceAudit(
       // 지각/조출/잔업/조퇴는 세콤이 내려주는 지각시간/조기출근시간/연장근무시간 필드를 더
       // 이상 믿지 않고(항상 "00:00"), 실제 출근시간/퇴근시간을 PSN-07 기준시각으로 우리가
       // 직접 재계산한다. 대응되는 조 스케줄이 없으면(주간고정 등) psn02=null로 남겨
-      // 비교 자체를 건너뛴다(buildItem이 null을 "대조 불가"로 처리).
-      const shiftCode = w.team ? TEAM_TO_SHIFT_CODE[w.team] : undefined;
+      // 비교 자체를 건너뛴다(buildItem이 null을 "대조 불가"로 처리). 근무조는 workers.team
+      // 현재값이 아니라 그 날짜(workDate) 기준 이력값을 써야 한다(2026-09-11 사용자 확인,
+      // 생산지원 김세은 사례 — 9/1엔 실제로 1조(주간)였는데 9/10에 2조(야간)로 바뀐 뒤
+      // 조회하면, 현재값(2조)만 보고 9/1도 야간 스케줄로 재계산해 정상/조퇴가 크게
+      // 어긋났었다. work_group과 마찬가지로 resolveFieldAsOf로 그 날짜 당시 값을 구해야
+      // 조가 중간에 바뀐 사람도 지난 날짜가 정확히 대사된다).
+      const teamAsOfDate = resolveFieldAsOf(teamHistory, w.employee_no, workDate, w.team);
+      const shiftCode = teamAsOfDate ? TEAM_TO_SHIFT_CODE[teamAsOfDate] : undefined;
       const ref = shiftCode ? shiftRefs.get(shiftCode) : undefined;
       const punchIn = parseCardClockTime(card.detail["출근시간"]);
       const punchOut = parseCardClockTime(card.detail["퇴근시간"]);
