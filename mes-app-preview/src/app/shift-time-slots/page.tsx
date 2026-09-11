@@ -35,6 +35,15 @@ function isBreakOrMeal(segmentName: string): boolean {
   return segmentName.startsWith("휴식") || segmentName.startsWith("식사");
 }
 
+// "오전반차"/"오후반차"는 조출~잔업까지 이어지는 기존 구간들과 시간이 그대로 겹치는
+// 참고용 구간이다(반차 쓴 사람이 실제로 일한 절반만 보여주려는 용도, 2026-09-11 사용자
+// 요청) — 휴식/식사와 달리 "쉬는 시간"도 아니라서 휴게시간으로도 못 넣고, 그렇다고
+// 작업시간에 넣으면 겹치는 다른 구간과 이중으로 잡힌다. 그래서 작업시간/휴게시간/합계
+// 어디에도 넣지 않고 참고 표시만 한다.
+function isHalfDayLeaveReference(segmentName: string): boolean {
+  return segmentName.startsWith("오전반차") || segmentName.startsWith("오후반차");
+}
+
 type FormState = {
   shift_code: string;
   segment_name: string;
@@ -93,8 +102,9 @@ export default function ShiftTimeSlotsPage() {
 
       {SHIFT_CODES.map((shiftCode) => {
         const shiftRows = rows.filter((r) => r.shift_code === shiftCode);
-        const rawTotal = shiftRows.reduce((sum, r) => sum + r.work_minutes, 0);
-        const workTotal = shiftRows
+        const summableRows = shiftRows.filter((r) => !isHalfDayLeaveReference(r.segment_name));
+        const rawTotal = summableRows.reduce((sum, r) => sum + r.work_minutes, 0);
+        const workTotal = summableRows
           .filter((r) => !isBreakOrMeal(r.segment_name))
           .reduce((sum, r) => sum + r.work_minutes, 0);
         const excludedTotal = rawTotal - workTotal;
@@ -141,13 +151,19 @@ export default function ShiftTimeSlotsPage() {
                   {!loading &&
                     shiftRows.map((r) => {
                       const isBreak = isBreakOrMeal(r.segment_name);
+                      const isReference = isHalfDayLeaveReference(r.segment_name);
                       return (
-                        <tr key={r.id} className="hover:bg-slate-50">
+                        <tr key={r.id} className={isReference ? "bg-slate-50/60 hover:bg-slate-100/60" : "hover:bg-slate-50"}>
                           <td className="px-3 py-2 font-medium text-slate-700">
                             {r.segment_name}
                             {(r.segment_name === "식사1" || r.segment_name === "식사2") && (
                               <span className="block text-[10px] font-normal text-slate-400">
                                 중식교대 해당 (30분)
+                              </span>
+                            )}
+                            {isReference && (
+                              <span className="ml-1.5 inline-block px-1 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-400 align-middle">
+                                참고
                               </span>
                             )}
                           </td>
@@ -157,13 +173,17 @@ export default function ShiftTimeSlotsPage() {
                             {r.crosses_midnight && <span className="text-xs text-amber-600 ml-1">(다음날)</span>}
                           </td>
                           <td className="px-3 py-2 text-right font-mono text-navy">
-                            {isBreak ? "-" : fmtMinutes(r.work_minutes)}
+                            {isReference ? "-" : isBreak ? "-" : fmtMinutes(r.work_minutes)}
                           </td>
                           <td className="px-3 py-2 text-right font-mono text-slate-500">
-                            {isBreak ? fmtMinutes(r.work_minutes) : "-"}
+                            {isReference ? "-" : isBreak ? fmtMinutes(r.work_minutes) : "-"}
                           </td>
                           <td className="px-3 py-2 text-right font-mono font-semibold text-navy">
-                            {fmtMinutes(r.work_minutes)}
+                            {isReference ? (
+                              <span className="font-normal text-slate-400">{fmtMinutes(r.work_minutes)} (참고, 합계 미포함)</span>
+                            ) : (
+                              fmtMinutes(r.work_minutes)
+                            )}
                           </td>
                           <td className="px-3 py-2 text-center text-slate-500">{r.effective_date}</td>
                           <td className="px-3 py-2 text-center">

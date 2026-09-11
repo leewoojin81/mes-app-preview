@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
 import { LEAVE_TYPE_OPTIONS, normalHoursFor } from "@/lib/work-hours-leave";
@@ -28,7 +28,7 @@ function distinctOptions(rows: WorkHoursRow[], key: "work_group" | "contractor" 
   return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
 }
 
-// "정상"은 휴가구분별 기준시간(A안: 출근 8, 연차 0, 반차 4, 공가 0, 휴무 0)에서 지각·조퇴·
+// "정상"은 휴가구분별 기준시간(A안: 출근 8, 연차 0, 전반/후반 4, 공가 0, 휴무 0)에서 지각·조퇴·
 // 외출·지원시간을 뺀 값이다(work-hours-leave.ts의 normalHoursFor). 지원시간은 다른
 // 공정을 지원하며 실제로 일한 시간이라 합계(computeTotal)에서 다시 더해 상쇄되고,
 // 지각/조퇴/외출만 총 근무시간을 실제로 줄인다. 휴가 드롭다운이나 지각/조퇴/외출/지원을
@@ -179,13 +179,18 @@ function isValidTenMinuteHours(hours: number, fieldKey: HourField): boolean {
   return Math.abs(nearestTenMinuteHours(hours) - hours) < 1e-6;
 }
 
-// "선택 항목 일괄수정" 팝업의 대상 항목 — 시간 6종(HOUR_FIELDS) 외에 휴가구분도 함께
-// 일괄변경할 수 있다(정상은 휴가구분에 따라 자동 재계산되므로 더 이상 직접 일괄변경
-// 대상이 아니다). 휴가구분을 고르면 값 입력란이 숫자 대신 휴가 드롭다운(출근/연차/반차/
-// 공가/휴무)으로 바뀐다.
-type BulkFieldKey = HourField | "leave_type";
+// "선택 항목 일괄수정" 팝업의 대상 항목 — 시간 6종(HOUR_FIELDS) 외에 휴가구분·근무조도
+// 함께 일괄변경할 수 있다(정상은 휴가구분에 따라 자동 재계산되므로 더 이상 직접 일괄변경
+// 대상이 아니다). 휴가구분/근무조를 고르면 값 입력란이 숫자 대신 해당 드롭다운으로
+// 바뀐다. 근무조는 2026-09-11 사용자 요청으로 이 목록에 합쳐졌다 — 예전엔 "근무조
+// 일괄변경"이 저장 버튼과 무관하게 즉시 반영되는 별도 버튼/팝업이라 다른 항목과 저장
+// 시점이 달라 헷갈린다는 지적이 있었고, 근무조도 다른 항목과 똑같이 "저장" 버튼을
+// 눌러야 확정되도록 통일했다(save()에서 rows의 team 변경분만 모아 /api/workers/team으로
+// 반영한 뒤 work-hours 저장을 이어감).
+type BulkFieldKey = HourField | "leave_type" | "team";
 const BULK_FIELDS: { key: BulkFieldKey; label: string }[] = [
   { key: "leave_type", label: "휴가구분" },
+  { key: "team", label: "근무조" },
   ...HOUR_FIELDS,
 ];
 
@@ -218,11 +223,11 @@ export default function WorkHoursPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  // 근무조 일괄변경(2026-09-10 사용자 요청, 기존 교대조 일괄변경을 대체) — workers.team은
-  // work_hours_daily가 아니라 작업자 마스터 필드라, 다른 일괄수정(HOUR_FIELDS)처럼 로컬에
-  // 쌓아뒀다 "저장" 버튼으로 한꺼번에 반영하지 않고 /api/workers/team으로 선택 즉시
-  // 반영한다("선택 삭제"와 같은 즉시반영 방식).
-  const [showTeamEdit, setShowTeamEdit] = useState(false);
+  // 근무조(workers.team)는 work_hours_daily가 아니라 작업자 마스터 필드라 별도
+  // /api/workers/team 엔드포인트로 저장한다 — 화면에서 고친 값과 조회 당시 값이 다른
+  // 사람만 save()에서 골라내 보낼 수 있도록, load()가 채운 rows를 그대로 기준선으로
+  // 들고 있는다(리렌더와 무관해야 해서 상태가 아니라 ref).
+  const teamBaselineRef = useRef<Map<string, string | null>>(new Map());
 
   // 지원공정 선택지 — BASE-04(공정등록)에 등록된 사용여부='Y' 공정 전체를, 소속(work_group)
   // 필터 없이 그대로 보여준다(2026-09-07 사용자 요청: 기존엔 work_group 9개로만 골랐는데
@@ -254,7 +259,9 @@ export default function WorkHoursPage() {
     fetch(`/api/work-hours?date=${date}`, { cache: "no-store" })
       .then((res) => res.json())
       .then((data: WorkHoursResponse) => {
-        setRows(data.rows ?? []);
+        const rows = data.rows ?? [];
+        setRows(rows);
+        teamBaselineRef.current = new Map(rows.map((r) => [r.employee_no, r.team]));
         setLastSavedAt(data.lastSavedAt ?? null);
         setLoading(false);
       });
@@ -283,25 +290,6 @@ export default function WorkHoursPage() {
 
   function updateRow(employeeNo: string, patch: Partial<WorkHoursRow>) {
     setRows((prev) => prev.map((r) => (r.employee_no === employeeNo ? { ...r, ...patch } : r)));
-  }
-
-  // 근무조는 work_hours_daily가 아니라 workers 마스터 필드라 "저장" 버튼을 거치지 않고
-  // 선택 즉시 반영한다 — 실패하면 알리고 화면을 다시 불러와 실제 서버 값으로 되돌린다.
-  // 지금 조회 중인 date를 같이 보내 변경이력이 "오늘"이 아니라 이 날짜부터 적용되게 한다
-  // (2026-09-10 사용자 요청 — 근태대사(PSN-06)에서 그 날짜를 보면 방금 고친 값이 바로
-  // 반영되게 하기 위함, master-data-history.ts의 changeDate 설명 참고).
-  async function updateTeamImmediate(employeeNo: string, value: string | null) {
-    updateRow(employeeNo, { team: value });
-    const res = await fetch("/api/workers/team", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employeeNos: [employeeNo], team: value, date }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      window.alert(data.error ?? "근무조 변경에 실패했습니다.");
-      load();
-    }
   }
 
   function toggleSelected(employeeNo: string) {
@@ -402,6 +390,36 @@ export default function WorkHoursPage() {
     return issues;
   }
 
+  // 근무조(workers.team)는 work_hours_daily가 아니라 작업자 마스터 필드라 /api/work-hours
+  // PUT과 별도로 /api/workers/team에 보내야 한다. save()가 조회 당시 값(teamBaselineRef)과
+  // 지금 화면 값이 달라진 사람만 골라, 바뀐 값이 같은 사람끼리 묶어 값 그룹당 한 번씩
+  // 호출한다(2026-09-11 사용자 요청 — 예전엔 근무조만 저장 버튼과 무관하게 즉시 반영되는
+  // 별도 버튼이라 다른 항목과 저장 시점이 달라 헷갈린다는 지적이 있었음). 실패하면 에러
+  // 메시지만 돌려주고, 호출부(save)가 이를 보고 work-hours 저장 자체를 진행하지 않는다 —
+  // 근무조 반영이 실패했는데 나머지만 저장되는 반쪽짜리 상태를 막기 위해서다.
+  async function saveTeamChanges(): Promise<string | null> {
+    const groups = new Map<string | null, string[]>();
+    for (const r of rows) {
+      const baseline = teamBaselineRef.current.get(r.employee_no) ?? null;
+      if (baseline === r.team) continue;
+      const list = groups.get(r.team) ?? [];
+      list.push(r.employee_no);
+      groups.set(r.team, list);
+    }
+    for (const [team, employeeNos] of groups) {
+      const res = await fetch("/api/workers/team", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeNos, team, date }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return data.error ?? "근무조 변경에 실패했습니다.";
+      }
+    }
+    return null;
+  }
+
   async function save() {
     const negativeIssues = findNegativeIssues();
     const stepIssues = findInvalidStepIssues();
@@ -466,6 +484,15 @@ export default function WorkHoursPage() {
 
     setSaving(true);
     setMessage(null);
+
+    const teamError = await saveTeamChanges();
+    if (teamError) {
+      setSaving(false);
+      window.alert(teamError);
+      setMessage(teamError);
+      return;
+    }
+
     const res = await fetch("/api/work-hours", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -478,6 +505,7 @@ export default function WorkHoursPage() {
       setMessage(data.error ?? "저장에 실패했습니다.");
       return;
     }
+    teamBaselineRef.current = new Map(rows.map((r) => [r.employee_no, r.team]));
     const now = new Date().toISOString().slice(0, 19).replace("T", " ");
     setLastSavedAt(now);
     setMessage(`${new Date().toLocaleTimeString("ko-KR")} 기준 ${data.count}건 저장되었습니다.`);
@@ -535,11 +563,12 @@ export default function WorkHoursPage() {
         <div>
           <h1 className="text-xl font-bold text-navy">일일근태입력</h1>
           <p className="text-sm text-slate-500 mt-1">
-            PSN-01 · 자공정(정상/잔업/조출/중교/지각/조퇴/외출)과 지원공정(소속/시간)을
-            입력하면 근무시간이 자동 합산됩니다. 왼쪽 체크박스로 여러 명을 선택하면
-            &quot;선택 항목 일괄수정&quot;으로 한 항목을 한 번에 바꾸거나, &quot;선택
-            삭제&quot;로 그 날짜 저장 기록 자체를 지울 수 있습니다(삭제는 저장 버튼과
-            무관하게 즉시 반영). 잘못 입력했다면 같은 날짜를 다시 열어 값을 고치고
+            PSN-01 · 근무조·휴가구분과 자공정(정상/잔업/조출/중교/지각/조퇴/외출)·지원공정
+            (소속/시간)을 입력하면 근무시간이 자동 합산됩니다. 그리드에서 바로 고치거나,
+            왼쪽 체크박스로 여러 명을 선택해 &quot;선택 항목 일괄수정&quot;으로 한 항목을
+            한 번에 바꿀 수 있습니다 — 어느 쪽이든 &quot;저장&quot;을 눌러야 확정됩니다.
+            &quot;선택 삭제&quot;는 그 날짜 저장 기록 자체를 지우는 것이라 저장 버튼과
+            무관하게 즉시 반영됩니다. 잘못 입력했다면 같은 날짜를 다시 열어 값을 고치고
             저장하면 그대로 덮어써집니다.
           </p>
         </div>
@@ -564,13 +593,6 @@ export default function WorkHoursPage() {
             className="px-3.5 py-2 rounded-md text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:border-navy disabled:opacity-40 disabled:hover:border-slate-300 transition-colors"
           >
             선택 항목 일괄수정{selected.size > 0 ? ` (${selected.size}명)` : ""}
-          </button>
-          <button
-            onClick={() => setShowTeamEdit(true)}
-            disabled={selected.size === 0}
-            className="px-3.5 py-2 rounded-md text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:border-navy disabled:opacity-40 disabled:hover:border-slate-300 transition-colors"
-          >
-            근무조 일괄변경{selected.size > 0 ? ` (${selected.size}명)` : ""}
           </button>
           <button
             onClick={deleteSelected}
@@ -765,7 +787,7 @@ export default function WorkHoursPage() {
                     <td className={`px-2 py-1.5 ${wCls}`}>
                       <select
                         value={r.team ?? ""}
-                        onChange={(e) => updateTeamImmediate(r.employee_no, e.target.value || null)}
+                        onChange={(e) => updateRow(r.employee_no, { team: e.target.value || null })}
                         className="border border-slate-300 rounded px-1.5 py-1 text-xs w-full bg-white"
                       >
                         <option value="">미지정</option>
@@ -899,101 +921,6 @@ export default function WorkHoursPage() {
           onClose={() => setShowBulkEdit(false)}
         />
       )}
-
-      {showTeamEdit && (
-        <TeamBulkEditModal
-          employeeNos={Array.from(selected)}
-          date={date}
-          onClose={() => setShowTeamEdit(false)}
-          onApplied={() => {
-            setShowTeamEdit(false);
-            load();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-// 근무조 일괄변경(2026-09-10 사용자 요청, 기존 교대조 일괄변경을 대체) — workers.team을
-// 선택한 사번 전원에게 즉시 반영한다("선택 항목 일괄수정"과 달리 "저장" 버튼을 기다리지 않음).
-function TeamBulkEditModal({
-  employeeNos,
-  date,
-  onClose,
-  onApplied,
-}: {
-  employeeNos: string[];
-  date: string;
-  onClose: () => void;
-  onApplied: () => void;
-}) {
-  const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function apply() {
-    setSaving(true);
-    setError(null);
-    const res = await fetch("/api/workers/team", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employeeNos, team: value || null, date }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setSaving(false);
-    if (!res.ok) {
-      setError(data.error ?? "저장에 실패했습니다.");
-      return;
-    }
-    onApplied();
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-          <h2 className="text-base font-bold text-navy">근무조 일괄변경</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none" aria-label="닫기">
-            ×
-          </button>
-        </div>
-        <div className="px-5 py-4 space-y-4">
-          <p className="text-sm text-slate-600">
-            선택한 <span className="font-semibold text-navy">{employeeNos.length}명</span>의
-            근무조를 한 번에 바꿉니다. 저장 버튼과 무관하게 즉시 반영됩니다.
-          </p>
-          <label className="block text-sm">
-            <span className="text-slate-600">근무조</span>
-            <select
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              className="mt-1 w-full border border-slate-300 rounded-md px-2.5 py-2 text-sm bg-white"
-              autoFocus
-            >
-              <option value="">미지정</option>
-              {TEAM_OPTIONS.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </label>
-          {error && <p className="text-sm text-rose-600">{error}</p>}
-          <div className="flex justify-end gap-2 pt-1">
-            <button onClick={onClose} className="px-3.5 py-2 rounded-md text-sm border border-slate-300 bg-white text-slate-600">
-              취소
-            </button>
-            <button
-              onClick={apply}
-              disabled={saving || employeeNos.length === 0}
-              className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white disabled:opacity-40"
-            >
-              {saving ? "적용 중..." : "적용"}
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -1009,15 +936,19 @@ function BulkEditModal({
 }) {
   const [field, setField] = useState<BulkFieldKey>("leave_type");
   const [leaveValue, setLeaveValue] = useState(""); // "" = 출근
+  const [teamValue, setTeamValue] = useState(""); // "" = 미지정
   const [valueText, setValueText] = useState("");
 
   const isLeaveField = field === "leave_type";
+  const isTeamField = field === "team";
   const value = Number(valueText);
-  const canApply = isLeaveField || (valueText.trim() !== "" && Number.isFinite(value));
+  const canApply = isLeaveField || isTeamField || (valueText.trim() !== "" && Number.isFinite(value));
 
   function handleApply() {
     if (isLeaveField) {
       onApply({ leave_type: leaveValue || null });
+    } else if (isTeamField) {
+      onApply({ team: teamValue || null });
     } else {
       onApply({ [field]: value } as Partial<WorkHoursRow>);
     }
@@ -1066,6 +997,23 @@ function BulkEditModal({
               >
                 <option value="">출근</option>
                 {LEAVE_TYPE_OPTIONS.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : isTeamField ? (
+            <label className="block text-sm">
+              <span className="text-slate-600">근무조</span>
+              <select
+                value={teamValue}
+                onChange={(e) => setTeamValue(e.target.value)}
+                className="mt-1 w-full border border-slate-300 rounded-md px-2.5 py-2 text-sm bg-white"
+                autoFocus
+              >
+                <option value="">미지정</option>
+                {TEAM_OPTIONS.map((v) => (
                   <option key={v} value={v}>
                     {v}
                   </option>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
+import TimeSegmentInput from "@/components/TimeSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
 import type { AttendanceCardListResponse, AttendanceCardRow } from "@/lib/types";
 import { ATTENDANCE_CARD_COLS as DETAIL_COLS } from "@/lib/attendance-card-columns";
@@ -61,6 +62,8 @@ export default function AttendanceCardStatusPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [editingRow, setEditingRow] = useState<AttendanceCardRow | null>(null);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AttendanceCardRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -312,12 +315,20 @@ export default function AttendanceCardStatusPage() {
                       {(page - 1) * pageSize + idx + 1}
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      <button
-                        onClick={() => setEditingRow(row)}
-                        className="text-xs font-medium text-navy hover:underline"
-                      >
-                        수정
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => setEditingRow(row)}
+                          className="text-xs font-medium text-navy hover:underline"
+                        >
+                          수정
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(row)}
+                          className="text-xs font-medium text-rose-600 hover:underline"
+                        >
+                          삭제
+                        </button>
+                      </div>
                     </td>
                     {DETAIL_COLS.map((col) => {
                       const v = row.detail?.[col.key];
@@ -400,9 +411,61 @@ export default function AttendanceCardStatusPage() {
           }}
         />
       )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
+            <div className="px-5 py-4 border-b border-slate-200">
+              <h2 className="text-base font-bold text-navy">출퇴근카드 삭제</h2>
+            </div>
+            <div className="px-5 py-4 space-y-2">
+              <p className="text-sm text-slate-700">
+                <span className="font-mono text-xs text-slate-500 mr-1">
+                  {deleteTarget.employee_no}
+                </span>
+                <span className="font-medium">{deleteTarget.worker_name}</span>
+                {" "}
+                {deleteTarget.work_date} 기록을 정말 삭제하시겠습니까?
+              </p>
+              <p className="text-xs text-slate-400">이 작업은 되돌릴 수 없습니다.</p>
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="px-3.5 py-2 rounded-md text-sm border border-slate-300 bg-white text-slate-600 disabled:opacity-40"
+              >
+                취소
+              </button>
+              <button
+                onClick={async () => {
+                  if (!deleteTarget) return;
+                  setDeleting(true);
+                  await fetch(`/api/attendance-card-status/${deleteTarget.id}`, {
+                    method: "DELETE",
+                  });
+                  setDeleting(false);
+                  setDeleteTarget(null);
+                  refresh();
+                }}
+                disabled={deleting}
+                className="px-3.5 py-2 rounded-md text-sm font-medium bg-rose-600 text-white disabled:opacity-40"
+              >
+                {deleting ? "삭제 중..." : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// 출근시간/퇴근시간은 수정 모달에서 일반 텍스트칸 대신 "00:00:00" 형식의 시각 입력칸
+// (input type="time", step=1로 초 단위까지)으로 보여준다(2026-09-11 사용자 요청) — 잘못
+// 찍힌 시각(예: 06:32)을 고칠 때 텍스트로 직접 타이핑하는 대신 시계 형태로 고르거나
+// 각 자리를 화살표로 조절할 수 있다.
+const TIME_FIELD_KEYS = new Set(["출근시간", "퇴근시간"]);
 
 // "HH:MM" 또는 "HH:MM:SS"를 분으로 파싱한다. 형식이 안 맞으면 null(자동계산을 건너뛴다).
 function parseTimeToMinutes(v: string): number | null {
@@ -547,13 +610,21 @@ function AttendanceCardEditModal({
                   />
                 )}
                 <label className="text-xs text-slate-500 w-24 shrink-0">{f.title}</label>
-                <input
-                  type="text"
-                  value={values[f.key]}
-                  onChange={(e) => setValue(f.key, e.target.value)}
-                  disabled={isBulk && !enabled[f.key]}
-                  className={inputCls}
-                />
+                {TIME_FIELD_KEYS.has(f.key) ? (
+                  <TimeSegmentInput
+                    value={values[f.key]}
+                    onChange={(v) => setValue(f.key, v)}
+                    disabled={isBulk && !enabled[f.key]}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={values[f.key]}
+                    onChange={(e) => setValue(f.key, e.target.value)}
+                    disabled={isBulk && !enabled[f.key]}
+                    className={inputCls}
+                  />
+                )}
               </div>
             ))}
           </div>

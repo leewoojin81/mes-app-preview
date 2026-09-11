@@ -4,6 +4,7 @@ import { numOrNull, strOrNull, strVal } from "@/lib/item-fields";
 import { defaultLeaveTypeForCalendar, normalHoursFor } from "@/lib/work-hours-leave";
 import type { WorkHoursRow } from "@/lib/types";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
+import { ENTITY_TYPE_WORKER, fetchFieldHistoryMap, resolveFieldAsOf } from "@/lib/master-data-history";
 
 export const runtime = "nodejs";
 
@@ -100,6 +101,17 @@ export async function GET(req: NextRequest) {
       .all() as unknown as WorkerRow[];
   }
 
+  // 근무조는 workers.team(현재값)을 그대로 내려주면 안 된다 — 근태대사(PSN-06)는 조회
+  // 날짜 기준 이력(master_data_change_history)으로 "그 당시 값"을 재구성해서 보여주는데,
+  // 여기서는 현재값을 그대로 보여주면 과거 날짜를 조회할 때 둘이 어긋난다(2026-09-11
+  // 실사례 — 근태대사엔 2조로 남아있는 과거 날짜인데 여기선 항상 최신값인 1조로 보여서,
+  // 그리드가 이미 "맞는 값"을 보여주는 줄 알고 저장을 안 누르게 됨). PSN-06과 동일하게
+  // 이력 기준으로 재구성해 내려준다 — "선택 항목 일괄수정"/그리드에서 고친 값과 이
+  // 값이 다를 때만 save()가 /api/workers/team으로 반영하므로, 기준값 자체가 어긋나 있으면
+  // 그 비교도 같이 어긋난다.
+  const employeeNos = workers.map((w) => w.employee_no);
+  const teamHistory = fetchFieldHistoryMap(db, ENTITY_TYPE_WORKER, "team", employeeNos);
+
   const dailyRows = db
     .prepare(
       `SELECT employee_no, leave_type, normal_hours, overtime_hours, early_start_hours, lunch_shift_hours,
@@ -149,7 +161,7 @@ export async function GET(req: NextRequest) {
       worker_name: w.worker_name,
       contractor: w.contractor,
       work_group: w.work_group,
-      team: w.team,
+      team: resolveFieldAsOf(teamHistory, w.employee_no, date, w.team),
       shift_group: w.shift_group,
       duty: w.duty,
       leave_type: leaveType,

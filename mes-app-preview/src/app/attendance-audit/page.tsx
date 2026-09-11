@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
@@ -11,8 +11,9 @@ import type {
   AttendanceAuditRowStatus,
 } from "@/lib/attendance-audit";
 
-// No.·사번·성명·공정·근무조·일자·저장상태(7) + 대사항목6×3(18) + 참고항목3×1(3) + 종합상태(1)
-const TABLE_COL_COUNT = 29;
+// No.·사번·성명·공정·근무조·휴가·일자·출근시간·퇴근시간·저장상태(10) + 대사항목6×3(18) +
+// 참고항목3×1(3) + 종합상태(1)
+const TABLE_COL_COUNT = 32;
 
 interface Me {
   role: string;
@@ -33,6 +34,67 @@ const ITEM_DEFS: { key: keyof AttendanceAuditRow["items"]; label: string; kind: 
   { key: "outing", label: "외출", kind: "reference" },
   { key: "support", label: "지원시간", kind: "reference" },
 ];
+
+/** 종합상태 판정과 동일하게, "일치율" 집계에도 실제 대사(비교) 대상 항목만 쓴다. */
+const COMPARABLE_ITEM_DEFS = ITEM_DEFS.filter((it) => it.kind === "compare");
+
+interface ProcessStat {
+  workGroup: string;
+  total: number;
+  ok: number;
+  mismatch: number;
+  rate: number; // 0~100
+  itemMismatch: Partial<Record<keyof AttendanceAuditRow["items"], number>>;
+}
+
+// 공정별 일치율 = 일치건수 / 대사건수 × 100. "대사건수"는 실제로 세콤 카드와 비교가
+// 가능했던(matchStatus === "matched") 행만 센다 — 카드없음/매칭오류는 애초에 일치·
+// 불일치를 판정할 수 없는 "데이터 문제"라 분모에 넣으면(둘 다 사실상 "대사 실패"인데)
+// 일치율이 실제보다 낮아 보이게 왜곡된다(2026-09-11 사용자 요청, PSN-06 필터 아래
+// "공정별 일치율" 시각화). 대상 행이 하나도 없는 공정은 목록에서 아예 뺀다(0%가 아니라
+// "판단 불가"이므로).
+function computeProcessStats(rows: AttendanceAuditRow[]): ProcessStat[] {
+  const buckets = new Map<
+    string,
+    { total: number; ok: number; mismatch: number; itemMismatch: Partial<Record<keyof AttendanceAuditRow["items"], number>> }
+  >();
+  for (const r of rows) {
+    if (r.matchStatus !== "matched") continue;
+    const key = r.work_group ?? "미지정";
+    let b = buckets.get(key);
+    if (!b) {
+      b = { total: 0, ok: 0, mismatch: 0, itemMismatch: {} };
+      buckets.set(key, b);
+    }
+    b.total++;
+    if (r.status === "정상") {
+      b.ok++;
+    } else {
+      b.mismatch++;
+    }
+    for (const def of COMPARABLE_ITEM_DEFS) {
+      if (r.items[def.key].mismatch) {
+        b.itemMismatch[def.key] = (b.itemMismatch[def.key] ?? 0) + 1;
+      }
+    }
+  }
+  const list: ProcessStat[] = Array.from(buckets.entries()).map(([workGroup, b]) => ({
+    workGroup,
+    total: b.total,
+    ok: b.ok,
+    mismatch: b.mismatch,
+    rate: (b.ok / b.total) * 100,
+    itemMismatch: b.itemMismatch,
+  }));
+  list.sort((a, b) => a.rate - b.rate);
+  return list;
+}
+
+function rateColor(rate: number): string {
+  if (rate >= 90) return "bg-emerald-500";
+  if (rate >= 70) return "bg-amber-500";
+  return "bg-rose-500";
+}
 
 function toLocalDateStr(d: Date): string {
   const y = d.getFullYear();
@@ -110,6 +172,197 @@ function ReferenceCell({ psn01 }: { psn01: number }) {
   );
 }
 
+const CHART_LABEL_W = "6rem";
+const CHART_VALUE_W = "3.25rem";
+const MATCH_RATE_THRESHOLD = 90;
+
+// 공정별 일치율 막대그래프 — 낮은 순(가장 문제 있는 공정 먼저) 정렬해서 받는다(호출부).
+// 라벨/막대/수치 3열짜리 CSS grid로 짜서, 90% 기준선 하나를 트랙(가운데) 열에만 걸치는
+// 별도 grid item으로 모든 행에 겹쳐 그린다 — 각 막대 트랙 너비가 같은 열이라 기준선
+// 위치(left: 90%)가 모든 행에서 정확히 같은 x좌표로 맞아떨어진다.
+function ProcessMatchRateChart({ stats }: { stats: ProcessStat[] }) {
+  const [hover, setHover] = useState<string | null>(null);
+  if (stats.length === 0) {
+    return <p className="text-sm text-slate-400 py-6 text-center">대사 가능한 데이터가 없습니다.</p>;
+  }
+  return (
+    <div
+      className="grid gap-y-2 gap-x-2"
+      style={{ gridTemplateColumns: `${CHART_LABEL_W} 1fr ${CHART_VALUE_W}` }}
+    >
+      {stats.map((s) => (
+        <Fragment key={s.workGroup}>
+          <div
+            className="text-xs text-slate-600 text-right self-center truncate"
+            title={s.workGroup}
+          >
+            {s.workGroup}
+          </div>
+          <div
+            className="relative h-5 self-center rounded-[4px] bg-slate-100"
+            onMouseEnter={() => setHover(s.workGroup)}
+            onMouseLeave={() => setHover((h) => (h === s.workGroup ? null : h))}
+          >
+            <div
+              className={`h-5 rounded-r-[4px] ${rateColor(s.rate)}`}
+              style={{ width: `${Math.min(100, s.rate)}%` }}
+            />
+            {hover === s.workGroup && (
+              <div className="absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1.5 rounded bg-slate-800 px-2.5 py-1.5 text-xs text-white shadow-lg whitespace-nowrap pointer-events-none">
+                <p className="font-semibold">{s.workGroup}</p>
+                <p>
+                  대상 {s.total.toLocaleString()}건 · 일치 {s.ok.toLocaleString()}건 · 불일치{" "}
+                  {s.mismatch.toLocaleString()}건
+                </p>
+                <p>일치율 {s.rate.toFixed(1)}%</p>
+              </div>
+            )}
+          </div>
+          <div className="text-xs font-mono tabular-nums text-slate-600 text-right self-center">
+            {s.rate.toFixed(1)}%
+          </div>
+        </Fragment>
+      ))}
+      <div
+        className="relative pointer-events-none"
+        style={{ gridColumn: 2, gridRow: `1 / ${stats.length + 1}` }}
+      >
+        <div
+          className="absolute top-0 bottom-0 border-l-2 border-dashed border-slate-400"
+          style={{ left: `${MATCH_RATE_THRESHOLD}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// 세 패널(그래프/요약표/항목별 표) 공통 카드 뼈대 — 제목만 다르게 받는다.
+function StatCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4 space-y-3 min-w-0">
+      <p className="text-xs font-semibold text-slate-600">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function NoStatsMessage() {
+  return <p className="text-sm text-slate-400 py-6 text-center">대사 가능한 데이터가 없습니다.</p>;
+}
+
+function ProcessMatchRateSection({ stats }: { stats: ProcessStat[] }) {
+  return (
+    <div className="space-y-2">
+      <div>
+        <h2 className="text-sm font-bold text-navy">공정별 일치율</h2>
+        <p className="text-xs text-slate-400 mt-0.5">
+          조회기간·필터 조건 기준, 대사 가능한(카드 매칭 성공) 건 중 일치 비율 — 낮은 순 정렬
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+        <StatCard title="공정별 일치율">
+          <ProcessMatchRateChart stats={stats} />
+          <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap pt-2 border-t border-slate-100">
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-500" /> 90% 이상
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-500" /> 70~90%
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-rose-500" /> 70% 미만
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 border-t-2 border-dashed border-slate-400" /> 90% 기준선
+            </span>
+          </div>
+        </StatCard>
+
+        <StatCard title="공정별 대상/일치/불일치">
+          {stats.length === 0 ? (
+            <NoStatsMessage />
+          ) : (
+            <div className="overflow-auto border border-slate-100 rounded-md">
+              <table className="text-xs w-full whitespace-nowrap">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-semibold">공정</th>
+                    <th className="text-right px-3 py-2 font-semibold">대상건수</th>
+                    <th className="text-right px-3 py-2 font-semibold">일치건수</th>
+                    <th className="text-right px-3 py-2 font-semibold">불일치건수</th>
+                    <th className="text-right px-3 py-2 font-semibold">일치율</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {stats.map((s) => (
+                    <tr key={s.workGroup}>
+                      <td className="px-3 py-1.5 text-slate-700">{s.workGroup}</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-slate-600">
+                        {s.total.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono text-slate-600">
+                        {s.ok.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono text-slate-600">
+                        {s.mismatch.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono font-semibold text-slate-700">
+                        {s.rate.toFixed(1)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </StatCard>
+
+        <StatCard title="항목별 불일치 건수">
+          {stats.length === 0 ? (
+            <NoStatsMessage />
+          ) : (
+            <div className="overflow-auto border border-slate-100 rounded-md">
+              <table className="text-xs w-full whitespace-nowrap">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-semibold">공정</th>
+                    {COMPARABLE_ITEM_DEFS.map((def) => (
+                      <th key={def.key} className="text-right px-3 py-2 font-semibold">
+                        {def.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {stats.map((s) => (
+                    <tr key={s.workGroup}>
+                      <td className="px-3 py-1.5 text-slate-700">{s.workGroup}</td>
+                      {COMPARABLE_ITEM_DEFS.map((def) => {
+                        const count = s.itemMismatch[def.key] ?? 0;
+                        return (
+                          <td
+                            key={def.key}
+                            className={`px-3 py-1.5 text-right font-mono ${
+                              count > 0 ? "text-rose-600 font-semibold" : "text-slate-300"
+                            }`}
+                          >
+                            {count.toLocaleString()}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </StatCard>
+      </div>
+    </div>
+  );
+}
+
 export default function AttendanceAuditPage() {
   const [me, setMe] = useState<Me | null>(null);
   useEffect(() => {
@@ -171,6 +424,10 @@ export default function AttendanceAuditPage() {
   }, [canQuery, dateFrom, dateTo, workGroup]);
 
   const allRows = result?.rows ?? [];
+  // 공정별 일치율은 상세 목록의 "불일치만 보기"/"매칭오류만 보기"/검색어 같은 표시용
+  // 토글에 영향받지 않고 조회기간·공정 필터만 반영한다(allRows 기준) — 그 토글까지
+  // 반영하면 예를 들어 "불일치만 보기"를 켠 순간 일치율이 항상 0%로 왜곡된다.
+  const processStats = useMemo(() => computeProcessStats(result?.rows ?? []), [result]);
   const search = searchText.trim().toLowerCase();
   const visibleRows = allRows.filter((r) => {
     if (mismatchOnly && r.status !== "불일치") return false;
@@ -198,14 +455,14 @@ export default function AttendanceAuditPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
         <div className="bg-white border border-slate-200 rounded-lg px-4 py-3 shadow-sm">
-          <p className="text-xs text-slate-500">오늘 불일치 인원 수</p>
+          <p className="text-xs text-slate-500">조회기간 불일치 건수</p>
           <p className="text-2xl font-bold text-rose-600 mt-1">
-            {result ? result.summary.todayMismatchWorkers.toLocaleString() : "-"}
-            <span className="text-sm font-normal text-slate-400 ml-1">명</span>
+            {result ? result.summary.periodMismatchCount.toLocaleString() : "-"}
+            <span className="text-sm font-normal text-slate-400 ml-1">건</span>
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-lg px-4 py-3 shadow-sm">
-          <p className="text-xs text-slate-500">매칭오류 건수</p>
+          <p className="text-xs text-slate-500">조회기간 매칭오류 건수</p>
           <p className="text-2xl font-bold text-orange-600 mt-1">
             {result ? result.summary.nameMismatchCount.toLocaleString() : "-"}
             <span className="text-sm font-normal text-slate-400 ml-1">건</span>
@@ -261,6 +518,8 @@ export default function AttendanceAuditPage() {
         </label>
       </div>
 
+      {canQuery && !loading && result && <ProcessMatchRateSection stats={processStats} />}
+
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
@@ -268,13 +527,16 @@ export default function AttendanceAuditPage() {
           <table className="text-sm whitespace-nowrap">
             <thead className="bg-[#D9E1F2] text-slate-500 text-xs">
               <tr>
-                {["No.", "사번", "성명", "공정", "근무조", "일자", "저장상태"].map((label) => (
+                {["No.", "사번", "성명", "공정", "근무조", "휴가", "일자", "출근시간", "퇴근시간", "저장상태"].map((label) => (
                   <th
                     key={label}
                     rowSpan={2}
                     className="text-center px-3 py-2 font-semibold sticky top-0 z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0] align-middle"
                   >
                     {label}
+                    {(label === "출근시간" || label === "퇴근시간") && (
+                      <span className="block text-[10px] font-normal text-slate-400">(세콤 PSN-02)</span>
+                    )}
                   </th>
                 ))}
                 {ITEM_DEFS.map((it) => (
@@ -355,7 +617,10 @@ export default function AttendanceAuditPage() {
                       )}
                     </td>
                     <td className="px-3 py-2 text-slate-500">{r.team ?? "-"}</td>
+                    <td className="px-3 py-2 text-slate-500">{r.leave_type ?? "-"}</td>
                     <td className="px-3 py-2 text-slate-600">{r.work_date}</td>
+                    <td className="px-3 py-2 text-center font-mono text-slate-500">{r.card_punch_in ?? "-"}</td>
+                    <td className="px-3 py-2 text-center font-mono text-slate-500">{r.card_punch_out ?? "-"}</td>
                     <td className="px-3 py-2 text-center">
                       {r.has_record ? (
                         <span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700">

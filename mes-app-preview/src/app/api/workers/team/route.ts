@@ -87,8 +87,18 @@ export async function PATCH(req: NextRequest) {
       targets = employeeNos.filter((no) => allowed.has(no));
     }
   }
-  if (targets.length === 0) {
-    return NextResponse.json({ ok: true, count: 0 });
+  // 조장 세션이 자기 담당공정이 아닌 인원을 대상으로 걸었을 때(2026-09-11 실사례 —
+  // PSN-01에서 근무조를 바꿨는데 3001에서만 근태대사(PSN-06)에 반영이 안 됨, 원인 추적
+  // 결과 로그인 계정의 담당공정과 대상 인원의 공정이 달라 아래에서 조용히 0건 처리되고
+  // 있었음) 예전엔 에러 없이 { ok:true, count:0 }으로 응답해 "저장은 됐는데 실제로는
+  // 아무 일도 안 일어난" 것처럼 보였다 — 이제 명시적으로 403을 돌려준다. 대상 전원이
+  // 걸러지면 전체를 막고(부분 허용 없음), 프런트(work-hours/page.tsx)는 이미 res.ok가
+  // 아니면 data.error를 그대로 alert/표시한다.
+  if (targets.length < employeeNos.length) {
+    return NextResponse.json(
+      { error: "담당 공정이 아닌 인원의 근무조는 변경할 수 없습니다." },
+      { status: 403 }
+    );
   }
 
   const placeholders = targets.map(() => "?").join(",");

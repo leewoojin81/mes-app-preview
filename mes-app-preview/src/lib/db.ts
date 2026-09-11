@@ -1157,6 +1157,17 @@ function migrate(db: DatabaseSync) {
   // 값도 함께 바꿔야 화면 드롭다운(work-hours-leave.ts LEAVE_TYPE_OPTIONS)과 어긋나지
   // 않는다. 다시 실행돼도 남은 '결근' 행이 없으면 그냥 0건 UPDATE라 안전하다.
   db.exec("UPDATE work_hours_daily SET leave_type = '휴무' WHERE leave_type = '결근'");
+
+  // 휴가 드롭다운 "반차"를 "전반"/"후반"으로 분리(2026-09-11 사용자 요청, 둘 다 기준시간
+  // 4시간은 동일). 기존 저장값은 구분할 근거가 없어 일괄 "전반"으로 옮긴다 — 시간 계산
+  // (4시간)은 그대로라 실제 근무시간 값에는 영향이 없고, 표시만 정확한 반차 종류를 다시
+  // 지정해줘야 한다. 라벨을 "반차(전반)"/"반차(후반)"으로 먼저 썼다가 곧바로 "전반"/
+  // "후반"으로 다시 바꿔서(같은 날) 혹시 그 중간 라벨로 이미 저장된 행이 있어도 같이
+  // 옮긴다.
+  db.exec(
+    "UPDATE work_hours_daily SET leave_type = '전반' WHERE leave_type IN ('반차', '반차(전반)')"
+  );
+  db.exec("UPDATE work_hours_daily SET leave_type = '후반' WHERE leave_type = '반차(후반)'");
 }
 
 // items/processes/equipments 기준정보는 전부 실제 원본 엑셀 임포트로 채운다

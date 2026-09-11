@@ -79,3 +79,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   return NextResponse.json({ ok: true });
 }
+
+// 출퇴근카드등록(PSN-02) 행 삭제 — 엑셀 업로드로 잘못 들어온 행 등을 단건으로 지운다.
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id: idStr } = await params;
+  const id = Number(idStr);
+  if (!Number.isInteger(id)) {
+    return NextResponse.json({ error: "잘못된 id입니다." }, { status: 400 });
+  }
+
+  const db = getDb();
+  const result = db.prepare("DELETE FROM attendance_card_status WHERE id = ?").run(id);
+  if (result.changes === 0) {
+    return NextResponse.json({ error: "행을 찾을 수 없습니다." }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

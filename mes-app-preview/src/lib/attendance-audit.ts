@@ -101,12 +101,19 @@ export interface AttendanceAuditRow {
   /** 근무조(workers.team, 1조/2조/3조/주간고정) — 공정과 마찬가지로 작업자 변경이력
    *  (BASE-10)을 참조해 그 날짜 기준 "그 당시 값"을 보여준다(2026-09-10 사용자 요청). */
   team: string | null;
+  /** PSN-01(일일근태입력) 휴가구분 — 세콤 근거가 없어 참고 표시 전용(일치/불일치 판정
+   *  대상 아님). 그 날짜 저장분이 없으면(has_record=false) null. */
+  leave_type: string | null;
   work_date: string;
   /** PSN-01에 그 날짜 저장분이 실제로 있는지(false면 아래 psn01 값은 전부 0으로 채운 것) */
   has_record: boolean;
   /** 세콤 "근무조" — BASE-09 공정(work_group)과 참고용으로만 나란히 보여준다(자동 매칭 안 함) */
   card_team: string | null;
   card_worker_name: string | null;
+  /** 세콤 원본 출근/퇴근 "시각"(HH:MM:SS, PSN-02) — 지각/조출/잔업 등 재계산의 근거가 된
+   *  원본 값을 화면에도 그대로 보여준다(2026-09-11 사용자 요청). 카드 자체가 없으면 null. */
+  card_punch_in: string | null;
+  card_punch_out: string | null;
   matchStatus: AttendanceAuditMatchStatus;
   status: AttendanceAuditRowStatus;
   items: {
@@ -128,8 +135,10 @@ export interface AttendanceAuditRow {
 const COMPARABLE_ITEM_KEYS = ["total", "normal", "overtime", "early_start", "late", "early_leave"] as const;
 
 export interface AttendanceAuditSummary {
-  /** 조회기간(dateFrom~dateTo) 전체 중 "불일치" 인원 수(같은 사람이 여러 날 겹쳐도 1명으로 집계) */
-  todayMismatchWorkers: number;
+  /** 조회기간(dateFrom~dateTo) 전체 중 "불일치" 건수(날짜별 행 단위로 그대로 셈, 2026-09-11
+   *  사용자 요청 — 같은 사람이 여러 날 겹치면 예전엔 1명으로만 집계했으나, 매칭오류
+   *  건수와 같은 기준(행 단위)으로 통일한다). */
+  periodMismatchCount: number;
   /** 조회기간 전체 중 "매칭오류" 건수(날짜별 행 단위로 그대로 셈) */
   nameMismatchCount: number;
 }
@@ -147,6 +156,20 @@ function buildItem(psn01: number, psn02: number | null): AttendanceAuditItem {
   return { psn01, psn02, diff, mismatch: Math.abs(diff) >= MISMATCH_THRESHOLD_HOURS };
 }
 
+// 세콤 카드는 "정상 근무시간대"에 실제로 있었던 시간을 통째로 재계산할 뿐, 그 시간이
+// 자공정(정상)인지 다른 공정 지원인지는 구분 못 한다(대응되는 세콤 필드 자체가 없음).
+// 그래서 정상만 단독으로 비교하지 않고 정상+지원(PSN-01)의 합으로 세콤 재계산값과
+// 비교한다(2026-09-11 사용자 요청, 인쇄 김은미 09-01 사례로 확인 — 자공정 근무 없이
+// 디자인 공정에 지원 8시간만 했는데 정상 0/세콤 8로 항상 불일치가 떴었다. 정상 0 +
+// 지원 8 = 세콤 8이므로 일치가 맞다). 지원이 0인 평소 날은 그대로 정상만 비교하는
+// 것과 결과가 같다(supportHours=0이면 합이 psn01 그대로이므로).
+function buildNormalItem(psn01: number, derivedPsn02: number | null, supportHours: number): AttendanceAuditItem {
+  const item = buildItem(psn01, derivedPsn02);
+  if (derivedPsn02 == null) return item;
+  const diff = psn01 + supportHours - derivedPsn02;
+  return { ...item, mismatch: Math.abs(diff) >= MISMATCH_THRESHOLD_HOURS };
+}
+
 // 조출은 "정확한 시간차"보다 "신청한 대로 실제로 발생했는지"만 우선 확인한다(2026-09-09
 // 사용자 요청) — PSN-01 조출을 아예 신청 안 했으면(0 또는 미입력) 세콤 값이 얼마든
 // 항상 일치 처리(불필요한 알림 방지), 조출을 실제로 신청한 날만 기존 30분 기준으로
@@ -160,26 +183,29 @@ function buildEarlyStartItem(psn01: number, derivedPsn02: number | null): Attend
 // 18:30 종료(정식 잔업 종료시각, PSN-07 1조 잔업 구간 16:10~18:30 기준)까지 채운 "고정
 // 신청값" 2.34시간(2시간20분)은 정확한 시간차 대신 "세콤 퇴근시각이 18:30 이후인지"만
 // 으로 일치/불일치를 정한다(2026-09-09 사용자 요청 — 신청한 잔업을 실제로 다 채웠는지만
-// 확인). 그 외 값(0 또는 다른 숫자)은 기존 30분 기준 정밀 비교를 그대로 쓴다. 조출과
-// 마찬가지로 PSN-01 잔업을 아예 신청 안 했으면(0) 세콤 퇴근시각이 아무리 늦어도 항상
-// 일치 처리한다(2026-09-10 사용자 확인 — "카드가 출근을 일찍 찍고 퇴근을 늦게 찍어도
-// PSN-01 조출·잔업 신청이 없으면 인정되지 않는다"; 실제로 OEM창고 등 신청 없이 18시대
-// 까지 남아있던 인원들이 이 규칙 없이는 매번 "불일치"로 잘못 뜨고 있었다).
+// 확인). 그 외 값은 아래 일반 규칙(신청 vs 세콤 재계산)을 쓴다.
 const FIXED_OVERTIME_APPLICATION_HOURS = 2.34;
 const OVERTIME_FULL_CUTOFF_MINUTES = 18 * 60 + 30; // 18:30
 
+// 잔업은 "신청한 시간만큼 실제로 채웠는지"만 본다(2026-09-11 사용자 요청, 조립분리
+// 김미화 09-03 사례로 확인 — PSN-01 1.50h 신청에 세콤 재계산 2.07h는 신청한 1.50h를
+// 이미 다 채우고 남았으므로 일치. 잔업은 신청한 만큼만 인정되고 그 이상 일한 건 상관
+// 없다). 그래서 세콤 재계산값(derivedPsn02)이 신청값(psn01) 이상이면 항상 일치이고,
+// 신청값보다 30분(기존 MISMATCH_THRESHOLD_HOURS) 이상 부족할 때만 불일치로 본다 —
+// PSN-01=0(신청 자체가 없음)이면 derivedPsn02가 항상 0 이상이라 이 규칙 그대로 일치가
+// 된다(기존 "신청 없으면 항상 일치" 특례와 결과가 같아 별도 분기가 필요 없다).
 function buildOvertimeItem(
   psn01: number,
   derivedPsn02: number | null,
   punchOutMinutes: number | null
 ): AttendanceAuditItem {
   const item = buildItem(psn01, derivedPsn02);
-  if (psn01 === 0) return { ...item, mismatch: false };
+  if (derivedPsn02 == null) return item;
   const isFixedApplication = Math.abs(psn01 - FIXED_OVERTIME_APPLICATION_HOURS) < 0.001;
   if (isFixedApplication && punchOutMinutes != null) {
     return { ...item, mismatch: punchOutMinutes < OVERTIME_FULL_CUTOFF_MINUTES };
   }
-  return item;
+  return { ...item, mismatch: psn01 - derivedPsn02 >= MISMATCH_THRESHOLD_HOURS };
 }
 
 interface WorkerRow {
@@ -193,6 +219,7 @@ interface WorkerRow {
 interface DailyRow {
   employee_no: string;
   work_date: string;
+  leave_type: string | null;
   normal_hours: number;
   overtime_hours: number;
   early_start_hours: number;
@@ -224,7 +251,7 @@ export function fetchAttendanceAudit(
     dateFrom: params.dateFrom,
     dateTo: params.dateTo,
     rows: [],
-    summary: { todayMismatchWorkers: 0, nameMismatchCount: 0 },
+    summary: { periodMismatchCount: 0, nameMismatchCount: 0 },
   };
   if (params.leaderWorkGroups && params.leaderWorkGroups.length === 0) return empty;
 
@@ -273,7 +300,7 @@ export function fetchAttendanceAudit(
   const placeholders = employeeNos.map(() => "?").join(",");
   const dailyRows = db
     .prepare(
-      `SELECT employee_no, work_date, normal_hours, overtime_hours, early_start_hours, lunch_shift_hours,
+      `SELECT employee_no, work_date, leave_type, normal_hours, overtime_hours, early_start_hours, lunch_shift_hours,
               late_hours, early_leave_hours, outing_hours
        FROM work_hours_daily WHERE employee_no IN (${placeholders}) AND work_date BETWEEN ? AND ?`
     )
@@ -319,7 +346,18 @@ export function fetchAttendanceAudit(
   function computeCell(
     w: WorkerRow,
     workDate: string
-  ): Pick<AttendanceAuditRow, "has_record" | "card_team" | "card_worker_name" | "matchStatus" | "status" | "items"> {
+  ): Pick<
+    AttendanceAuditRow,
+    | "has_record"
+    | "leave_type"
+    | "card_team"
+    | "card_worker_name"
+    | "card_punch_in"
+    | "card_punch_out"
+    | "matchStatus"
+    | "status"
+    | "items"
+  > {
     const daily = dailyByKey.get(`${w.employee_no}|${workDate}`);
     const hasRecord = daily != null;
     const normalHours = daily?.normal_hours ?? 0;
@@ -339,9 +377,11 @@ export function fetchAttendanceAudit(
     let matchStatus: AttendanceAuditMatchStatus = "no_card";
     let cardTeam: string | null = null;
     let cardWorkerName: string | null = null;
+    let cardPunchIn: string | null = null;
+    let cardPunchOut: string | null = null;
     let items: AttendanceAuditRow["items"] = {
       total: buildItem(totalHours, null),
-      normal: buildItem(normalHours, null),
+      normal: buildNormalItem(normalHours, null, supportHours),
       overtime: buildOvertimeItem(overtimeHours, null, null),
       early_start: buildEarlyStartItem(earlyStartHours, null),
       late: buildItem(lateHours, null),
@@ -367,12 +407,22 @@ export function fetchAttendanceAudit(
       const ref = shiftCode ? shiftRefs.get(shiftCode) : undefined;
       const punchIn = parseCardClockTime(card.detail["출근시간"]);
       const punchOut = parseCardClockTime(card.detail["퇴근시간"]);
-      const derivedLate = ref ? deriveLateHours(punchIn, ref) : null;
+      cardPunchIn = typeof card.detail["출근시간"] === "string" ? (card.detail["출근시간"] as string) : null;
+      cardPunchOut = typeof card.detail["퇴근시간"] === "string" ? (card.detail["퇴근시간"] as string) : null;
+      // PSN-01 휴가구분이 "전반"(오전반차)/"후반"(오후반차)이면 세콤 카드의 실제 출근/
+      // 퇴근시각이 늦거나 일러도 승인된 반차라 지각/조퇴가 아니다(2026-09-11 사용자
+      // 요청) — 전반이면 지각 PSN-02를 항상 0, 후반이면 조퇴 PSN-02를 항상 0으로 고정해
+      // 세콤 재계산값을 무시한다. 1조/2조/3조를 따로 안 가려도 되는 이유: derivedLate/
+      // derivedEarlyLeave 자체가 이미 그 사람 소속 조의 ref(PSN-07 시각)를 쓰므로 조별
+      // 시각 차이는 ref 조회 단계에서 이미 반영돼 있다.
+      const isMorningHalfDay = daily?.leave_type === "전반";
+      const isAfternoonHalfDay = daily?.leave_type === "후반";
+      const derivedLate = isMorningHalfDay ? 0 : ref ? deriveLateHours(punchIn, ref) : null;
       const derivedEarlyStart = ref ? deriveEarlyStartHours(punchIn, ref) : null;
       const derivedOvertime = ref ? deriveOvertimeHours(punchOut, ref) : null;
       // 조퇴는 지각과 동일하게 그레이스 없이 정확한 시간차로 계산한다(정식 퇴근시각 =
       // PSN-07 "3Q" 종료시각, 2026-09-10 사용자 확인).
-      const derivedEarlyLeave = ref ? deriveEarlyLeaveHours(punchIn, punchOut, ref) : null;
+      const derivedEarlyLeave = isAfternoonHalfDay ? 0 : ref ? deriveEarlyLeaveHours(punchIn, punchOut, ref) : null;
       // 정상근무시간도 세콤 원본 필드(휴게/식사시간을 안 뺀 총 체류시간)를 그대로 안 믿고
       // 출근~퇴근시각에서 겹치는 휴게/식사시간만큼 직접 빼서 재계산한다(2026-09-09 사용자
       // 요청). 대응되는 조 스케줄이 없으면(주간고정 등) 기존처럼 세콤 원본값을 그대로 쓴다.
@@ -400,7 +450,7 @@ export function fetchAttendanceAudit(
 
       items = {
         total: buildItem(totalHours, totalPsn02),
-        normal: buildItem(normalHours, normalPsn02),
+        normal: buildNormalItem(normalHours, normalPsn02, supportHours),
         overtime: overtimeItem,
         early_start: earlyStartItem,
         late: buildItem(lateHours, derivedLate),
@@ -424,23 +474,34 @@ export function fetchAttendanceAudit(
             ? "불일치"
             : "정상";
 
-    return { has_record: hasRecord, card_team: cardTeam, card_worker_name: cardWorkerName, matchStatus, status, items };
+    return {
+      has_record: hasRecord,
+      leave_type: daily?.leave_type ?? null,
+      card_team: cardTeam,
+      card_worker_name: cardWorkerName,
+      card_punch_in: cardPunchIn,
+      card_punch_out: cardPunchOut,
+      matchStatus,
+      status,
+      items,
+    };
   }
 
-  // "불일치 인원 수"/"매칭오류 건수" 둘 다 화면에 지금 조회된 기간(dates) 전체 기준이다
+  // "불일치 건수"/"매칭오류 건수" 둘 다 화면에 지금 조회된 기간(dates) 전체 기준이고
   // (2026-09-09 사용자 확인 — 조회기간을 특정 하루로 좁혀도 그 결과와 일치해야 한다.
   // 예전엔 인원 수만 서버 실제 날짜(오늘)로 고정해뒀었는데, 조회기간이 그 날짜를
   // 포함하지 않으면 항상 0으로 나와 눈에 보이는 표와 안 맞았다 — 매칭오류 건수와
-  // 똑같이 조회기간 기준으로 통일한다). "인원 수"는 같은 사람이 여러 날 걸려도 한 번만
-  // 세고, "건수"는 행 단위로 그대로 센다는 차이만 있다.
+  // 똑같이 조회기간 기준으로 통일한다), 둘 다 날짜별 행 단위로 그대로 센다(2026-09-11
+  // 사용자 요청 — 예전엔 "불일치"만 같은 사람이 여러 날 겹쳐도 1명으로 집계했는데,
+  // 매칭오류 건수와 기준이 달라 헷갈려서 건수 기준으로 통일).
   let nameMismatchCount = 0;
-  const mismatchEmployees = new Set<string>();
+  let periodMismatchCount = 0;
   const rows: AttendanceAuditRow[] = [];
   for (const w of workers) {
     for (const workDate of dates) {
       const cell = computeCell(w, workDate);
       if (cell.matchStatus === "name_mismatch") nameMismatchCount++;
-      if (cell.status === "불일치") mismatchEmployees.add(w.employee_no);
+      if (cell.status === "불일치") periodMismatchCount++;
       const workGroupAsOf = resolveFieldAsOf(workGroupHistory, w.employee_no, workDate, w.work_group);
       const teamAsOf = resolveFieldAsOf(teamHistory, w.employee_no, workDate, w.team);
       rows.push({
@@ -458,6 +519,6 @@ export function fetchAttendanceAudit(
     dateFrom: params.dateFrom,
     dateTo: params.dateTo,
     rows,
-    summary: { todayMismatchWorkers: mismatchEmployees.size, nameMismatchCount },
+    summary: { periodMismatchCount, nameMismatchCount },
   };
 }
