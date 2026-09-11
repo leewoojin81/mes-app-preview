@@ -16,27 +16,51 @@ const BASE_HOURS_BY_LEAVE: Record<string, number> = {
   휴무: 0,
 };
 
-export interface NormalHoursDeductions {
+export interface AttendanceHoursInputs {
+  /** 잔업 입력칸에 실제로 타이핑된(또는 마지막 저장분) 신청값 — 출근인 날은 이 값 자체가
+   *  최종 저장값이 아니라 아래 계산의 출발점일 뿐이다. */
+  overtimeInput: number;
   lateHours: number;
   earlyLeaveHours: number;
   outingHours: number;
   supportHours: number;
 }
 
-// "정상"(정상출근) 시간 — 사람이 직접 고칠 수 없는 계산값이다(개별 입력·일괄수정 모두에서
-// 제외). 휴가구분별 기준시간(출근 8, 연차 0, 전반/후반 4, 공가 0, 휴무 0)에서 지각·조퇴·외출·
-// 지원시간을 뺀다(A안, 2026-09-08 사용자 요청). 연차/공가/휴무는 기준시간이 이미 0이라
-// 지각 등을 더 빼도 결과가 바뀌지 않는다. 지원시간은 다른 공정을 지원하며 실제로 일한
-// 시간이라 총 근무시간 합계(computeTotal)에서 다시 더해지므로 총합에서는 상쇄되고,
-// 지각/조퇴/외출만 실제로 총합을 줄인다. route.ts(GET/PUT)·import/export·화면 미리보기가
+export interface AttendanceHoursResult {
+  normalHours: number;
+  overtimeHours: number;
+}
+
+// "정상"/"잔업" — 둘 다 사람이 직접 고칠 수 없는 계산값이다(개별 입력·일괄수정 모두에서
+// 제외, 2026-09-11 사용자 요청으로 잔업도 정상과 같은 계산값으로 바뀜). 휴가구분이
+// "출근"(leaveType이 없음)인 날만 아래 새 계산 순서를 쓴다:
+//   1) 지각+조퇴+외출 합계를 구한다(지원시간은 이 합계에서 뺌 — 지원시간은 다른 공정을
+//      지원하며 실제로 일한 시간이라 총 근무시간 합계에서 그대로 더해지는 별개 항목).
+//   2) 그 합계를 잔업(신청값)에서 먼저 차감한다 — 잔업이 그 합계를 흡수하는 완충 역할.
+//   3) 잔업에서 다 못 빼고 남은 초과분이 있으면(잔업이 0이 됐는데도 아직 차감할 게
+//      남으면) 그 초과분만큼만 정상근무 8시간에서 마저 뺀다.
+//   예) 잔업 2.34, 지각+조퇴+외출 합계 2 → 잔업 0.34, 정상 8(그대로)
+//       잔업 2.34, 합계 3 → 잔업 0, 초과분 0.66 → 정상 8-0.66=7.34
+//       잔업 2.34, 합계 5 → 잔업 0, 초과분 2.66 → 정상 8-2.66=5.34
+// 연차/전반/후반/공가/휴무는 기존 방식을 그대로 유지한다 — 휴가구분별 기준시간(연차 0,
+// 전반/후반 4, 공가 0, 휴무 0)에서 지각·조퇴·외출·지원시간을 그대로 빼서 정상을 구하고,
+// 잔업은 신청값을 건드리지 않는다(반차 등으로 절반만 근무해도 잔업은 그날 실제로 더
+// 일한 시간이라 지각 등과 상계하지 않음). route.ts(GET/PUT)·import/export·화면 미리보기가
 // 전부 이 함수 하나를 그대로 써야 값이 어긋나지 않는다.
-export function normalHoursFor(
+export function computeAttendanceHours(
   leaveType: string | null | undefined,
-  deductions: NormalHoursDeductions
-): number {
-  const base = leaveType ? BASE_HOURS_BY_LEAVE[leaveType] ?? 8 : 8;
-  const extraDeduction = deductions.lateHours + deductions.earlyLeaveHours + deductions.outingHours + deductions.supportHours;
-  return Math.max(0, base - extraDeduction);
+  inputs: AttendanceHoursInputs
+): AttendanceHoursResult {
+  if (!leaveType) {
+    const deduction = inputs.lateHours + inputs.earlyLeaveHours + inputs.outingHours;
+    const overtimeHours = Math.max(0, inputs.overtimeInput - deduction);
+    const excess = Math.max(0, deduction - inputs.overtimeInput);
+    return { normalHours: Math.max(0, 8 - excess), overtimeHours };
+  }
+  const base = BASE_HOURS_BY_LEAVE[leaveType] ?? 8;
+  const extraDeduction =
+    inputs.lateHours + inputs.earlyLeaveHours + inputs.outingHours + inputs.supportHours;
+  return { normalHours: Math.max(0, base - extraDeduction), overtimeHours: inputs.overtimeInput };
 }
 
 // 새로 조회하는(아직 저장 안 된) 근태 행의 "휴가" 드롭다운 기본값(2026-09-08 사용자

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
-import { LEAVE_TYPE_OPTIONS, normalHoursFor } from "@/lib/work-hours-leave";
+import { LEAVE_TYPE_OPTIONS, computeAttendanceHours } from "@/lib/work-hours-leave";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
 import type { Process, WorkHoursResponse, WorkHoursRow } from "@/lib/types";
 
@@ -28,20 +28,28 @@ function distinctOptions(rows: WorkHoursRow[], key: "work_group" | "contractor" 
   return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
 }
 
-// "정상"은 휴가구분별 기준시간(A안: 출근 8, 연차 0, 전반/후반 4, 공가 0, 휴무 0)에서 지각·조퇴·
-// 외출·지원시간을 뺀 값이다(work-hours-leave.ts의 normalHoursFor). 지원시간은 다른
-// 공정을 지원하며 실제로 일한 시간이라 합계(computeTotal)에서 다시 더해 상쇄되고,
-// 지각/조퇴/외출만 총 근무시간을 실제로 줄인다. 휴가 드롭다운이나 지각/조퇴/외출/지원을
-// 바꾸는 즉시(저장 전에도) 화면에 반영되어야 해서 r.normal_hours(마지막 조회 시점 값)를
-// 쓰지 않고 지금 화면에 있는 값 기준으로 매번 다시 계산한다 — 서버(GET/PUT)도 같은
-// work-hours-leave.ts의 normalHoursFor를 쓰므로 저장 후 값이 어긋나지 않는다.
-function computeNormal(r: WorkHoursRow): number {
-  return normalHoursFor(r.leave_type, {
+// "정상"/"잔업"은 휴가구분이 "출근"인 날은 지각+조퇴+외출 합계를 잔업(신청값)에서 먼저
+// 차감하고, 잔업으로 다 못 덮는 초과분만 정상근무 8시간에서 마저 빼는 계산값이다
+// (work-hours-leave.ts의 computeAttendanceHours, 2026-09-11 사용자 요청). 연차/전반/
+// 후반/공가/휴무는 기존처럼 휴가구분 기준시간에서 지각·조퇴·외출·지원시간을 그대로 뺀다.
+// 휴가 드롭다운이나 지각/조퇴/외출/지원/잔업을 바꾸는 즉시(저장 전에도) 화면에 반영되어야
+// 해서 r.normal_hours(마지막 조회 시점 값)를 쓰지 않고 지금 화면에 있는 값 기준으로 매번
+// 다시 계산한다 — 서버(GET/PUT)도 같은 work-hours-leave.ts의 computeAttendanceHours를
+// 쓰므로 저장 후 값이 어긋나지 않는다. 단, 잔업 입력칸 자체(HOUR_FIELDS)는 타이핑 중
+// 자기 값이 실시간으로 바뀌면(자기참조) 입력을 방해하므로 원시 입력값을 그대로 보여주고,
+// 저장 후 다시 조회할 때 서버가 계산해 둔 최종(차감된) 값으로 갱신된다.
+function computeAttendance(r: WorkHoursRow): { normalHours: number; overtimeHours: number } {
+  return computeAttendanceHours(r.leave_type, {
+    overtimeInput: r.overtime_hours,
     lateHours: r.late_hours,
     earlyLeaveHours: r.early_leave_hours,
     outingHours: r.outing_hours,
     supportHours: r.support_hours,
   });
+}
+
+function computeNormal(r: WorkHoursRow): number {
+  return computeAttendance(r).normalHours;
 }
 
 // 잔업/조출/중교/지각/조퇴/외출/지원시간 입력칸에서 엔터를 치면 바로 아래 행의 같은
@@ -58,9 +66,10 @@ function handleEnterMoveDown(e: KeyboardEvent<HTMLInputElement>, fieldKey: strin
 }
 
 function computeTotal(r: WorkHoursRow): number {
+  const { normalHours, overtimeHours } = computeAttendance(r);
   return (
-    computeNormal(r) +
-    r.overtime_hours +
+    normalHours +
+    overtimeHours +
     r.early_start_hours +
     r.lunch_shift_hours +
     r.support_hours
@@ -89,8 +98,11 @@ type HourField =
   | "outing_hours";
 
 // "정상"은 휴가구분 기준 계산값만 쓰고 사람이 고칠 수 없어(work-hours-leave.ts의
-// normalHoursFor) 개별 입력·일괄수정 모두에서 제외된다 — 이 배열은 잔업부터 외출까지
-// 6개만 담아 "선택 항목 일괄수정" 팝업과 개별 입력칸 양쪽에 그대로 쓰인다.
+// computeAttendanceHours) 개별 입력·일괄수정 모두에서 제외된다 — 이 배열은 잔업부터
+// 외출까지 6개만 담아 "선택 항목 일괄수정" 팝업과 개별 입력칸 양쪽에 그대로 쓰인다.
+// 잔업(overtime_hours)은 저장/조회 시 지각+조퇴+외출 초과분만큼 서버가 다시 계산해
+// 덮어쓰지만(2026-09-11 사용자 요청), 입력칸 자체는 타이핑 중 자기참조를 피하려고
+// 원시 입력값을 그대로 보여준다(computeAttendance 주석 참고).
 const HOUR_FIELDS: { key: HourField; label: string }[] = [
   { key: "overtime_hours", label: "잔업" },
   { key: "early_start_hours", label: "조출" },

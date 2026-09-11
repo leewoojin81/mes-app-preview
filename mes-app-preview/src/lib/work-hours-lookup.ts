@@ -7,7 +7,7 @@ import { ENTITY_TYPE_WORKER, fetchFieldHistoryMap, resolveFieldAsOf } from "@/li
 // "공정별 기준으로 보여달라"는 요청으로 공정 소속 작업자 전원을 한 번에 보여주도록 바뀜 —
 // 사번/성명 검색은 이제 그 안에서 한 명만 추려낼 때 쓰는 보조 필터). 새로 입력하지 않고
 // work_hours_daily/work_support_detail에 이미 저장된 값만 읽는다 — normal_hours는 저장
-// 시점에 이미 work-hours-leave.ts의 normalHoursFor 공식으로 계산돼 있으니 여기서 다시
+// 시점에 이미 work-hours-leave.ts의 computeAttendanceHours 공식으로 계산돼 있으니 여기서 다시
 // 계산하지 않고 그대로 쓴다. route.ts(화면 조회)와 export/route.ts(엑셀 다운로드)가 이
 // 헬퍼를 공유한다.
 

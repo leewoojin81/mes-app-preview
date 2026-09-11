@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull } from "@/lib/item-fields";
-import { normalHoursFor } from "@/lib/work-hours-leave";
+import { computeAttendanceHours } from "@/lib/work-hours-leave";
 import * as XLSX from "xlsx";
 
 export const runtime = "nodejs";
@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
       }
 
       const leaveType = iLeaveType === -1 ? null : strOrNull(r[iLeaveType]);
-      const overtimeHours = iOvertime === -1 ? 0 : numOrNull(r[iOvertime]) ?? 0;
+      const overtimeInput = iOvertime === -1 ? 0 : numOrNull(r[iOvertime]) ?? 0;
       const earlyStartHours = iEarlyStart === -1 ? 0 : numOrNull(r[iEarlyStart]) ?? 0;
       const lunchShiftHours = iLunchShift === -1 ? 0 : numOrNull(r[iLunchShift]) ?? 0;
       const lateHours = iLate === -1 ? 0 : numOrNull(r[iLate]) ?? 0;
@@ -148,9 +148,11 @@ export async function POST(req: NextRequest) {
       const supportWorkGroup = iSupportGroup === -1 ? null : strOrNull(r[iSupportGroup]);
       const supportHours = supportWorkGroup && iSupportHours !== -1 ? numOrNull(r[iSupportHours]) ?? 0 : 0;
 
-      // 정상근무는 사람이 고칠 수 없다 — 업로드 파일의 "정상" 값이 있어도 무시하고
-      // 휴가구분 기준시간(A안)에서 지각·조퇴·외출·지원시간을 뺀 값으로 저장한다.
-      const normalHours = normalHoursFor(leaveType, {
+      // 정상/잔업 둘 다 사람이 고칠 수 없다 — 업로드 파일의 "정상"/"잔업" 값이 있어도
+      // 무시하고 새 계산 순서(work-hours-leave.ts의 computeAttendanceHours)로 다시 구해
+      // 저장한다(2026-09-11 사용자 요청).
+      const { normalHours, overtimeHours } = computeAttendanceHours(leaveType, {
+        overtimeInput,
         lateHours,
         earlyLeaveHours,
         outingHours,

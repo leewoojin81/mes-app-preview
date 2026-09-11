@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import * as XLSX from "xlsx";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
-import { defaultLeaveTypeForCalendar, normalHoursFor } from "@/lib/work-hours-leave";
+import { defaultLeaveTypeForCalendar, computeAttendanceHours } from "@/lib/work-hours-leave";
 
 export const runtime = "nodejs";
 
@@ -87,9 +87,10 @@ export async function GET(req: NextRequest) {
     const outing = d?.outing_hours ?? 0;
     const supportHours = support?.support_hours ?? 0;
     const leaveType = d ? d.leave_type : defaultLeaveType;
-    // 정상근무는 사람이 고칠 수 없다 — 저장분이 있어도 무시하고 휴가구분 기준시간(A안,
-    // work-hours-leave.ts)에서 지각·조퇴·외출·지원시간을 뺀 값을 내려준다.
-    const normal = normalHoursFor(leaveType, {
+    // 정상/잔업 둘 다 사람이 고칠 수 없다 — 저장분이 있어도 무시하고 새 계산 순서
+    // (work-hours-leave.ts의 computeAttendanceHours)로 다시 구해 내려준다.
+    const { normalHours: normal, overtimeHours: overtimeFinal } = computeAttendanceHours(leaveType, {
+      overtimeInput: overtime,
       lateHours: late,
       earlyLeaveHours: earlyLeave,
       outingHours: outing,
@@ -98,7 +99,7 @@ export async function GET(req: NextRequest) {
     // 지원시간은 다른 공정을 지원하며 일한 시간이라 합계에 더한다(2026-09-08 사용자 요청,
     // api/work-hours/route.ts의 computeTotal과 동일한 공식). 지각/조퇴/외출은 합계에
     // 반영하지 않는다.
-    const total = normal + overtime + earlyStart + lunchShift + supportHours;
+    const total = normal + overtimeFinal + earlyStart + lunchShift + supportHours;
     return {
       No: idx + 1,
       사번: w.employee_no,
@@ -109,7 +110,7 @@ export async function GET(req: NextRequest) {
       근무시간: total,
       휴가: leaveType,
       정상: normal,
-      잔업: overtime,
+      잔업: overtimeFinal,
       조출: earlyStart,
       중교: lunchShift,
       지각: late,

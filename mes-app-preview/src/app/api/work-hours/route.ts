@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull, strVal } from "@/lib/item-fields";
-import { defaultLeaveTypeForCalendar, normalHoursFor } from "@/lib/work-hours-leave";
+import { defaultLeaveTypeForCalendar, computeAttendanceHours } from "@/lib/work-hours-leave";
 import type { WorkHoursRow } from "@/lib/types";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
 import { ENTITY_TYPE_WORKER, fetchFieldHistoryMap, resolveFieldAsOf } from "@/lib/master-data-history";
@@ -146,9 +146,11 @@ export async function GET(req: NextRequest) {
     const lateHours = d ? d.late_hours : 0;
     const earlyLeaveHours = d ? d.early_leave_hours : 0;
     const outingHours = d ? d.outing_hours : 0;
-    // 정상근무는 사람이 고칠 수 없다 — 저장분이 있어도 무시하고 휴가구분 기준시간(A안)에서
-    // 지각·조퇴·외출·지원시간을 뺀 값을 내려준다.
-    const normalHours = normalHoursFor(leaveType, {
+    // 정상/잔업 둘 다 사람이 고칠 수 없다 — 저장분이 있어도 무시하고 휴가구분·지각·조퇴·
+    // 외출·지원시간·잔업신청값(저장된 잔업)으로 다시 계산해 내려준다(2026-09-11 사용자
+    // 요청으로 잔업도 정상과 같은 계산값이 됨).
+    const { normalHours, overtimeHours } = computeAttendanceHours(leaveType, {
+      overtimeInput: d ? d.overtime_hours : 0,
       lateHours,
       earlyLeaveHours,
       outingHours,
@@ -167,7 +169,7 @@ export async function GET(req: NextRequest) {
       leave_type: leaveType,
       has_record: d != null,
       normal_hours: normalHours,
-      overtime_hours: d ? d.overtime_hours : 0,
+      overtime_hours: overtimeHours,
       early_start_hours: d ? d.early_start_hours : 0,
       lunch_shift_hours: d ? d.lunch_shift_hours : 0,
       late_hours: lateHours,
@@ -175,7 +177,7 @@ export async function GET(req: NextRequest) {
       outing_hours: outingHours,
       total_hours: computeTotal({
         normal_hours: normalHours,
-        overtime_hours: d ? d.overtime_hours : 0,
+        overtime_hours: overtimeHours,
         early_start_hours: d ? d.early_start_hours : 0,
         lunch_shift_hours: d ? d.lunch_shift_hours : 0,
         support_hours: supportHours,
@@ -258,7 +260,7 @@ export async function PUT(req: NextRequest) {
     if (leaderEmployeeNos && !leaderEmployeeNos.has(employeeNo)) continue;
 
     const leaveType = strOrNull(r.leave_type);
-    const overtimeHours = numOrNull(r.overtime_hours) ?? 0;
+    const overtimeInput = numOrNull(r.overtime_hours) ?? 0;
     const earlyStartHours = numOrNull(r.early_start_hours) ?? 0;
     const lunchShiftHours = numOrNull(r.lunch_shift_hours) ?? 0;
     const lateHours = numOrNull(r.late_hours) ?? 0;
@@ -266,9 +268,11 @@ export async function PUT(req: NextRequest) {
     const outingHours = numOrNull(r.outing_hours) ?? 0;
     const supportWorkGroup = strOrNull(r.support_work_group);
     const supportHours = supportWorkGroup ? numOrNull(r.support_hours) ?? 0 : 0;
-    // 정상근무는 사람이 고칠 수 없다 — 클라이언트가 뭘 보내든 무시하고 휴가구분
-    // 기준시간(A안)에서 지각·조퇴·외출·지원시간을 뺀 값으로 저장한다.
-    const normalHours = normalHoursFor(leaveType, {
+    // 정상/잔업 둘 다 사람이 고칠 수 없다 — 클라이언트가 뭘 보내든(잔업 신청값 포함) 무시
+    // 하고 새 계산 순서(work-hours-leave.ts의 computeAttendanceHours)로 다시 구해 저장
+    // 한다(2026-09-11 사용자 요청).
+    const { normalHours, overtimeHours } = computeAttendanceHours(leaveType, {
+      overtimeInput,
       lateHours,
       earlyLeaveHours,
       outingHours,
