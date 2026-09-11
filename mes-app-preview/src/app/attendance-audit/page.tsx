@@ -31,8 +31,8 @@ const ITEM_DEFS: { key: keyof AttendanceAuditRow["items"]; label: string; kind: 
   { key: "lunch_shift", label: "중교", kind: "reference" },
   { key: "late", label: "지각", kind: "compare" },
   { key: "early_leave", label: "조퇴", kind: "compare" },
-  { key: "outing", label: "외출", kind: "reference" },
-  { key: "support", label: "지원시간", kind: "reference" },
+  { key: "outing", label: "외출[PSN-01]", kind: "reference" },
+  { key: "support", label: "지원시간[PSN-01]", kind: "reference" },
 ];
 
 /** 종합상태 판정과 동일하게, "일치율" 집계에도 실제 대사(비교) 대상 항목만 쓴다. */
@@ -160,11 +160,15 @@ function ItemCells({ item, mismatch }: { item: AttendanceAuditItem; mismatch: bo
 }
 
 // 참고 표시 전용 항목(중교/외출/지원시간) — 세콤 근거가 없어 PSN-01 값만 보여주고
-// 일치/불일치 판정 없이 "참고"로만 표시한다.
-function ReferenceCell({ psn01 }: { psn01: number }) {
+// 일치/불일치 판정 없이 "참고"로만 표시한다. 외출/지원시간은 0보다 크면(실제로 발생한
+// 날) 파란색으로 강조한다(2026-09-11 사용자 요청 — 중교는 제외).
+function ReferenceCell({ psn01, highlightPositive }: { psn01: number; highlightPositive?: boolean }) {
+  const emphasize = highlightPositive && psn01 > 0;
   return (
     <td className="px-2 py-2 text-right border-r border-slate-100">
-      <span className="font-mono text-slate-600">{fmtHours(psn01)}</span>
+      <span className={`font-mono ${emphasize ? "text-blue-600 font-semibold" : "text-slate-600"}`}>
+        {fmtHours(psn01)}
+      </span>
       <span className="ml-1.5 inline-block px-1 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-400 align-middle">
         참고
       </span>
@@ -636,7 +640,11 @@ export default function AttendanceAuditPage() {
                       it.kind === "compare" ? (
                         <ItemCells key={it.key} item={r.items[it.key]} mismatch={r.items[it.key].mismatch} />
                       ) : (
-                        <ReferenceCell key={it.key} psn01={r.items[it.key].psn01} />
+                        <ReferenceCell
+                          key={it.key}
+                          psn01={r.items[it.key].psn01}
+                          highlightPositive={it.key === "outing" || it.key === "support"}
+                        />
                       )
                     )}
                     <td className="px-3 py-2 text-center border-l border-slate-100">

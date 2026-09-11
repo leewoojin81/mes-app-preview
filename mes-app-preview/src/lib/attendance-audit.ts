@@ -25,9 +25,12 @@ import {
 //   근로시간은 PSN-01은 화면 그대로(정상+잔업+조출+중교+지원)를 쓰고, 세콤 쪽은 세콤
 //   재계산값 정상+조출+잔업 + 중교(PSN-01 값 그대로 반영, 2026-09-10 사용자 확인 —
 //   세콤 카드에는 중교로 일한 시간도 출퇴근 사이에 그대로 찍혀 있어 정상 재계산이 휴게
-//   시간으로 잘못 빼는 문제를 PSN-01 입력값으로 보정)을 더한다. 지원시간만 세콤에
-//   대응되는 시간대 자체가 없어 계속 제외한다 — 지원시간을 실제로 쓴 날은 이 항목만
-//   항상 차이가 남을 수 있다(의도된 동작).
+//   시간으로 잘못 빼는 문제를 PSN-01 입력값으로 보정)을 더한다. 세콤 재계산 정상에서는
+//   외출(PSN-01) 시간만큼 다시 빼준다(2026-09-11 사용자 확인, 정숙 09-08 사례 — 외출은
+//   카드를 찍고 나가는 게 아니라 출퇴근 카드 사이에 자리를 비우는 것이라 세콤 재계산이
+//   그 시간까지 전부 정상으로 잡아버림). 지원시간만 세콤에 대응되는 시간대 자체가 없어
+//   계속 제외한다 — 지원시간을 실제로 쓴 날은 이 항목만 항상 차이가 남을 수 있다(의도된
+//   동작).
 // - 참고 표시 전용 3개: 중교, 외출, 지원시간 — 세콤에 근거 데이터 자체가 없어(외출은
 //   기존부터, 중교/지원시간도 마찬가지) PSN-01 값만 그대로 보여주고 세콤 값은 항상 null,
 //   mismatch도 항상 false로 고정한다(일치/불일치 판정 안 함, 종합상태 판정에도 포함 안 함).
@@ -427,8 +430,14 @@ export function fetchAttendanceAudit(
       // 출근~퇴근시각에서 겹치는 휴게/식사시간만큼 직접 빼서 재계산한다(2026-09-09 사용자
       // 요청). 대응되는 조 스케줄이 없으면(주간고정 등) 기존처럼 세콤 원본값을 그대로 쓴다.
       const derivedNormal = ref ? deriveNormalHours(punchIn, punchOut, ref) : null;
-      const normalPsn02 =
+      // 외출(PSN-01)도 세콤 재계산이 모르는 시간대다(중교와 달리 외출은 카드를 찍고 나갔다
+      // 들어오는 게 아니라 출근~퇴근 카드 사이에 그냥 자리를 비운 것이라 출퇴근시각만으로
+      // 재계산하면 그 시간까지 전부 "정상"으로 잡힌다) — PSN-01에 신청된 외출시간만큼
+      // 그대로 빼서 보정한다(2026-09-11 사용자 확인, 정숙 09-08 사례 — 외출 4시간인데
+      // 세콤 재계산 정상이 8시간으로 나와 실제 정상 4시간과 4시간 차이가 났었다).
+      const normalPsn02Raw =
         derivedNormal ?? parseCardDuration(card.detail["정상근무시간"] as string | number | null);
+      const normalPsn02 = Math.max(0, normalPsn02Raw - outingHours);
       const overtimeItem = buildOvertimeItem(overtimeHours, derivedOvertime, punchOut);
       const earlyStartItem = buildEarlyStartItem(earlyStartHours, derivedEarlyStart);
       // 근로시간의 조출/잔업 기여분 — 세콤 카드가 일찍 출근·늦게 퇴근을 찍어도 PSN-01에
