@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTabState } from "@/lib/use-tab-state";
-import type { ItemProcessRoutingRow } from "@/lib/types";
+import type { ItemProcessRoutingRow, LineCapaResult } from "@/lib/types";
 
 interface ItemHit {
   item_code: string;
@@ -26,7 +26,52 @@ function draftOf(r: ItemProcessRoutingRow): Draft {
   };
 }
 
+function toLocalDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+function currentYearMonth(): string {
+  return toLocalDateStr(new Date());
+}
+
+type Tab = "item" | "line-capa";
+
 export default function PlanInfoPage() {
+  const [tab, setTab] = useTabState<Tab>("planInfoTab", "item");
+
+  return (
+    <div className="w-full px-4 sm:px-6 py-6 space-y-6">
+      <div>
+        <h1 className="text-xl font-bold text-navy">계획정보</h1>
+        <p className="text-sm text-slate-500 mt-1">PLAN-02</p>
+      </div>
+
+      <div className="flex items-center gap-1 border-b border-slate-200">
+        <button
+          onClick={() => setTab("item")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+            tab === "item" ? "border-navy text-navy" : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          품목×공정 계획정보
+        </button>
+        <button
+          onClick={() => setTab("line-capa")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+            tab === "line-capa" ? "border-navy text-navy" : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          공정별 월 CAPA 및 근무계획
+        </button>
+      </div>
+
+      {tab === "item" ? <ItemProcessPlanTab /> : <LineCapaPlanTab />}
+    </div>
+  );
+}
+
+function ItemProcessPlanTab() {
   // 탭을 전환했다 돌아와도 보고 있던 품목/검색어는 유지되도록 세션 단위로 저장한다.
   const [searchInput, setSearchInput] = useTabState("searchInput", "");
   const [search, setSearch] = useTabState("search", "");
@@ -135,14 +180,11 @@ export default function PlanInfoPage() {
   }
 
   return (
-    <div className="w-full px-4 sm:px-6 py-6 space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-navy">계획정보</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          PLAN-02 · 품목×공정별 일CAPA·생산수율·Lot Size 관리 — 값을 비워두면 공정등록(BASE-04)의
-          기본값을 그대로 따릅니다.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <p className="text-sm text-slate-500">
+        품목×공정별 일CAPA·생산수율·Lot Size 관리 — 값을 비워두면 공정등록(BASE-04)의
+        기본값을 그대로 따릅니다.
+      </p>
 
       <div className="bg-white border border-slate-200 rounded-lg p-4 flex items-center gap-4 flex-wrap shadow-sm">
         <div className="relative">
@@ -297,6 +339,226 @@ export default function PlanInfoPage() {
           </div>
         </div>
       )}
+
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-[60] bg-navy text-white text-sm px-4 py-3 rounded-md shadow-lg">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function fmtNum(n: number | null, digits = 0): string {
+  if (n == null) return "-";
+  return Number(n.toFixed(digits)).toLocaleString("ko-KR");
+}
+
+function LineCapaPlanTab() {
+  const [yearMonth, setYearMonth] = useTabState("lineCapaYearMonth", currentYearMonth);
+  const [result, setResult] = useState<LineCapaResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [remarkDrafts, setRemarkDrafts] = useState<Record<string, string>>({});
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  function load() {
+    setLoading(true);
+    fetch(`/api/line-capa-plan?yearMonth=${yearMonth}`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: LineCapaResult) => {
+        setResult(data);
+        setDrafts(Object.fromEntries(data.rows.map((r) => [r.key, r.dailyCapa != null ? String(r.dailyCapa) : ""])));
+        setRemarkDrafts(Object.fromEntries(data.rows.map((r) => [r.key, r.remark ?? ""])));
+        setLoading(false);
+      });
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [yearMonth]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  async function saveCapa(lineKey: string) {
+    const raw = drafts[lineKey] ?? "";
+    const dailyCapa = raw.trim() === "" ? null : Number(raw);
+    if (dailyCapa != null && !Number.isFinite(dailyCapa)) {
+      setToast("공정별 계획은 숫자여야 합니다.");
+      return;
+    }
+    setSavingKey(`${lineKey}:capa`);
+    try {
+      const res = await fetch("/api/line-capa-plan", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ yearMonth, lineKey, dailyCapa }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "저장에 실패했습니다.");
+      load();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "저장에 실패했습니다.");
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  async function saveRemark(lineKey: string) {
+    const remark = remarkDrafts[lineKey] ?? "";
+    setSavingKey(`${lineKey}:remark`);
+    try {
+      const res = await fetch("/api/line-capa-plan", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ yearMonth, lineKey, remark }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "저장에 실패했습니다.");
+      load();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "저장에 실패했습니다.");
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  const thCls = "text-center px-3 py-2.5 font-semibold sticky top-0 z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0]";
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-slate-500">
+        라인별(BASE-04 세부공정 묶음) 인원(BASE-09 자동 집계)·근무시간(8시간 고정)·근무일수
+        (BASE-08 생산캘린더 자동 계산)·생산성(UPH)·운영계획을 조회합니다. &quot;공정별
+        계획&quot;(라인별 일CAPA)과 &quot;비고&quot;만 매달 직접 입력하는 값이며, 값을 비운
+        채 저장하면 지워집니다. 간접직은 CAPA 개념이 없어 입력할 수 없고, 비고를 비워두면
+        소속 인원 자동 집계 텍스트를 대신 보여줍니다.
+      </p>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="text-xs font-medium text-slate-500">조회 기준월</label>
+        <input
+          type="month"
+          value={yearMonth}
+          onChange={(e) => e.target.value && setYearMonth(e.target.value)}
+          className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white"
+        />
+        <button
+          onClick={() => {
+            window.location.href = `/api/line-capa-plan/export?yearMonth=${yearMonth}`;
+          }}
+          className="px-3.5 py-2 rounded-md text-sm font-medium bg-emerald-700 text-white hover:bg-emerald-800 transition-colors"
+        >
+          엑셀 다운로드
+        </button>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+        <div className="overflow-auto max-h-[calc(100vh-19rem)]">
+          <table className="w-full text-sm whitespace-nowrap">
+            <thead className="bg-[#D9E1F2] text-slate-500 text-xs">
+              <tr>
+                <th rowSpan={2} className={thCls}>
+                  라인별
+                </th>
+                <th rowSpan={2} className={thCls}>
+                  인원
+                </th>
+                <th rowSpan={2} className={thCls}>
+                  근무시간
+                  <span className="block text-[10px] font-normal text-slate-400">(Day)</span>
+                </th>
+                <th rowSpan={2} className={thCls}>
+                  근무일수
+                  <span className="block text-[10px] font-normal text-slate-400">(Month)</span>
+                </th>
+                <th colSpan={2} className={thCls}>
+                  공정별 계획
+                </th>
+                <th rowSpan={2} className={thCls}>
+                  생산성
+                  <span className="block text-[10px] font-normal text-slate-400">(UPH)</span>
+                </th>
+                <th rowSpan={2} className={thCls}>
+                  비고
+                </th>
+              </tr>
+              <tr>
+                <th className={thCls}>Day</th>
+                <th className={thCls}>Month</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading && (
+                <tr>
+                  <td colSpan={8} className="text-center py-10 text-slate-400">
+                    불러오는 중...
+                  </td>
+                </tr>
+              )}
+              {!loading &&
+                result?.rows.map((r) => (
+                  <tr key={r.key} className="hover:bg-slate-50">
+                    <td className="px-3 py-2.5 font-medium text-slate-700">{r.label}</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{r.headcount.toLocaleString()} 명</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{r.hoursPerDay.toFixed(2)} hr</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{r.workDays.toLocaleString()} 일</td>
+                    <td className="px-2 py-1.5">
+                      {r.isIndirect ? (
+                        <span className="block text-right text-slate-300 px-2">-</span>
+                      ) : (
+                        <input
+                          value={drafts[r.key] ?? ""}
+                          onChange={(e) =>
+                            setDrafts((prev) => ({ ...prev, [r.key]: e.target.value.replace(/[^0-9.]/g, "") }))
+                          }
+                          onBlur={() => saveCapa(r.key)}
+                          disabled={savingKey === `${r.key}:capa`}
+                          placeholder="-"
+                          className="w-28 border border-slate-300 rounded-md px-2 py-1.5 text-sm text-right font-mono disabled:opacity-50"
+                        />
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-slate-500">{fmtNum(r.monthlyCapa)}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-slate-500">
+                      {r.uph == null ? "-" : fmtNum(r.uph, 1)}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        value={remarkDrafts[r.key] ?? ""}
+                        onChange={(e) =>
+                          setRemarkDrafts((prev) => ({ ...prev, [r.key]: e.target.value }))
+                        }
+                        onBlur={() => saveRemark(r.key)}
+                        disabled={savingKey === `${r.key}:remark`}
+                        placeholder={r.defaultRemark ?? "-"}
+                        className="w-64 border border-slate-300 rounded-md px-2 py-1.5 text-sm placeholder:text-slate-400 placeholder:italic disabled:opacity-50"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              {!loading && result && (
+                <tr className="bg-slate-50 font-semibold text-navy">
+                  <td className="px-3 py-2.5">합계</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{result.totals.headcount.toLocaleString()} 명</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{(result.rows[0]?.hoursPerDay ?? 8).toFixed(2)} hr</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{(result.rows[0]?.workDays ?? 0).toLocaleString()} 일</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{fmtNum(result.totals.dailyCapa)}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{fmtNum(result.totals.monthlyCapa)}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">
+                    {result.totals.uph == null ? "-" : fmtNum(result.totals.uph, 2)}
+                  </td>
+                  <td className="px-3 py-2.5" />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {toast && (
         <div className="fixed bottom-6 right-6 z-[60] bg-navy text-white text-sm px-4 py-3 rounded-md shadow-lg">

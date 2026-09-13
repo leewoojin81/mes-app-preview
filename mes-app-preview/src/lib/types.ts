@@ -224,6 +224,32 @@ export interface ShiftTimeSlot {
   updated_at: string;
 }
 
+// 계획정보(PLAN-02) "공정별 월 CAPA 및 근무계획" 라인 1행 — src/lib/production-plan-lines.ts의
+// computeLineCapaPlan이 만들어 내려준다.
+export interface LineCapaRow {
+  key: string;
+  label: string;
+  isIndirect: boolean;
+  headcount: number;
+  hoursPerDay: number;
+  workDays: number;
+  dailyCapa: number | null;
+  monthlyCapa: number | null;
+  uph: number | null;
+  remark: string | null;
+  defaultRemark: string | null;
+}
+export interface LineCapaResult {
+  yearMonth: string;
+  rows: LineCapaRow[];
+  totals: {
+    headcount: number;
+    dailyCapa: number | null;
+    monthlyCapa: number | null;
+    uph: number | null;
+  };
+}
+
 // 인원관리(PSN-04) "공정별근무현황" — 조회기간 내 공정(BASE-04 process_name)별 연인원(person-day) 집계 1행.
 export interface ProcessWorkSummaryRow {
   process_name: string;

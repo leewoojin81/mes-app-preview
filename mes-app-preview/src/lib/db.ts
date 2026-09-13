@@ -703,6 +703,24 @@ CREATE TABLE IF NOT EXISTS master_data_change_history (
 );
 CREATE INDEX IF NOT EXISTS idx_master_data_change_history_entity
   ON master_data_change_history(entity_type, entity_id, field, change_date);
+
+-- 계획정보(PLAN-02) "공정별 월 CAPA 및 근무계획" — 라인(사출_상/착색/조립 등, BASE-04
+-- 세부공정코드 묶음, src/lib/production-plan-lines.ts 참고)별로 그 달의 "공정별 계획"
+-- (일CAPA)·"비고"만 사람이 입력해 저장한다. 인원/근무일수/생산성/운영계획은 전부
+-- 작업자등록(BASE-09)·생산캘린더(BASE-08)에서 그때그때 계산하는 값이라 저장하지 않는다
+-- — 이 테이블은 시스템에 근거 데이터 자체가 없는 "일CAPA"/"비고" 두 가지만 사람이 매달
+-- 입력해두는 용도(2026-09-13 사용자 확인, 첨부 생산계획 엑셀의 수치가 BASE-04
+-- default_daily_capa와 맞지 않아 새로 만듦. 비고는 같은 날 추가 요청으로 함께 추가 —
+-- 간접직 자동 집계 텍스트는 값을 비워뒀을 때만 보여주는 기본값으로 남긴다).
+CREATE TABLE IF NOT EXISTS line_capa_plan (
+  year_month TEXT NOT NULL,
+  line_key TEXT NOT NULL,
+  daily_capa REAL,
+  remark TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  updated_by TEXT,
+  PRIMARY KEY (year_month, line_key)
+);
 `;
 
 function migrate(db: DatabaseSync) {
