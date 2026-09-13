@@ -194,10 +194,19 @@ export function computeLineCapaPlan(db: DatabaseSync, yearMonth: string): LineCa
     };
   });
 
+  // 합계 행의 DAY/MONTH는 전체 라인 일CAPA를 그냥 더한 값이 아니라 출하(shipping) 기준
+  // 값을 그대로 가져온다 — 사출→...→출하로 이어지는 한 공정 흐름이라 각 라인의 CAPA가
+  // 서로 다른 반제품 단계를 가리켜서 단순 합산이 의미가 없고, 최종 출하량만이 실제 전체
+  // 생산량을 뜻한다(2026-09-13 사용자 요청). 생산성(UPH)도 그 출하 월CAPA를 전체
+  // 인원×근무시간×근무일수(그 달 총 가용 근로시간)로 나눠 공장 전체 효율로 다시 계산한다.
   const totalHeadcount = rows.reduce((sum, r) => sum + r.headcount, 0);
-  const totalDailyCapa = rows.reduce((sum, r) => sum + (r.dailyCapa ?? 0), 0);
-  const totalMonthlyCapa = rows.reduce((sum, r) => sum + (r.monthlyCapa ?? 0), 0);
-  const totalUph = totalHeadcount > 0 ? totalDailyCapa / (totalHeadcount * HOURS_PER_DAY) : null;
+  const shippingRow = rows.find((r) => r.key === "shipping");
+  const totalDailyCapa = shippingRow?.dailyCapa ?? null;
+  const totalMonthlyCapa = shippingRow?.monthlyCapa ?? null;
+  const totalUph =
+    totalMonthlyCapa != null && totalHeadcount > 0 && workDays > 0
+      ? totalMonthlyCapa / (totalHeadcount * HOURS_PER_DAY * workDays)
+      : null;
 
   return {
     yearMonth,

@@ -24,6 +24,24 @@ function toNum(s: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// "공정별 계획" DAY 입력칸에 천단위 쉼표를 붙여 보여준다(2026-09-13 사용자 요청) — 저장
+// 시에는 stripThousands로 쉼표를 떼고 숫자로 바꾼다.
+function formatThousandsDraft(raw: string): string {
+  let clean = raw.replace(/[^0-9.]/g, "");
+  const firstDot = clean.indexOf(".");
+  if (firstDot !== -1) {
+    clean = clean.slice(0, firstDot + 1) + clean.slice(firstDot + 1).replace(/\./g, "");
+  }
+  if (clean === "" || clean === ".") return clean;
+  const [intPart, decPart] = clean.split(".");
+  const formattedInt = intPart === "" ? "" : Number(intPart).toLocaleString("ko-KR");
+  return decPart !== undefined ? `${formattedInt}.${decPart}` : formattedInt;
+}
+
+function stripThousands(s: string): string {
+  return s.replace(/,/g, "");
+}
+
 function draftOf(r: ItemProcessRoutingRow): Draft {
   return {
     daily_capa: r.daily_capa != null ? String(r.daily_capa) : "",
@@ -435,7 +453,11 @@ function LineCapaPlanTab() {
       .then((res) => res.json())
       .then((data: LineCapaResult) => {
         setResult(data);
-        setDrafts(Object.fromEntries(data.rows.map((r) => [r.key, r.dailyCapa != null ? String(r.dailyCapa) : ""])));
+        setDrafts(
+          Object.fromEntries(
+            data.rows.map((r) => [r.key, r.dailyCapa != null ? r.dailyCapa.toLocaleString("ko-KR") : ""])
+          )
+        );
         setRemarkDrafts(Object.fromEntries(data.rows.map((r) => [r.key, r.remark ?? ""])));
         setLoading(false);
       });
@@ -451,7 +473,7 @@ function LineCapaPlanTab() {
   }, [toast]);
 
   async function saveCapa(lineKey: string) {
-    const raw = drafts[lineKey] ?? "";
+    const raw = stripThousands(drafts[lineKey] ?? "");
     const dailyCapa = raw.trim() === "" ? null : Number(raw);
     if (dailyCapa != null && !Number.isFinite(dailyCapa)) {
       setToast("공정별 계획은 숫자여야 합니다.");
@@ -503,7 +525,7 @@ function LineCapaPlanTab() {
         result.rows.flatMap((r) => {
           const tasks: Promise<boolean>[] = [];
           if (!r.isIndirect) {
-            const raw = drafts[r.key] ?? "";
+            const raw = stripThousands(drafts[r.key] ?? "");
             const dailyCapa = raw.trim() === "" ? null : Number(raw);
             if (dailyCapa == null || Number.isFinite(dailyCapa)) {
               tasks.push(
@@ -606,7 +628,7 @@ function LineCapaPlanTab() {
                 <th className={thCls}>Month</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {loading && (
                 <tr>
                   <td colSpan={8} className="text-center py-10 text-slate-400">
@@ -618,14 +640,27 @@ function LineCapaPlanTab() {
                 result?.rows.map((r, i) => {
                   // 사출_상/사출_하는 실제로는 같은 사출(P100) 인원이 담당하는 한 라인이라
                   // 인원·근무시간·근무일수가 항상 동일하다(2026-09-13 사용자 요청) — 사출_상
-                  // 행에서 두 행에 걸쳐 병합해 보여주고, 사출_하 행에서는 그 세 칸을 생략한다.
+                  // 행에서 두 행에 걸쳐 병합해 보여주고, 사출_하 행에서는 그 칸들을 생략한다.
                   // "공정별 계획"(일CAPA)은 라인마다 다를 수 있어 병합하지 않고 그대로 둔다.
+                  // "생산성(UPH)"도 같은 이유로 병합하되, 두 라인의 일CAPA를 합쳐서 같은
+                  // 인원 기준으로 다시 계산한다(2026-09-13 사용자 요청 — 한쪽만 보면 실제
+                  // 그 인원이 뽑아내는 총생산성을 알 수 없어서).
                   const mergeStatsDown = r.key === "injection_upper";
                   const skipStatsCells = r.key === "injection_lower";
                   const nextCapaRow = result.rows.slice(i + 1).find((x) => !x.isIndirect);
                   const nextRemarkKey = result.rows[i + 1]?.key;
+                  const injectionLowerRow = mergeStatsDown
+                    ? result.rows.find((x) => x.key === "injection_lower")
+                    : undefined;
+                  const mergedInjectionUph = mergeStatsDown
+                    ? (() => {
+                        const combinedCapa = (r.dailyCapa ?? 0) + (injectionLowerRow?.dailyCapa ?? 0);
+                        if (r.dailyCapa == null && injectionLowerRow?.dailyCapa == null) return null;
+                        return r.headcount > 0 ? combinedCapa / (r.headcount * r.hoursPerDay) : null;
+                      })()
+                    : null;
                   return (
-                  <tr key={r.key} className="hover:bg-slate-50">
+                  <tr key={r.key} className="hover:bg-slate-50 border-b border-slate-200">
                     <td className="px-3 py-2.5 font-medium text-slate-700">{r.label}</td>
                     {!skipStatsCells && (
                       <>
@@ -657,7 +692,7 @@ function LineCapaPlanTab() {
                           id={`lc-capa-${r.key}`}
                           value={drafts[r.key] ?? ""}
                           onChange={(e) =>
-                            setDrafts((prev) => ({ ...prev, [r.key]: e.target.value.replace(/[^0-9.]/g, "") }))
+                            setDrafts((prev) => ({ ...prev, [r.key]: formatThousandsDraft(e.target.value) }))
                           }
                           onBlur={() => saveCapa(r.key)}
                           onKeyDown={(e) => {
@@ -672,9 +707,20 @@ function LineCapaPlanTab() {
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-slate-500">{fmtNum(r.monthlyCapa)}</td>
-                    <td className="px-3 py-2.5 text-right font-mono text-slate-500">
-                      {r.uph == null ? "-" : fmtNum(r.uph, 1)}
-                    </td>
+                    {!skipStatsCells && (
+                      <td
+                        className="px-3 py-2.5 text-right font-mono text-slate-500"
+                        rowSpan={mergeStatsDown ? 2 : undefined}
+                      >
+                        {mergeStatsDown
+                          ? mergedInjectionUph == null
+                            ? "-"
+                            : fmtNum(mergedInjectionUph, 1)
+                          : r.uph == null
+                            ? "-"
+                            : fmtNum(r.uph, 1)}
+                      </td>
+                    )}
                     <td className="px-2 py-1.5">
                       <input
                         id={`lc-remark-${r.key}`}

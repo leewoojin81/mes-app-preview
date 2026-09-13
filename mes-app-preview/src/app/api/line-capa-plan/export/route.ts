@@ -26,10 +26,17 @@ export async function GET(req: NextRequest) {
 
   // 사출_상/사출_하는 같은 사출(P100) 인원이 담당하는 한 라인이라 인원·근무시간·근무일수가
   // 항상 같다(2026-09-13 사용자 요청) — 화면(page.tsx LineCapaPlanTab)과 맞춰 엑셀도 두 행에
-  // 걸쳐 병합한다. "공정별 계획"(일CAPA)은 라인마다 달라 병합하지 않는다.
+  // 걸쳐 병합한다. "생산성(UPH)"도 같은 이유로 병합하되 두 라인의 일CAPA를 합쳐서 같은
+  // 인원 기준으로 다시 계산한다. "공정별 계획"(일CAPA)은 라인마다 달라 병합하지 않는다.
   const upperIdx = result.rows.findIndex((r) => r.key === "injection_upper");
   const lowerIdx = result.rows.findIndex((r) => r.key === "injection_lower");
   const mergeInjectionStats = upperIdx >= 0 && lowerIdx === upperIdx + 1;
+  const upperRow = mergeInjectionStats ? result.rows[upperIdx] : undefined;
+  const lowerRow = mergeInjectionStats ? result.rows[lowerIdx] : undefined;
+  const mergedInjectionUph =
+    upperRow && (upperRow.dailyCapa != null || lowerRow?.dailyCapa != null) && upperRow.headcount > 0
+      ? ((upperRow.dailyCapa ?? 0) + (lowerRow?.dailyCapa ?? 0)) / (upperRow.headcount * upperRow.hoursPerDay)
+      : null;
 
   const dataRows = result.rows.map((r, i) => [
     r.label,
@@ -38,7 +45,15 @@ export async function GET(req: NextRequest) {
     mergeInjectionStats && i === lowerIdx ? "" : `${r.workDays} 일`,
     fmt(r.dailyCapa),
     fmt(r.monthlyCapa),
-    r.uph == null ? "-" : fmt(r.uph, 1),
+    mergeInjectionStats && i === lowerIdx
+      ? ""
+      : mergeInjectionStats && i === upperIdx
+        ? mergedInjectionUph == null
+          ? "-"
+          : fmt(mergedInjectionUph, 1)
+        : r.uph == null
+          ? "-"
+          : fmt(r.uph, 1),
     r.remark ?? r.defaultRemark ?? "-",
   ]);
 
@@ -71,7 +86,7 @@ export async function GET(req: NextRequest) {
     { s: { r: 1, c: 6 }, e: { r: 2, c: 6 } },
     { s: { r: 1, c: 7 }, e: { r: 2, c: 7 } },
     ...(mergeInjectionStats
-      ? [1, 2, 3].map((c) => ({
+      ? [1, 2, 3, 6].map((c) => ({
           s: { r: HEADER_ROWS + upperIdx, c },
           e: { r: HEADER_ROWS + lowerIdx, c },
         }))
