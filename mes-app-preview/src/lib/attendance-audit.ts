@@ -439,12 +439,23 @@ export function fetchAttendanceAudit(
       // 외출(PSN-01)도 세콤 재계산이 모르는 시간대다(중교와 달리 외출은 카드를 찍고 나갔다
       // 들어오는 게 아니라 출근~퇴근 카드 사이에 그냥 자리를 비운 것이라 출퇴근시각만으로
       // 재계산하면 그 시간까지 전부 "정상"으로 잡힌다) — PSN-01에 신청된 외출시간만큼
-      // 그대로 빼서 보정한다(2026-09-11 사용자 확인, 정숙 09-08 사례 — 외출 4시간인데
-      // 세콤 재계산 정상이 8시간으로 나와 실제 정상 4시간과 4시간 차이가 났었다).
+      // 보정한다. PSN-01 쪽 잔업(work-hours-leave.ts의 computeAttendanceHours)이 이미
+      // "외출은 잔업(신청값)에서 먼저 흡수하고, 못 흡수한 초과분만 정상에서 뺀다"는
+      // 순서로 저장돼 있으므로, 세콤 쪽도 같은 순서로 맞춰야 두 값이 같은 개념을
+      // 비교하게 된다(2026-09-13 사용자 요청, 김은경2 9/8 사례 — 세콤 재계산 잔업이
+      // 커서 외출을 다 흡수하고도 남는데, 예전엔 잔업과 무관하게 외출을 항상 정상에서만
+      // 빼서 정상/잔업 두 항목 모두 실제보다 크게 어긋나 보였다). 대응되는 조 스케줄이
+      // 없어 derivedOvertime 자체가 없으면(null) 흡수시킬 잔업이 없는 것이니 기존처럼
+      // 외출 전액을 정상에서 뺀다.
+      const rawDerivedOvertime = derivedOvertime;
+      const outingAbsorbedByOvertime = rawDerivedOvertime != null ? Math.min(outingHours, rawDerivedOvertime) : 0;
+      const outingExcessOnNormal = outingHours - outingAbsorbedByOvertime;
+      const derivedOvertimeAfterOuting =
+        rawDerivedOvertime != null ? rawDerivedOvertime - outingAbsorbedByOvertime : null;
       const normalPsn02Raw =
         derivedNormal ?? parseCardDuration(card.detail["정상근무시간"] as string | number | null);
-      const normalPsn02 = Math.max(0, normalPsn02Raw - outingHours);
-      const overtimeItem = buildOvertimeItem(overtimeHours, derivedOvertime, punchOut);
+      const normalPsn02 = Math.max(0, normalPsn02Raw - outingExcessOnNormal);
+      const overtimeItem = buildOvertimeItem(overtimeHours, derivedOvertimeAfterOuting, punchOut);
       const earlyStartItem = buildEarlyStartItem(earlyStartHours, derivedEarlyStart);
       // 근로시간의 조출/잔업 기여분 — 세콤 카드가 일찍 출근·늦게 퇴근을 찍어도 PSN-01에
       // 조출·잔업 신청이 없으면 인정되지 않는다(2026-09-10 사용자 확인, 실링 박용자·
@@ -454,7 +465,7 @@ export function fetchAttendanceAudit(
       // 인정된 상태)는 PSN-01 값을 쓰고, 진짜 "불일치"일 때만 세콤 재계산값을 써서 실제
       // 차이를 근로시간에도 반영한다.
       const earlyStartForTotal = earlyStartItem.mismatch ? (derivedEarlyStart ?? 0) : earlyStartHours;
-      const overtimeForTotal = overtimeItem.mismatch ? (derivedOvertime ?? 0) : overtimeHours;
+      const overtimeForTotal = overtimeItem.mismatch ? (derivedOvertimeAfterOuting ?? 0) : overtimeHours;
       // 근로시간(세콤 쪽) = 세콤 재계산 정상 + 위 조출/잔업 기여분 + 중교(PSN-01 값 그대로,
       // 2026-09-10 사용자 확인, 실링 김경옥 사례로 요청 — 세콤 카드는 출근~퇴근 사이에
       // 중교로 실제 일한 시간까지 그대로 찍혀 있지만(별도 외출/복귀 기록이 없음), 정상
