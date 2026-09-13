@@ -702,6 +702,30 @@ export interface PurchaseReceiptListResponse {
   totals: Record<string, number>;
 }
 
+// 재고관리 "MOLD입고현황(INV-04)" — ERP 몰드 입고 리포트 엑셀 업로드(기간별 누적).
+export interface MoldReceiptRow {
+  id: number;
+  receipt_no: string | null;
+  /** "YYYY-MM-DD"로 정규화된 입고일(필터/정렬용) */
+  receipt_date: string | null;
+  item_code: string | null;
+  warehouse: string | null;
+  lot_no: string | null;
+  uploaded_at: string;
+  /** 원본 엑셀 전체 컬럼(헤더명 → 값) */
+  detail: Record<string, string | number | null> | null;
+}
+
+export interface MoldReceiptListResponse {
+  rows: MoldReceiptRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  uploadedAt: string | null;
+  /** 검색/필터 조건이 적용된 전체 건에 대한 입고량 합계(현재 페이지가 아니라 전체 기준) */
+  totals: Record<string, number>;
+}
+
 // 생산관리 "작업지시현황(PROD-05)" — ERP 작업지시 실적 리포트 엑셀 업로드(기간별 누적).
 export interface WorkOrderStatusRow {
   id: number;

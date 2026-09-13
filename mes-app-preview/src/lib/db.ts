@@ -520,6 +520,27 @@ CREATE TABLE IF NOT EXISTS purchase_receipt_status (
   detail TEXT
 );
 
+-- 재고관리 "MOLD입고현황(INV-04)" 화면 — ERP 몰드(금형) 입고 리포트 엑셀 업로드.
+-- purchase_receipt_status(PUR-02)와 원본 모양이 거의 같다: 입고 1건이 LOT별로 여러 행
+-- (순번)으로 나뉘어 입고전표번호만으론 유일하지 않으므로 record_key(입고전표번호|순번)에
+-- UNIQUE 제약을 두고 자연키로 upsert한다. 다만 거래처가 아니라 입고창고 기준이라
+-- customer_code 대신 warehouse를 둔다. 원본이 2025년부터의 누적 로그라(10만행 안팎)
+-- 기간을 나눠 여러 번 업로드하는 경우가 많은데, work_order_status(PROD-05)와 같은
+-- 이유로 "구간 재동기화" 방식을 쓴다: 업로드마다 파일의 입고일 최소~최대 구간을 구해
+-- 그 구간의 기존 데이터를 지우고 새로 채운다. receipt_date(입고일)는 원본 "YYYY.MM.DD"
+-- 표기를 "YYYY-MM-DD"로 정규화해 저장(필터/정렬/구간 계산용).
+CREATE TABLE IF NOT EXISTS mold_receipt_status (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  record_key TEXT UNIQUE,
+  receipt_date TEXT,
+  item_code TEXT,
+  warehouse TEXT,
+  receipt_no TEXT,
+  lot_no TEXT,
+  uploaded_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  detail TEXT
+);
+
 -- 생산관리 "도수변경등록(PROD-06)" 화면 — ERP 조립 실적 리포트(d_pmmr543) 엑셀 업로드.
 -- 조립 LOT마다 투입되는 자재(BASE/착색 등) 단위로 한 행씩 잡혀 원본 헤더에 "주야간"이
 -- 두 번(작업 주야간·검사 주야간) 나오는데, JSON 키가 겹치지 않도록 두 번째는 내부적으로
@@ -1087,6 +1108,10 @@ function migrate(db: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_purchase_receipt_status_receipt_date ON purchase_receipt_status(receipt_date DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_purchase_receipt_status_item_code ON purchase_receipt_status(item_code);
     CREATE INDEX IF NOT EXISTS idx_purchase_receipt_status_receipt_no ON purchase_receipt_status(receipt_no);
+
+    CREATE INDEX IF NOT EXISTS idx_mold_receipt_status_receipt_date ON mold_receipt_status(receipt_date DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_mold_receipt_status_item_code ON mold_receipt_status(item_code);
+    CREATE INDEX IF NOT EXISTS idx_mold_receipt_status_receipt_no ON mold_receipt_status(receipt_no);
 
     CREATE INDEX IF NOT EXISTS idx_equipments_equipment_name ON equipments(equipment_name);
 
