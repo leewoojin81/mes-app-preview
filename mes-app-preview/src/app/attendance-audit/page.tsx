@@ -31,8 +31,8 @@ const ITEM_DEFS: { key: keyof AttendanceAuditRow["items"]; label: string; kind: 
   { key: "lunch_shift", label: "중교", kind: "reference" },
   { key: "late", label: "지각", kind: "compare" },
   { key: "early_leave", label: "조퇴", kind: "compare" },
-  { key: "outing", label: "외출[PSN-01]", kind: "reference" },
-  { key: "support", label: "지원시간[PSN-01]", kind: "reference" },
+  { key: "outing", label: "외출", kind: "reference" },
+  { key: "support", label: "지원시간", kind: "reference" },
 ];
 
 /** 종합상태 판정과 동일하게, "일치율" 집계에도 실제 대사(비교) 대상 항목만 쓴다. */
@@ -578,7 +578,7 @@ export default function AttendanceAuditPage() {
                       key={it.key}
                       className="text-center px-2 py-1.5 font-medium sticky top-[29px] z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0] border-l border-slate-300/60"
                     >
-                      비교불가
+                      PSN-01
                     </th>
                   )
                 )}
