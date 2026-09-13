@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
 import { LEAVE_TYPE_OPTIONS, computeAttendanceHours } from "@/lib/work-hours-leave";
@@ -30,15 +30,18 @@ function distinctOptions(rows: WorkHoursRow[], key: "work_group" | "contractor" 
 
 // "정상"/"잔업"은 휴가구분이 "출근"인 날은 지각+조퇴+외출 합계를 잔업(신청값)에서 먼저
 // 차감하고, 잔업으로 다 못 덮는 초과분만 정상근무 8시간에서 마저 빼는 계산값이다
-// (work-hours-leave.ts의 computeAttendanceHours, 2026-09-11 사용자 요청). 연차/전반/
-// 후반/공가/휴무는 기존처럼 휴가구분 기준시간에서 지각·조퇴·외출·지원시간을 그대로 뺀다.
-// 휴가 드롭다운이나 지각/조퇴/외출/지원/잔업을 바꾸는 즉시(저장 전에도) 화면에 반영되어야
-// 해서 r.normal_hours(마지막 조회 시점 값)를 쓰지 않고 지금 화면에 있는 값 기준으로 매번
-// 다시 계산한다 — 서버(GET/PUT)도 같은 work-hours-leave.ts의 computeAttendanceHours를
-// 쓰므로 저장 후 값이 어긋나지 않는다. 단, 잔업 입력칸 자체(HOUR_FIELDS)는 타이핑 중
-// 자기 값이 실시간으로 바뀌면(자기참조) 입력을 방해하므로 원시 입력값을 그대로 보여주고,
-// 저장 후 다시 조회할 때 서버가 계산해 둔 최종(차감된) 값으로 갱신된다.
-function computeAttendance(r: WorkHoursRow): { normalHours: number; overtimeHours: number } {
+// (work-hours-leave.ts의 computeAttendanceHours). 수정 팝업에서 값을 바꾸는 동안 저장 전
+// 미리보기로 쓴다 — 그리드 자체는 항상 서버가 계산해 내려준 값(r.normal_hours/total_hours)을
+// 그대로 표시한다(2026-09-13 사용자 요청으로 그리드 직접 수정을 없애면서, 조회 시 재계산
+// 때문에 PSN-06과 값이 어긋나 보이던 문제도 같이 없앴다).
+function computeAttendance(r: {
+  leave_type: string | null;
+  overtime_hours: number;
+  late_hours: number;
+  early_leave_hours: number;
+  outing_hours: number;
+  support_hours: number;
+}): { normalHours: number; overtimeHours: number } {
   return computeAttendanceHours(r.leave_type, {
     overtimeInput: r.overtime_hours,
     lateHours: r.late_hours,
@@ -48,45 +51,25 @@ function computeAttendance(r: WorkHoursRow): { normalHours: number; overtimeHour
   });
 }
 
-function computeNormal(r: WorkHoursRow): number {
-  return computeAttendance(r).normalHours;
-}
-
-// 잔업/조출/중교/지각/조퇴/외출/지원시간 입력칸에서 엔터를 치면 바로 아래 행의 같은
-// 항목 칸으로 넘어간다(엑셀 그리드 입력 관례, 2026-09-09 사용자 요청) — 각 input에
-// data-cell="필드키:visibleRows 인덱스"를 붙여두고 그 다음 인덱스의 같은 필드를 찾아
-// focus한다. rowIdx는 filter를 통과한 visibleRows 기준 순서라 "화면에 보이는 바로
-// 아래 행"으로 자연스럽게 이동한다.
-function handleEnterMoveDown(e: KeyboardEvent<HTMLInputElement>, fieldKey: string, rowIdx: number) {
-  if (e.key !== "Enter") return;
-  e.preventDefault();
-  const next = document.querySelector<HTMLInputElement>(`[data-cell="${fieldKey}:${rowIdx + 1}"]`);
-  next?.focus();
-  next?.select();
-}
-
-function computeTotal(r: WorkHoursRow): number {
+function computeTotal(r: {
+  leave_type: string | null;
+  overtime_hours: number;
+  early_start_hours: number;
+  lunch_shift_hours: number;
+  late_hours: number;
+  early_leave_hours: number;
+  outing_hours: number;
+  support_hours: number;
+}): number {
   const { normalHours, overtimeHours } = computeAttendance(r);
-  return (
-    normalHours +
-    overtimeHours +
-    r.early_start_hours +
-    r.lunch_shift_hours +
-    r.support_hours
-  );
+  return normalHours + overtimeHours + r.early_start_hours + r.lunch_shift_hours + r.support_hours;
 }
 
 // 근무시간 상한 — 12.01로 잡아서 "정확히 12"는 정상(경계값), 12를 조금이라도 넘긴
 // 경우만 걸린다(2026-09-07 사용자 요청).
 const MAX_TOTAL_HOURS = 12.01;
 
-// 근무조(workers.team) — 1조/2조/주간고정 소속 표시. BASE-09(작업자등록)의 TEAM_OPTIONS와
-// 동일한 목록(2026-09-10 사용자 요청 — 교대조(shift_group)는 BASE-09에서만 바꾸도록 PSN-01
-// 에서는 편집을 없애고, 대신 근무조를 PSN-01에서도 즉시 바꿀 수 있게 함. 교대조(A조/B조/고정)
-// 는 이제 이 화면에서 조회 전용으로만 표시된다).
-// "주간고정"은 2026-09-10 사용자 요청으로 목록에서 제거(1조/2조/3조만 남김, workers/page.tsx
-// 와 동일) — 기존에 이미 주간고정으로 배정된 작업자의 DB 값은 그대로 남아있지만, 이 목록에
-// 없어 이 화면에서 근무조를 바꾸려 하면 미선택으로 보인다(재배정은 BASE-09에서 별도로).
+// 근무조(workers.team) — 1조/2조/3조 소속 표시(작업자등록 BASE-09 TEAM_OPTIONS와 동일).
 const TEAM_OPTIONS = ["1조", "2조", "3조"] as const;
 
 type HourField =
@@ -97,12 +80,6 @@ type HourField =
   | "early_leave_hours"
   | "outing_hours";
 
-// "정상"은 휴가구분 기준 계산값만 쓰고 사람이 고칠 수 없어(work-hours-leave.ts의
-// computeAttendanceHours) 개별 입력·일괄수정 모두에서 제외된다 — 이 배열은 잔업부터
-// 외출까지 6개만 담아 "선택 항목 일괄수정" 팝업과 개별 입력칸 양쪽에 그대로 쓰인다.
-// 잔업(overtime_hours)은 저장/조회 시 지각+조퇴+외출 초과분만큼 서버가 다시 계산해
-// 덮어쓰지만(2026-09-11 사용자 요청), 입력칸 자체는 타이핑 중 자기참조를 피하려고
-// 원시 입력값을 그대로 보여준다(computeAttendance 주석 참고).
 const HOUR_FIELDS: { key: HourField; label: string }[] = [
   { key: "overtime_hours", label: "잔업" },
   { key: "early_start_hours", label: "조출" },
@@ -112,20 +89,10 @@ const HOUR_FIELDS: { key: HourField; label: string }[] = [
   { key: "outing_hours", label: "외출" },
 ];
 
-// 저장 실패 알림의 항목 라벨("잔업" 등)로 실제 입력칸(data-cell)을 다시 찾기 위한 역방향
-// 매핑(2026-09-10 사용자 요청 — 검색/필터로 좁혀놓은 화면에서 안 보이는 다른 사람의
-// 값 때문에 저장이 막히면 어디를 고쳐야 하는지 찾기 어려웠다). "지원시간"은 HOUR_FIELDS에
-// 없는 별도 필드라 여기서만 추가로 채워 넣는다.
-const HOUR_FIELD_KEY_BY_LABEL: Record<string, string> = {
-  ...Object.fromEntries(HOUR_FIELDS.map((f) => [f.label, f.key])),
-  지원시간: "support_hours",
-};
-
-// 시간 입력칸(잔업/조출/중교/지각/조퇴/외출/지원시간) 스피너 단위 — 30분(0.5)에서
-// 10분(1/6시간) 단위로 변경(2026-09-10 사용자 요청). 스피너를 한 번 누를 때마다
-// 0.17/0.34/0.5/0.67/0.83/1/1.17/1.34/1.5/1.67/1.83/2 …로 깔끔하게 떨어지도록, 2시간
-// (=12칸) 주기로 이 표를 반복하고 정수 주기마다 정확히 2를 더한다(사용자가 지정한
-// 값을 그대로 표로 사용 — 1/6의 수학적 반올림과 완전히 일치하진 않지만 요청값 그대로).
+// 시간 입력칸(잔업/조출/중교/지각/조퇴/외출/지원시간) 스피너 단위 — 10분(1/6시간) 단위.
+// 스피너를 한 번 누를 때마다 0.17/0.34/0.5/0.67/0.83/1/1.17/1.34/1.5/1.67/1.83/2 …로
+// 깔끔하게 떨어지도록, 2시간(=12칸) 주기로 이 표를 반복하고 정수 주기마다 정확히 2를
+// 더한다.
 const HOUR_STEP = 1 / 6;
 const TEN_MINUTE_TABLE = [0, 0.17, 0.34, 0.5, 0.67, 0.83, 1, 1.17, 1.34, 1.5, 1.67, 1.83];
 
@@ -136,14 +103,10 @@ function nearestTenMinuteHours(hours: number): number {
   return fullCycles * 2 + TEN_MINUTE_TABLE[cycleIndex];
 }
 
-// oldValue(항상 위 표의 값 중 하나)를 표 안에서 정확히 ±1칸만 옮긴다. "브라우저가 계산해준
-// raw 값을 표에 맞춰 재반올림"하는 방식(nearestTenMinuteHours(raw))은 실제로 걸림돌이 있었다
-// (2026-09-10 브라우저 테스트로 재현) — 표의 0.83은 실제 그리드값 5/6(≈0.8333)보다 "작게"
-// 반올림된 항목인데(0.17/0.34/0.67은 반대로 그리드보다 "크게" 반올림됨), HTML 스핀 버튼은
-// 현재 값이 그리드와 어긋나 있으면(스텝 불일치) 그냥 "다음 그리드 지점까지만" 맞추고 한 스텝을
-// 더 안 간다 — 그 결과 raw가 5/6이 되고, nearestTenMinuteHours(5/6)이 다시 0.83으로 반올림되어
-// 버튼을 아무리 눌러도 0.83에서 멈춰버렸다. 그래서 raw의 절대값을 다시 보지 않고, 방향(위/
-// 아래)만 raw와 oldValue의 대소로 판정한 뒤 표의 인덱스를 직접 ±1 이동시키는 방식으로 바꿨다.
+// oldValue(항상 위 표의 값 중 하나)를 표 안에서 정확히 ±1칸만 옮긴다 — 브라우저가 계산해준
+// raw 값을 그대로 재반올림하면 0.83처럼 그리드보다 작게 반올림된 값에서 스핀 버튼이
+// 멈춰버리는 문제가 있어(2026-09-10 확인), 방향(위/아래)만 보고 표의 인덱스를 직접
+// ±1 이동시킨다.
 function stepTenMinuteHours(oldValue: number, direction: 1 | -1): number {
   const oldUnits = Math.round(oldValue / HOUR_STEP);
   const newUnits = oldUnits + direction;
@@ -153,11 +116,7 @@ function stepTenMinuteHours(oldValue: number, direction: 1 | -1): number {
 }
 
 // 스피너(▲▼) 클릭이나 방향키로 값이 바뀌었을 때만 위 표에 맞춰 한 칸 이동하고, 사람이 직접
-// 타이핑한 값은 그대로 존중한다(2026-09-10 확인 — 타이핑 중에도 매 글자마다 스냅하면 소수점을
-// 입력하는 도중에 값이 지워지는 문제가 있었다, HourMinuteInput 시도 때 실사용으로 확인된
-// 문제라 여기서는 스피너로 발생한 변화만 골라서 스냅한다). React의 number input onChange에서
-// 스피너/방향키로 발생한 네이티브 "input" 이벤트는 `nativeEvent.inputType`이 없고(undefined),
-// 사람이 타이핑/붙여넣기하면 "insertText" 등 값이 채워진다 — 이 신호로 스피너 여부를 판별한다.
+// 타이핑한 값은 그대로 존중한다.
 function applyHourFieldStep(oldValue: number, raw: number, isSpinnerEvent: boolean): number {
   if (isSpinnerEvent && Number.isFinite(raw)) {
     if (raw > oldValue) return stepTenMinuteHours(oldValue, 1);
@@ -167,22 +126,15 @@ function applyHourFieldStep(oldValue: number, raw: number, isSpinnerEvent: boole
   return raw;
 }
 
-// number input의 onChange에서 이 변화가 스피너 클릭/방향키로 발생했는지 판별한다 — 브라우저
-// 테스트로 확인: 그 경우 nativeEvent.inputType이 undefined이고, 사람이 타이핑/붙여넣기하면
-// "insertText"/"insertFromPaste" 등으로 채워진다.
+// number input의 onChange에서 이 변화가 스피너 클릭/방향키로 발생했는지 판별한다 — 그
+// 경우 nativeEvent.inputType이 undefined이고, 사람이 타이핑/붙여넣기하면 "insertText"
+// 등으로 채워진다.
 function isSpinnerChangeEvent(e: ChangeEvent<HTMLInputElement>): boolean {
   return !(e.nativeEvent as InputEvent).inputType;
 }
 
-// 잔업/조출/중교/지각/조퇴/외출은 스피너가 아니라 직접 타이핑도 허용하지만(2026-09-10
-// 사용자 요청 — 스피너 클릭으로 안 나오는 값을 수동 입력할 수도 있음), 10분 단위
-// (0.17/0.34/0.5/…) 표에서 벗어난 값은 빨간색으로 표시하고 저장을 막는다. 지원시간은
-// 이 검증 대상에서 뺀다(사용자가 이번 요청에서 6개만 지목함).
-// 2.25(2시간15분)는 10분 단위 표에는 없지만 잔업에서만 실제로 수기 입력하는 값이라
-// (2026-09-11 사용자 요청 — 처음엔 6개 항목 전체에 적용했다가, 같은 날 "잔업만 적용"
-// 으로 범위를 좁힘) 잔업(overtime_hours)에 한해서만 예외로 허용한다 — 조출/중교/지각/
-// 조퇴/외출은 여전히 10분 단위가 아니면 막는다. 예외가 더 필요해지면 이 맵에 필드별로
-// 추가할 것.
+// 잔업/조출/중교/지각/조퇴/외출은 10분 단위(0.17/0.34/0.5/…) 표에서 벗어난 값을 막는다.
+// 2.25(2시간15분)는 잔업에서만 실제로 수기 입력하는 값이라 예외로 허용한다.
 const EXTRA_VALID_HOURS_BY_FIELD: Partial<Record<HourField, Set<number>>> = {
   overtime_hours: new Set([2.25]),
 };
@@ -191,28 +143,12 @@ function isValidTenMinuteHours(hours: number, fieldKey: HourField): boolean {
   return Math.abs(nearestTenMinuteHours(hours) - hours) < 1e-6;
 }
 
-// "선택 항목 일괄수정" 팝업의 대상 항목 — 시간 6종(HOUR_FIELDS) 외에 휴가구분·근무조도
-// 함께 일괄변경할 수 있다(정상은 휴가구분에 따라 자동 재계산되므로 더 이상 직접 일괄변경
-// 대상이 아니다). 휴가구분/근무조를 고르면 값 입력란이 숫자 대신 해당 드롭다운으로
-// 바뀐다. 근무조는 2026-09-11 사용자 요청으로 이 목록에 합쳐졌다 — 예전엔 "근무조
-// 일괄변경"이 저장 버튼과 무관하게 즉시 반영되는 별도 버튼/팝업이라 다른 항목과 저장
-// 시점이 달라 헷갈린다는 지적이 있었고, 근무조도 다른 항목과 똑같이 "저장" 버튼을
-// 눌러야 확정되도록 통일했다(save()에서 rows의 team 변경분만 모아 /api/workers/team으로
-// 반영한 뒤 work-hours 저장을 이어감).
-type BulkFieldKey = HourField | "leave_type" | "team";
-const BULK_FIELDS: { key: BulkFieldKey; label: string }[] = [
-  { key: "leave_type", label: "휴가구분" },
-  { key: "team", label: "근무조" },
-  ...HOUR_FIELDS,
-];
-
 export default function WorkHoursPage() {
   const [date, setDate] = useTabState("workHoursDate", today);
   const [rows, setRows] = useState<WorkHoursRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [workGroupFilter, setWorkGroupFilter] = useTabState("workHoursWorkGroupFilter", "");
   const [contractorFilter, setContractorFilter] = useTabState("workHoursContractorFilter", "");
   const [teamFilter, setTeamFilter] = useTabState("workHoursTeamFilter", "");
@@ -221,32 +157,20 @@ export default function WorkHoursPage() {
   const [searchText, setSearchText] = useTabState("workHoursSearchText", "");
   const [showUpload, setShowUpload] = useState(false);
   const [processes, setProcesses] = useState<Process[]>([]);
-  // 저장 실패 시 첫 번째 문제 행으로 스크롤·포커스하기 위한 대기 상태(2026-09-10 사용자
-  // 요청) — 검색/필터에 걸려 화면에 안 보이는 사람 때문에 저장이 막히면, 필터를 비워
-  // 다시 보이게 한 뒤 이 상태로 어디로 스크롤할지 넘긴다. fieldKey가 없으면(근무시간
-  // 초과처럼 특정 입력칸이 아닌 행 전체 문제) 행만 스크롤하고 포커스는 안 한다.
-  const [pendingHighlight, setPendingHighlight] = useState<{ employeeNo: string; fieldKey: string | null } | null>(
-    null
-  );
 
-  // 선택 일괄수정(2026-09-08 사용자 요청) — 체크한 사번들을 모아뒀다가, 팝업에서 고른
-  // 항목(정상/잔업/조출/중교/지각/조퇴/외출) 값을 한 번에 덮어쓴다. 날짜를 바꾸면 사람이
-  // 완전히 달라 보일 수 있어 선택을 비운다(load()에서 함께 처리).
+  // 그리드에서 직접 고치는 대신(2026-09-13 사용자 요청 — 저장 버튼이 화면에 보이는 사람만이
+  // 아니라 그 날짜 전체 인원을 통째로 다시 저장해서, 근무조 하나 고치려다 다른 사람 값까지
+  // 같이 덮어써지는 사고가 반복됐다) 행마다 "관리 · 수정" 버튼으로 그 사람만 편집하는
+  // 팝업을 열거나, 체크박스로 여러 명을 골라 "선택 항목 일괄수정" 팝업을 연다 — 출퇴근카드
+  // 등록(PSN-02)과 동일한 패턴. 두 경우 다 팝업 안에서 바로 저장되고, 그 순간 실제로
+  // 수정 대상인 사번만 API 호출 대상에 포함된다.
+  const [editingRows, setEditingRows] = useState<WorkHoursRow[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  // 근무조(workers.team)는 work_hours_daily가 아니라 작업자 마스터 필드라 별도
-  // /api/workers/team 엔드포인트로 저장한다 — 화면에서 고친 값과 조회 당시 값이 다른
-  // 사람만 save()에서 골라내 보낼 수 있도록, load()가 채운 rows를 그대로 기준선으로
-  // 들고 있는다(리렌더와 무관해야 해서 상태가 아니라 ref).
-  const teamBaselineRef = useRef<Map<string, string | null>>(new Map());
 
   // 지원공정 선택지 — BASE-04(공정등록)에 등록된 사용여부='Y' 공정 전체를, 소속(work_group)
-  // 필터 없이 그대로 보여준다(2026-09-07 사용자 요청: 기존엔 work_group 9개로만 골랐는데
-  // OEM창고/세정/디자인/연구소/생산기술/공정품질/기타 같은 "타부서지원" 성격의 공정은
-  // work_group에 대응 항목이 없어 아예 선택할 수 없었음). processes.process_group(공정등록
-  // 화면의 실제 분류값, 예: "Back.착색"/"조립군"/"외관검사"/"실링.멸균"/"마킹.포장"/"기타공정")
-  // 기준으로 <optgroup>을 나눠서 목록이 길어도 찾기 쉽게 한다 — seq 순서를 그대로 따른다.
+  // 필터 없이 그대로 보여준다. processes.process_group 기준으로 <optgroup>을 나눠서
+  // 목록이 길어도 찾기 쉽게 한다 — seq 순서를 그대로 따른다.
   useEffect(() => {
     fetch("/api/processes", { cache: "no-store" })
       .then((res) => res.json())
@@ -271,9 +195,7 @@ export default function WorkHoursPage() {
     fetch(`/api/work-hours?date=${date}`, { cache: "no-store" })
       .then((res) => res.json())
       .then((data: WorkHoursResponse) => {
-        const rows = data.rows ?? [];
-        setRows(rows);
-        teamBaselineRef.current = new Map(rows.map((r) => [r.employee_no, r.team]));
+        setRows(data.rows ?? []);
         setLastSavedAt(data.lastSavedAt ?? null);
         setLoading(false);
       });
@@ -281,28 +203,6 @@ export default function WorkHoursPage() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [date]);
-
-  // pendingHighlight가 채워지면(저장 실패로 필터를 막 비운 직후) 그 행으로 스크롤하고,
-  // fieldKey가 있으면 그 입력칸에 포커스까지 준다 — data-row-employee로 행을 직접 찾으므로
-  // 필터가 바뀌어 화면 순서(rowIdx)가 달라져도 항상 정확히 그 사람을 찾는다.
-  useEffect(() => {
-    if (!pendingHighlight) return;
-    const rowEl = document.querySelector<HTMLElement>(
-      `[data-row-employee="${CSS.escape(pendingHighlight.employeeNo)}"]`
-    );
-    if (rowEl) {
-      rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
-      if (pendingHighlight.fieldKey) {
-        rowEl.querySelector<HTMLInputElement>(`[data-cell^="${pendingHighlight.fieldKey}:"]`)?.focus();
-      }
-    }
-    setPendingHighlight(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingHighlight]);
-
-  function updateRow(employeeNo: string, patch: Partial<WorkHoursRow>) {
-    setRows((prev) => prev.map((r) => (r.employee_no === employeeNo ? { ...r, ...patch } : r)));
-  }
 
   function toggleSelected(employeeNo: string) {
     setSelected((prev) => {
@@ -313,18 +213,8 @@ export default function WorkHoursPage() {
     });
   }
 
-  // 선택된 사번들에 지정 항목(patch)을 한 번에 덮어쓴다 — 다른 사람이 저장해둔 값과
-  // 마찬가지로 "저장" 버튼을 눌러야 실제 DB에 반영된다(그 전까지는 화면 미리보기일 뿐).
-  // 휴가구분을 바꾸는 경우엔 patch가 leave_type만 담고, 정상은 화면에서 매번 다시
-  // 계산되므로(computeNormal) 별도로 건드릴 필요가 없다.
-  function applyBulkEdit(patch: Partial<WorkHoursRow>) {
-    setRows((prev) => prev.map((r) => (selected.has(r.employee_no) ? { ...r, ...patch } : r)));
-    setShowBulkEdit(false);
-  }
-
-  // 관리상 삭제(2026-09-08 사용자 요청) — 일괄수정과 달리 "저장" 버튼을 기다리지 않고
-  // 확인 즉시 DB에서 지운다(값을 0으로 되돌리는 게 아니라 그 날짜 기록 자체를 없애
-  // "미저장" 상태로 되돌리는 것이라 저장 개념이 없다). 삭제 뒤 화면을 다시 불러온다.
+  // 관리상 삭제(2026-09-08 사용자 요청) — 확인 즉시 DB에서 지운다(그 날짜 기록 자체를
+  // 없애 "미저장" 상태로 되돌리는 것). 삭제 뒤 화면을 다시 불러온다.
   async function deleteSelected() {
     if (selected.size === 0) return;
     const names = rows
@@ -356,175 +246,6 @@ export default function WorkHoursPage() {
     load();
   }
 
-  // 잔업/조출/중교/지각/조퇴/외출/지원시간은 음수가 들어갈 이유가 없다(입력 실수로 "-"
-  // 부호를 잘못 눌렀을 때가 대부분) — 셀은 빨간색으로 표시하고, 저장 시점에 한 번 더
-  // 막아서 잘못된 값이 그대로 DB에 들어가지 않게 한다(2026-09-07 사용자 요청).
-  function findNegativeIssues(): { employeeNo: string; workerName: string; label: string }[] {
-    const issues: { employeeNo: string; workerName: string; label: string }[] = [];
-    for (const r of rows) {
-      for (const f of HOUR_FIELDS) {
-        if (r[f.key] < 0) issues.push({ employeeNo: r.employee_no, workerName: r.worker_name, label: f.label });
-      }
-      if (r.support_hours < 0) {
-        issues.push({ employeeNo: r.employee_no, workerName: r.worker_name, label: "지원시간" });
-      }
-    }
-    return issues;
-  }
-
-  // 잔업/조출/중교/지각/조퇴/외출은 10분 단위(0.17/0.34/0.5/0.67/0.83/1/1.17/1.34/1.5/
-  // 1.67/1.83/2 …) 값만 인정한다(2026-09-10 사용자 요청) — 음수는 findNegativeIssues가
-  // 이미 따로 잡으므로 여기서는 다시 걸지 않는다(같은 셀이 두 오류로 중복 표시되는 것
-  // 방지).
-  function findInvalidStepIssues(): { employeeNo: string; workerName: string; label: string; value: number }[] {
-    const issues: { employeeNo: string; workerName: string; label: string; value: number }[] = [];
-    for (const r of rows) {
-      for (const f of HOUR_FIELDS) {
-        if (r[f.key] >= 0 && !isValidTenMinuteHours(r[f.key], f.key)) {
-          issues.push({ employeeNo: r.employee_no, workerName: r.worker_name, label: f.label, value: r[f.key] });
-        }
-      }
-    }
-    return issues;
-  }
-
-  // 근무시간(합계)이 12시간을 넘으면 셀을 빨간색으로 표시하고, 저장 시점에도 막는다
-  // (2026-09-07 사용자 요청) — 정확히 12는 통과, 12를 조금이라도 넘긴 값만 걸리도록
-  // MAX_TOTAL_HOURS를 12.01로 잡았다.
-  function findOvertimeIssues(): { employeeNo: string; workerName: string; total: number }[] {
-    const issues: { employeeNo: string; workerName: string; total: number }[] = [];
-    for (const r of rows) {
-      const total = computeTotal(r);
-      if (total > MAX_TOTAL_HOURS) {
-        issues.push({ employeeNo: r.employee_no, workerName: r.worker_name, total });
-      }
-    }
-    return issues;
-  }
-
-  // 근무조(workers.team)는 work_hours_daily가 아니라 작업자 마스터 필드라 /api/work-hours
-  // PUT과 별도로 /api/workers/team에 보내야 한다. save()가 조회 당시 값(teamBaselineRef)과
-  // 지금 화면 값이 달라진 사람만 골라, 바뀐 값이 같은 사람끼리 묶어 값 그룹당 한 번씩
-  // 호출한다(2026-09-11 사용자 요청 — 예전엔 근무조만 저장 버튼과 무관하게 즉시 반영되는
-  // 별도 버튼이라 다른 항목과 저장 시점이 달라 헷갈린다는 지적이 있었음). 실패하면 에러
-  // 메시지만 돌려주고, 호출부(save)가 이를 보고 work-hours 저장 자체를 진행하지 않는다 —
-  // 근무조 반영이 실패했는데 나머지만 저장되는 반쪽짜리 상태를 막기 위해서다.
-  async function saveTeamChanges(): Promise<string | null> {
-    const groups = new Map<string | null, string[]>();
-    for (const r of rows) {
-      const baseline = teamBaselineRef.current.get(r.employee_no) ?? null;
-      if (baseline === r.team) continue;
-      const list = groups.get(r.team) ?? [];
-      list.push(r.employee_no);
-      groups.set(r.team, list);
-    }
-    for (const [team, employeeNos] of groups) {
-      const res = await fetch("/api/workers/team", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employeeNos, team, date }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        return data.error ?? "근무조 변경에 실패했습니다.";
-      }
-    }
-    return null;
-  }
-
-  async function save() {
-    const negativeIssues = findNegativeIssues();
-    const stepIssues = findInvalidStepIssues();
-    const overtimeIssues = findOvertimeIssues();
-    if (negativeIssues.length > 0 || stepIssues.length > 0 || overtimeIssues.length > 0) {
-      const parts: string[] = [];
-      if (negativeIssues.length > 0) {
-        const preview = negativeIssues
-          .slice(0, 5)
-          .map((i) => `${i.workerName}(${i.employeeNo}) - ${i.label}`)
-          .join("\n");
-        parts.push(
-          `음수 값 ${negativeIssues.length}건\n${preview}${negativeIssues.length > 5 ? "\n..." : ""}`
-        );
-      }
-      if (stepIssues.length > 0) {
-        const preview = stepIssues
-          .slice(0, 5)
-          .map((i) => `${i.workerName}(${i.employeeNo}) - ${i.label} ${i.value}`)
-          .join("\n");
-        parts.push(
-          `10분 단위가 아닌 값 ${stepIssues.length}건\n${preview}${stepIssues.length > 5 ? "\n..." : ""}`
-        );
-      }
-      if (overtimeIssues.length > 0) {
-        const preview = overtimeIssues
-          .slice(0, 5)
-          .map((i) => `${i.workerName}(${i.employeeNo}) - ${i.total}시간`)
-          .join("\n");
-        parts.push(
-          `근무시간 12시간 초과 ${overtimeIssues.length}건\n${preview}${overtimeIssues.length > 5 ? "\n..." : ""}`
-        );
-      }
-      // 저장은 화면에 지금 보이는 행뿐 아니라 그 날짜의 전체 행을 대상으로 하므로
-      // (필터는 "보이는 행만 좁히는" 용도), 검색·필터에 걸려 화면에 없는 다른 사람의
-      // 값 때문에 막히는 경우가 있다(2026-09-10 실사례 — 김세은을 검색해놓고 저장했는데
-      // 화면에 없는 박진석·김선경의 기존 값이 10분 단위가 아니라서 저장이 막힘, 그런데
-      // 정작 그 두 사람이 안 보여서 어디를 고쳐야 할지 알 수 없었음). 첫 번째 문제 행으로
-      // 필터를 비우고 스크롤·포커스해 바로 찾아 고칠 수 있게 한다.
-      const firstIssue: { employeeNo: string; fieldKey: string | null } | null =
-        negativeIssues.length > 0
-          ? { employeeNo: negativeIssues[0].employeeNo, fieldKey: HOUR_FIELD_KEY_BY_LABEL[negativeIssues[0].label] ?? null }
-          : stepIssues.length > 0
-            ? { employeeNo: stepIssues[0].employeeNo, fieldKey: HOUR_FIELD_KEY_BY_LABEL[stepIssues[0].label] ?? null }
-            : overtimeIssues.length > 0
-              ? { employeeNo: overtimeIssues[0].employeeNo, fieldKey: null }
-              : null;
-      if (firstIssue) {
-        setWorkGroupFilter("");
-        setContractorFilter("");
-        setTeamFilter("");
-        setStatusFilter("");
-        setSearchText("");
-        setPendingHighlight(firstIssue);
-      }
-      window.alert(`저장할 수 없습니다.\n\n${parts.join("\n\n")}`);
-      setMessage(
-        `저장 실패 — 음수 값 ${negativeIssues.length}건, 10분 단위 오류 ${stepIssues.length}건, 근무시간 초과 ${overtimeIssues.length}건을 먼저 고쳐주세요.`
-      );
-      return;
-    }
-
-    setSaving(true);
-    setMessage(null);
-
-    const teamError = await saveTeamChanges();
-    if (teamError) {
-      setSaving(false);
-      window.alert(teamError);
-      setMessage(teamError);
-      return;
-    }
-
-    const res = await fetch("/api/work-hours", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date, rows }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setSaving(false);
-    if (!res.ok) {
-      window.alert(data.error ?? "저장에 실패했습니다.");
-      setMessage(data.error ?? "저장에 실패했습니다.");
-      return;
-    }
-    teamBaselineRef.current = new Map(rows.map((r) => [r.employee_no, r.team]));
-    const now = new Date().toISOString().slice(0, 19).replace("T", " ");
-    setLastSavedAt(now);
-    setMessage(`${new Date().toLocaleTimeString("ko-KR")} 기준 ${data.count}건 저장되었습니다.`);
-  }
-
-  // 소속(work_group) 필터 목록은 가나다순 대신 WORK_GROUP_OPTIONS의 공정코드 정렬
-  // 순서를 그대로 따른다(2026-09-08 사용자 요청).
   const workGroupOptions = distinctOptions(rows, "work_group").sort(
     (a, b) => WORK_GROUP_OPTIONS.indexOf(a) - WORK_GROUP_OPTIONS.indexOf(b)
   );
@@ -561,12 +282,8 @@ export default function WorkHoursPage() {
     });
   }
 
-  const numCls = "border border-slate-300 rounded px-1.5 py-1 text-xs w-full text-right";
   const thCls =
     "text-center px-2 py-2 font-semibold sticky top-0 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]";
-  // 근무조·근무시간·휴가·자공정 7항목·지원공정 2항목까지 폭을 전부 맞춘다(2026-09-07
-  // 사용자 요청) — 짧은 드롭다운 텍스트("주간고정" 등)와 2~3자리 숫자가 둘 다 들어가도
-  // 여유 있는 5rem으로 통일.
   const wCls = "w-20";
 
   return (
@@ -576,12 +293,11 @@ export default function WorkHoursPage() {
           <h1 className="text-xl font-bold text-navy">일일근태입력</h1>
           <p className="text-sm text-slate-500 mt-1">
             PSN-01 · 근무조·휴가구분과 자공정(정상/잔업/조출/중교/지각/조퇴/외출)·지원공정
-            (소속/시간)을 입력하면 근무시간이 자동 합산됩니다. 그리드에서 바로 고치거나,
-            왼쪽 체크박스로 여러 명을 선택해 &quot;선택 항목 일괄수정&quot;으로 한 항목을
-            한 번에 바꿀 수 있습니다 — 어느 쪽이든 &quot;저장&quot;을 눌러야 확정됩니다.
-            &quot;선택 삭제&quot;는 그 날짜 저장 기록 자체를 지우는 것이라 저장 버튼과
-            무관하게 즉시 반영됩니다. 잘못 입력했다면 같은 날짜를 다시 열어 값을 고치고
-            저장하면 그대로 덮어써집니다.
+            (소속/시간)을 조회하는 화면입니다. 그리드는 조회 전용이고, 값을 고치려면 각 행의
+            &quot;관리 · 수정&quot;을 누르거나 왼쪽 체크박스로 여러 명을 선택해 &quot;선택
+            항목 일괄수정&quot;을 누르세요 — 팝업 안에서 저장하면 그 대상자만 반영되고
+            다른 사람 값은 건드리지 않습니다. &quot;선택 삭제&quot;는 그 날짜 저장 기록
+            자체를 지웁니다.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -600,7 +316,7 @@ export default function WorkHoursPage() {
             엑셀 업로드
           </button>
           <button
-            onClick={() => setShowBulkEdit(true)}
+            onClick={() => setEditingRows(rows.filter((r) => selected.has(r.employee_no)))}
             disabled={selected.size === 0}
             className="px-3.5 py-2 rounded-md text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:border-navy disabled:opacity-40 disabled:hover:border-slate-300 transition-colors"
           >
@@ -612,13 +328,6 @@ export default function WorkHoursPage() {
             className="px-3.5 py-2 rounded-md text-sm font-medium bg-white border border-rose-300 text-rose-600 hover:bg-rose-50 disabled:opacity-40 disabled:hover:bg-white transition-colors"
           >
             {deleting ? "삭제 중..." : `선택 삭제${selected.size > 0 ? ` (${selected.size}명)` : ""}`}
-          </button>
-          <button
-            onClick={save}
-            disabled={saving || loading}
-            className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
-          >
-            {saving ? "저장 중..." : "저장"}
           </button>
         </div>
       </div>
@@ -717,6 +426,9 @@ export default function WorkHoursPage() {
                   No
                 </th>
                 <th rowSpan={2} className={thCls}>
+                  관리
+                </th>
+                <th rowSpan={2} className={thCls}>
                   사번
                 </th>
                 <th rowSpan={2} className={thCls}>
@@ -764,14 +476,14 @@ export default function WorkHoursPage() {
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={12 + HOUR_FIELDS.length + 2} className="text-center py-10 text-slate-400">
+                  <td colSpan={13 + HOUR_FIELDS.length + 2} className="text-center py-10 text-slate-400">
                     불러오는 중...
                   </td>
                 </tr>
               )}
               {!loading && visibleRows.length === 0 && (
                 <tr>
-                  <td colSpan={12 + HOUR_FIELDS.length + 2} className="text-center py-10 text-slate-400">
+                  <td colSpan={13 + HOUR_FIELDS.length + 2} className="text-center py-10 text-slate-400">
                     표시할 조원이 없습니다. (필터를 확인하거나 작업자등록에서 먼저 등록하세요)
                   </td>
                 </tr>
@@ -780,7 +492,6 @@ export default function WorkHoursPage() {
                 visibleRows.map((r, idx) => (
                   <tr
                     key={r.employee_no}
-                    data-row-employee={r.employee_no}
                     className={selected.has(r.employee_no) ? "bg-blue-50 hover:bg-blue-100" : "hover:bg-slate-50"}
                   >
                     <td className="px-2 py-1.5 text-center">
@@ -792,31 +503,26 @@ export default function WorkHoursPage() {
                       />
                     </td>
                     <td className="px-2 py-1.5 text-center text-slate-400">{idx + 1}</td>
+                    <td className="px-2 py-1.5 text-center">
+                      <button
+                        onClick={() => setEditingRows([r])}
+                        className="text-xs font-medium text-navy hover:underline"
+                      >
+                        수정
+                      </button>
+                    </td>
                     <td className="px-2 py-1.5 font-mono text-slate-500">{r.employee_no}</td>
                     <td className="px-2 py-1.5 text-slate-500">{r.work_group ?? "-"}</td>
                     <td className="px-2 py-1.5 text-slate-500">{r.duty ?? "-"}</td>
                     <td className="px-2 py-1.5 font-medium text-slate-700">{r.worker_name}</td>
-                    <td className={`px-2 py-1.5 ${wCls}`}>
-                      <select
-                        value={r.team ?? ""}
-                        onChange={(e) => updateRow(r.employee_no, { team: e.target.value || null })}
-                        className="border border-slate-300 rounded px-1.5 py-1 text-xs w-full bg-white"
-                      >
-                        <option value="">미지정</option>
-                        {TEAM_OPTIONS.map((v) => (
-                          <option key={v} value={v}>
-                            {v}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
+                    <td className={`px-2 py-1.5 text-slate-600 ${wCls}`}>{r.team ?? "미지정"}</td>
                     <td className={`px-2 py-1.5 text-slate-500 ${wCls}`}>{r.shift_group ?? "-"}</td>
                     <td
                       className={`px-2 py-1.5 text-right font-mono font-semibold ${wCls} ${
-                        computeTotal(r) > MAX_TOTAL_HOURS ? "bg-rose-50 text-rose-700" : "text-navy"
+                        r.total_hours > MAX_TOTAL_HOURS ? "bg-rose-50 text-rose-700" : "text-navy"
                       }`}
                     >
-                      {computeTotal(r).toLocaleString(undefined, {
+                      {r.total_hours.toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}
@@ -832,88 +538,18 @@ export default function WorkHoursPage() {
                         </span>
                       )}
                     </td>
-                    <td className={`px-2 py-1.5 ${wCls}`}>
-                      <select
-                        value={r.leave_type ?? ""}
-                        onChange={(e) => updateRow(r.employee_no, { leave_type: e.target.value || null })}
-                        className="border border-slate-300 rounded px-1.5 py-1 text-xs w-full bg-white"
-                      >
-                        <option value="">출근</option>
-                        {LEAVE_TYPE_OPTIONS.map((v) => (
-                          <option key={v} value={v}>
-                            {v}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
+                    <td className={`px-2 py-1.5 text-slate-600 ${wCls}`}>{r.leave_type ?? "출근"}</td>
                     <td className={`px-2 py-1.5 text-right font-mono font-semibold text-navy ${wCls}`}>
-                      {computeNormal(r).toLocaleString()}
+                      {r.normal_hours.toLocaleString()}
                     </td>
                     {HOUR_FIELDS.map((f) => (
-                      <td key={f.key} className={`px-2 py-1.5 ${wCls}`}>
-                        <input
-                          type="number"
-                          step={HOUR_STEP}
-                          min={0}
-                          data-cell={`${f.key}:${idx}`}
-                          onKeyDown={(e) => handleEnterMoveDown(e, f.key, idx)}
-                          // 값이 0이면 빈칸으로 보여준다(입력 안 한 항목이 0으로 채워져
-                          // 있어 화면이 지저분해 보이는 걸 방지) — 값 자체는 그대로 0이라
-                          // 저장/계산에는 영향 없다.
-                          value={r[f.key] === 0 ? "" : r[f.key]}
-                          onChange={(e) =>
-                            updateRow(r.employee_no, {
-                              [f.key]: applyHourFieldStep(r[f.key], Number(e.target.value), isSpinnerChangeEvent(e)),
-                            } as Partial<WorkHoursRow>)
-                          }
-                          className={
-                            r[f.key] < 0 || !isValidTenMinuteHours(r[f.key], f.key)
-                              ? `${numCls} border-rose-500 bg-rose-50 text-rose-700 font-semibold`
-                              : numCls
-                          }
-                        />
+                      <td key={f.key} className={`px-2 py-1.5 text-right font-mono text-slate-600 ${wCls}`}>
+                        {r[f.key].toLocaleString()}
                       </td>
                     ))}
-                    <td className={`px-2 py-1.5 ${wCls}`}>
-                      <select
-                        value={r.support_work_group ?? ""}
-                        onChange={(e) =>
-                          updateRow(r.employee_no, { support_work_group: e.target.value || null })
-                        }
-                        className="border border-slate-300 rounded px-1.5 py-1 text-xs w-full bg-white"
-                      >
-                        <option value="">-</option>
-                        {processGroups.map(([group, procs]) => (
-                          <optgroup key={group} label={`— ${group} —`}>
-                            {procs.map((p) => (
-                              <option key={p.process_code} value={p.process_name}>
-                                {p.process_name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </td>
-                    <td className={`px-2 py-1.5 ${wCls}`}>
-                      <input
-                        type="number"
-                        step={HOUR_STEP}
-                        min={0}
-                        data-cell={`support_hours:${idx}`}
-                        onKeyDown={(e) => handleEnterMoveDown(e, "support_hours", idx)}
-                        value={r.support_hours === 0 ? "" : r.support_hours}
-                        onChange={(e) =>
-                          updateRow(r.employee_no, {
-                            support_hours: applyHourFieldStep(r.support_hours, Number(e.target.value), isSpinnerChangeEvent(e)),
-                          })
-                        }
-                        disabled={!r.support_work_group}
-                        className={
-                          r.support_hours < 0
-                            ? `${numCls} border-rose-500 bg-rose-50 text-rose-700 font-semibold`
-                            : `${numCls} disabled:bg-slate-50 disabled:text-slate-300`
-                        }
-                      />
+                    <td className={`px-2 py-1.5 text-slate-600 ${wCls}`}>{r.support_work_group ?? "-"}</td>
+                    <td className={`px-2 py-1.5 text-right font-mono text-slate-600 ${wCls}`}>
+                      {r.support_hours.toLocaleString()}
                     </td>
                   </tr>
                 ))}
@@ -926,146 +562,367 @@ export default function WorkHoursPage() {
         <WorkHoursUploadModal date={date} onClose={() => setShowUpload(false)} onImported={load} />
       )}
 
-      {showBulkEdit && (
-        <BulkEditModal
-          count={selected.size}
-          onApply={applyBulkEdit}
-          onClose={() => setShowBulkEdit(false)}
+      {editingRows && (
+        <WorkHoursEditModal
+          date={date}
+          rows={editingRows}
+          processGroups={processGroups}
+          onClose={() => setEditingRows(null)}
+          onSaved={() => {
+            setEditingRows(null);
+            load();
+          }}
         />
       )}
     </div>
   );
 }
 
-function BulkEditModal({
-  count,
-  onApply,
+type ModalField =
+  | { key: "team"; label: string; kind: "team" }
+  | { key: "leave_type"; label: string; kind: "leave" }
+  | { key: HourField; label: string; kind: "hour" }
+  | { key: "support_work_group"; label: string; kind: "support_group" }
+  | { key: "support_hours"; label: string; kind: "support_hours" };
+
+const MODAL_FIELDS: ModalField[] = [
+  { key: "team", label: "근무조", kind: "team" },
+  { key: "leave_type", label: "휴가", kind: "leave" },
+  ...HOUR_FIELDS.map((f) => ({ ...f, kind: "hour" as const })),
+  { key: "support_work_group", label: "지원공정", kind: "support_group" },
+  { key: "support_hours", label: "지원시간", kind: "support_hours" },
+];
+
+// 행 수정 겸 선택 일괄수정 팝업 — 출퇴근카드등록(PSN-02)과 동일한 패턴이다. rows가 1개면
+// "행 수정"(전체 항목 항상 편집 가능), 2개 이상이면 "선택 일괄수정"(체크한 항목만 선택된
+// 모든 행에 같은 값으로 적용, 체크 안 한 항목은 그대로 둠). 저장을 누르면 이 팝업에 담긴
+// rows(=실제로 편집 대상인 사번들)에게만 API를 호출한다 — 화면에 떠 있는 다른 사람 행은
+// 건드리지 않는다(2026-09-13 사용자 요청, 예전엔 "저장"이 그 날짜 전체를 통째로 다시
+// 써서 근무조 하나 고치려다 다른 사람 값까지 덮어써지는 사고가 있었음).
+function WorkHoursEditModal({
+  date,
+  rows,
+  processGroups,
   onClose,
+  onSaved,
 }: {
-  count: number;
-  onApply: (patch: Partial<WorkHoursRow>) => void;
+  date: string;
+  rows: WorkHoursRow[];
+  processGroups: [string, Process[]][];
   onClose: () => void;
+  onSaved: () => void;
 }) {
-  const [field, setField] = useState<BulkFieldKey>("leave_type");
-  const [leaveValue, setLeaveValue] = useState(""); // "" = 출근
-  const [teamValue, setTeamValue] = useState(""); // "" = 미지정
-  const [valueText, setValueText] = useState("");
+  const isBulk = rows.length > 1;
+  const single = !isBulk ? rows[0] : null;
 
-  const isLeaveField = field === "leave_type";
-  const isTeamField = field === "team";
-  const value = Number(valueText);
-  const canApply = isLeaveField || isTeamField || (valueText.trim() !== "" && Number.isFinite(value));
+  const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(MODAL_FIELDS.map((f) => [f.key, !isBulk]))
+  );
+  const [team, setTeam] = useState<string>(single?.team ?? "");
+  const [leaveType, setLeaveType] = useState<string>(single?.leave_type ?? "");
+  const [hourValues, setHourValues] = useState<Record<HourField, string>>(() =>
+    Object.fromEntries(HOUR_FIELDS.map((f) => [f.key, single ? String(single[f.key]) : ""])) as Record<
+      HourField,
+      string
+    >
+  );
+  const [supportGroup, setSupportGroup] = useState<string>(single?.support_work_group ?? "");
+  const [supportHours, setSupportHours] = useState<string>(single ? String(single.support_hours) : "");
 
-  function handleApply() {
-    if (isLeaveField) {
-      onApply({ leave_type: leaveValue || null });
-    } else if (isTeamField) {
-      onApply({ team: teamValue || null });
-    } else {
-      onApply({ [field]: value } as Partial<WorkHoursRow>);
-    }
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function toggleField(key: string) {
+    setEnabled((prev) => ({ ...prev, [key]: !prev[key] }));
   }
+
+  function setHourValue(key: HourField, raw: number, isSpinner: boolean) {
+    setHourValues((prev) => {
+      const oldValue = Number(prev[key]) || 0;
+      const stepped = applyHourFieldStep(oldValue, raw, isSpinner);
+      return { ...prev, [key]: String(stepped) };
+    });
+  }
+
+  // 단일행 수정일 때만 정상/근무시간 미리보기를 보여준다(2026-09-13) — 여러 명을 한 번에
+  // 고칠 땐 사람마다 기존 값이 달라 한 화면에서 미리 계산해 보여줄 수 없다.
+  const preview = (() => {
+    if (!single) return null;
+    const patched = {
+      leave_type: leaveType || null,
+      overtime_hours: Number(hourValues.overtime_hours) || 0,
+      early_start_hours: Number(hourValues.early_start_hours) || 0,
+      lunch_shift_hours: Number(hourValues.lunch_shift_hours) || 0,
+      late_hours: Number(hourValues.late_hours) || 0,
+      early_leave_hours: Number(hourValues.early_leave_hours) || 0,
+      outing_hours: Number(hourValues.outing_hours) || 0,
+      support_hours: supportGroup ? Number(supportHours) || 0 : 0,
+    };
+    const { normalHours } = computeAttendance(patched);
+    return { normal: normalHours, total: computeTotal(patched) };
+  })();
+
+  const activeKeys = MODAL_FIELDS.map((f) => f.key).filter((k) => enabled[k]);
+
+  function validate(): string | null {
+    if (isBulk && activeKeys.length === 0) return "변경할 항목을 하나 이상 선택하세요.";
+
+    for (const f of HOUR_FIELDS) {
+      if (!enabled[f.key]) continue;
+      const v = Number(hourValues[f.key]);
+      if (!Number.isFinite(v)) return `${f.label} 값이 올바르지 않습니다.`;
+      if (v < 0) return `${f.label}은(는) 음수를 입력할 수 없습니다.`;
+      if (!isValidTenMinuteHours(v, f.key)) return `${f.label}은(는) 10분 단위로만 입력할 수 있습니다.`;
+    }
+    if (enabled.support_hours) {
+      const v = Number(supportHours);
+      if (!Number.isFinite(v) || v < 0) return "지원시간은 음수를 입력할 수 없습니다.";
+    }
+
+    // 근무시간 12시간 초과 — 대상 각 행에 활성화된 항목을 적용해봤을 때를 기준으로 판정.
+    const overLimit: string[] = [];
+    for (const r of rows) {
+      const patched = {
+        leave_type: enabled.leave_type ? leaveType || null : r.leave_type,
+        overtime_hours: enabled.overtime_hours ? Number(hourValues.overtime_hours) || 0 : r.overtime_hours,
+        early_start_hours: enabled.early_start_hours
+          ? Number(hourValues.early_start_hours) || 0
+          : r.early_start_hours,
+        lunch_shift_hours: enabled.lunch_shift_hours
+          ? Number(hourValues.lunch_shift_hours) || 0
+          : r.lunch_shift_hours,
+        late_hours: enabled.late_hours ? Number(hourValues.late_hours) || 0 : r.late_hours,
+        early_leave_hours: enabled.early_leave_hours
+          ? Number(hourValues.early_leave_hours) || 0
+          : r.early_leave_hours,
+        outing_hours: enabled.outing_hours ? Number(hourValues.outing_hours) || 0 : r.outing_hours,
+        support_hours: enabled.support_hours ? Number(supportHours) || 0 : r.support_hours,
+      };
+      if (computeTotal(patched) > MAX_TOTAL_HOURS) overLimit.push(r.worker_name);
+    }
+    if (overLimit.length > 0) {
+      return `근무시간이 12시간을 초과합니다: ${overLimit.slice(0, 5).join(", ")}${
+        overLimit.length > 5 ? ` 외 ${overLimit.length - 5}명` : ""
+      }`;
+    }
+    return null;
+  }
+
+  async function submit() {
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+
+    if (enabled.team) {
+      const groups = new Map<string, string[]>();
+      for (const r of rows) {
+        if (r.team === (team || null)) continue;
+        const list = groups.get(team) ?? [];
+        list.push(r.employee_no);
+        groups.set(team, list);
+      }
+      for (const [teamValue, employeeNos] of groups) {
+        if (employeeNos.length === 0) continue;
+        const res = await fetch("/api/workers/team", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ employeeNos, team: teamValue || null, date }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setSaving(false);
+          setError(data.error ?? "근무조 변경에 실패했습니다.");
+          return;
+        }
+      }
+    }
+
+    // 근무조를 뺀 나머지 활성 항목만 이 팝업의 대상(rows)에게 적용해 /api/work-hours로
+    // 보낸다 — PUT은 받은 rows 배열에 있는 사번만 upsert하므로, 다른 사람은 그대로다.
+    const otherActive = activeKeys.filter((k) => k !== "team");
+    if (otherActive.length > 0 || !isBulk) {
+      const patchedRows = rows.map((r) => ({
+        employee_no: r.employee_no,
+        leave_type: enabled.leave_type ? leaveType || null : r.leave_type,
+        overtime_hours: enabled.overtime_hours ? Number(hourValues.overtime_hours) || 0 : r.overtime_hours,
+        early_start_hours: enabled.early_start_hours
+          ? Number(hourValues.early_start_hours) || 0
+          : r.early_start_hours,
+        lunch_shift_hours: enabled.lunch_shift_hours
+          ? Number(hourValues.lunch_shift_hours) || 0
+          : r.lunch_shift_hours,
+        late_hours: enabled.late_hours ? Number(hourValues.late_hours) || 0 : r.late_hours,
+        early_leave_hours: enabled.early_leave_hours
+          ? Number(hourValues.early_leave_hours) || 0
+          : r.early_leave_hours,
+        outing_hours: enabled.outing_hours ? Number(hourValues.outing_hours) || 0 : r.outing_hours,
+        support_work_group: enabled.support_work_group ? supportGroup || null : r.support_work_group,
+        support_hours: enabled.support_work_group
+          ? supportGroup
+            ? Number(supportHours) || 0
+            : 0
+          : enabled.support_hours
+            ? Number(supportHours) || 0
+            : r.support_hours,
+      }));
+      const res = await fetch("/api/work-hours", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, rows: patchedRows }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSaving(false);
+        setError(data.error ?? "저장에 실패했습니다.");
+        return;
+      }
+    }
+
+    setSaving(false);
+    onSaved();
+  }
+
+  const inputCls =
+    "border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white w-full disabled:bg-slate-50 disabled:text-slate-300 text-right";
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-          <h2 className="text-base font-bold text-navy">선택 항목 일괄수정</h2>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 text-xl leading-none"
-            aria-label="닫기"
-          >
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+          <h2 className="text-base font-bold text-navy">
+            {isBulk ? (
+              <>
+                선택 항목 일괄수정 <span className="text-slate-400 font-normal">({rows.length}명)</span>
+              </>
+            ) : (
+              <>
+                근태 수정{" "}
+                <span className="text-slate-400 font-normal">
+                  {single!.worker_name}({single!.employee_no})
+                </span>
+              </>
+            )}
+          </h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none" aria-label="닫기">
             ×
           </button>
         </div>
-        <div className="px-5 py-4 space-y-4">
-          <p className="text-sm text-slate-600">
-            선택한 <span className="font-semibold text-navy">{count}명</span>의 값을 한 번에
-            바꿉니다. 저장 버튼을 눌러야 실제로 반영됩니다.
-          </p>
-          <label className="block text-sm">
-            <span className="text-slate-600">항목</span>
-            <select
-              value={field}
-              onChange={(e) => setField(e.target.value as BulkFieldKey)}
-              className="mt-1 w-full border border-slate-300 rounded-md px-2.5 py-2 text-sm bg-white"
-            >
-              {BULK_FIELDS.map((f) => (
-                <option key={f.key} value={f.key}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {isLeaveField ? (
-            <label className="block text-sm">
-              <span className="text-slate-600">휴가구분</span>
-              <select
-                value={leaveValue}
-                onChange={(e) => setLeaveValue(e.target.value)}
-                className="mt-1 w-full border border-slate-300 rounded-md px-2.5 py-2 text-sm bg-white"
-                autoFocus
-              >
-                <option value="">출근</option>
-                {LEAVE_TYPE_OPTIONS.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : isTeamField ? (
-            <label className="block text-sm">
-              <span className="text-slate-600">근무조</span>
-              <select
-                value={teamValue}
-                onChange={(e) => setTeamValue(e.target.value)}
-                className="mt-1 w-full border border-slate-300 rounded-md px-2.5 py-2 text-sm bg-white"
-                autoFocus
-              >
-                <option value="">미지정</option>
-                {TEAM_OPTIONS.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <label className="block text-sm">
-              <span className="text-slate-600">값(시간)</span>
-              <input
-                type="number"
-                step={HOUR_STEP}
-                min={0}
-                value={valueText}
-                onChange={(e) => {
-                  const raw = Number(e.target.value);
-                  const prev = Number(valueText) || 0;
-                  const stepped = applyHourFieldStep(prev, raw, isSpinnerChangeEvent(e));
-                  setValueText(stepped === raw ? e.target.value : String(stepped));
-                }}
-                placeholder="예: 8"
-                className="mt-1 w-full border border-slate-300 rounded-md px-2.5 py-2 text-sm text-right"
-                autoFocus
-              />
-            </label>
+        <div className="px-5 py-4 overflow-y-auto space-y-3">
+          {isBulk && (
+            <p className="text-xs text-slate-500 mb-1">
+              체크한 항목만 선택된 {rows.length}명 전부에게 같은 값으로 적용됩니다. 체크하지
+              않은 항목은 그대로 둡니다.
+            </p>
           )}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+            {MODAL_FIELDS.map((f) => (
+              <div key={f.key} className="flex items-center gap-2">
+                {isBulk && (
+                  <input
+                    type="checkbox"
+                    checked={enabled[f.key]}
+                    onChange={() => toggleField(f.key)}
+                    aria-label={`${f.label} 변경`}
+                  />
+                )}
+                <label className="text-xs text-slate-500 w-16 shrink-0">{f.label}</label>
+                {f.kind === "team" ? (
+                  <select
+                    value={team}
+                    onChange={(e) => setTeam(e.target.value)}
+                    disabled={isBulk && !enabled.team}
+                    className={inputCls.replace("text-right", "")}
+                  >
+                    <option value="">미지정</option>
+                    {TEAM_OPTIONS.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                ) : f.kind === "leave" ? (
+                  <select
+                    value={leaveType}
+                    onChange={(e) => setLeaveType(e.target.value)}
+                    disabled={isBulk && !enabled.leave_type}
+                    className={inputCls.replace("text-right", "")}
+                  >
+                    <option value="">출근</option>
+                    {LEAVE_TYPE_OPTIONS.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                ) : f.kind === "hour" ? (
+                  <input
+                    type="number"
+                    step={HOUR_STEP}
+                    min={0}
+                    value={hourValues[f.key]}
+                    onChange={(e) => setHourValue(f.key, Number(e.target.value), isSpinnerChangeEvent(e))}
+                    disabled={isBulk && !enabled[f.key]}
+                    className={inputCls}
+                  />
+                ) : f.kind === "support_group" ? (
+                  <select
+                    value={supportGroup}
+                    onChange={(e) => setSupportGroup(e.target.value)}
+                    disabled={isBulk && !enabled.support_work_group}
+                    className={inputCls.replace("text-right", "")}
+                  >
+                    <option value="">-</option>
+                    {processGroups.map(([group, procs]) => (
+                      <optgroup key={group} label={`— ${group} —`}>
+                        {procs.map((p) => (
+                          <option key={p.process_code} value={p.process_name}>
+                            {p.process_name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="number"
+                    step={HOUR_STEP}
+                    min={0}
+                    value={supportHours}
+                    onChange={(e) => setSupportHours(e.target.value)}
+                    disabled={(isBulk && !enabled.support_hours) || (!isBulk && !supportGroup)}
+                    className={inputCls}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+          {preview && (
+            <p className="text-xs text-slate-500 pt-1 border-t border-slate-100">
+              미리보기 — 정상 <span className="font-mono font-semibold text-navy">{preview.normal}</span>
+              , 근무시간{" "}
+              <span
+                className={`font-mono font-semibold ${preview.total > MAX_TOTAL_HOURS ? "text-rose-600" : "text-navy"}`}
+              >
+                {preview.total.toFixed(2)}
+              </span>
+            </p>
+          )}
+          {error && <p className="text-sm text-rose-600">{error}</p>}
         </div>
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-200">
-          <button
-            onClick={onClose}
-            className="px-3.5 py-2 rounded-md text-sm border border-slate-300 bg-white text-slate-600"
-          >
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100 shrink-0">
+          <button onClick={onClose} className="px-3.5 py-2 rounded-md text-sm border border-slate-300 bg-white text-slate-600">
             취소
           </button>
           <button
-            onClick={() => canApply && handleApply()}
-            disabled={!canApply}
+            onClick={submit}
+            disabled={saving}
             className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white disabled:opacity-40"
           >
-            적용
+            {saving ? "저장 중..." : "저장"}
           </button>
         </div>
       </div>
@@ -1110,11 +967,7 @@ function WorkHoursUploadModal({
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
           <h2 className="text-base font-bold text-navy">엑셀 업로드</h2>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 text-xl leading-none"
-            aria-label="닫기"
-          >
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none" aria-label="닫기">
             ×
           </button>
         </div>
@@ -1126,10 +979,7 @@ function WorkHoursUploadModal({
                 {result.skippedNoKey > 0 && `, 건너뜀(사번 없음/미등록) ${result.skippedNoKey.toLocaleString()}건`}
               </p>
               <div className="flex justify-end">
-                <button
-                  onClick={onClose}
-                  className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white"
-                >
+                <button onClick={onClose} className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white">
                   닫기
                 </button>
               </div>
@@ -1153,10 +1003,7 @@ function WorkHoursUploadModal({
               </label>
               {error && <p className="text-sm text-rose-600">{error}</p>}
               <div className="flex justify-end gap-2">
-                <button
-                  onClick={onClose}
-                  className="px-3.5 py-2 rounded-md text-sm border border-slate-300 bg-white text-slate-600"
-                >
+                <button onClick={onClose} className="px-3.5 py-2 rounded-md text-sm border border-slate-300 bg-white text-slate-600">
                   취소
                 </button>
                 <button
