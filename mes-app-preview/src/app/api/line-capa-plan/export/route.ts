@@ -24,20 +24,29 @@ export async function GET(req: NextRequest) {
   const fmt = (n: number | null, digits = 0) =>
     n == null ? "-" : Number(n.toFixed(digits)).toLocaleString("ko-KR");
 
+  // 사출_상/사출_하는 같은 사출(P100) 인원이 담당하는 한 라인이라 인원·근무시간·근무일수가
+  // 항상 같다(2026-09-13 사용자 요청) — 화면(page.tsx LineCapaPlanTab)과 맞춰 엑셀도 두 행에
+  // 걸쳐 병합한다. "공정별 계획"(일CAPA)은 라인마다 달라 병합하지 않는다.
+  const upperIdx = result.rows.findIndex((r) => r.key === "injection_upper");
+  const lowerIdx = result.rows.findIndex((r) => r.key === "injection_lower");
+  const mergeInjectionStats = upperIdx >= 0 && lowerIdx === upperIdx + 1;
+
+  const dataRows = result.rows.map((r, i) => [
+    r.label,
+    mergeInjectionStats && i === lowerIdx ? "" : `${r.headcount} 명`,
+    mergeInjectionStats && i === lowerIdx ? "" : `${r.hoursPerDay.toFixed(2)} hr`,
+    mergeInjectionStats && i === lowerIdx ? "" : `${r.workDays} 일`,
+    fmt(r.dailyCapa),
+    fmt(r.monthlyCapa),
+    r.uph == null ? "-" : fmt(r.uph, 1),
+    r.remark ?? r.defaultRemark ?? "-",
+  ]);
+
   const aoa: (string | number)[][] = [
     [`${monthLabel}월 공정별 월 CAPA 및 근무계획`, "", "", "", "", "", "", ""],
     ["라인별", "인원", "근무시간", "근무일수", "공정별 계획", "", "생산성(UPH)", "비고"],
     ["", "", "", "", "Day", "Month", "", ""],
-    ...result.rows.map((r) => [
-      r.label,
-      `${r.headcount} 명`,
-      `${r.hoursPerDay.toFixed(2)} hr`,
-      `${r.workDays} 일`,
-      fmt(r.dailyCapa),
-      fmt(r.monthlyCapa),
-      r.uph == null ? "-" : fmt(r.uph, 1),
-      r.remark ?? r.defaultRemark ?? "-",
-    ]),
+    ...dataRows,
     [
       "합계",
       `${result.totals.headcount} 명`,
@@ -50,6 +59,7 @@ export async function GET(req: NextRequest) {
     ],
   ];
 
+  const HEADER_ROWS = 3;
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!merges"] = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
@@ -60,6 +70,12 @@ export async function GET(req: NextRequest) {
     { s: { r: 1, c: 4 }, e: { r: 1, c: 5 } },
     { s: { r: 1, c: 6 }, e: { r: 2, c: 6 } },
     { s: { r: 1, c: 7 }, e: { r: 2, c: 7 } },
+    ...(mergeInjectionStats
+      ? [1, 2, 3].map((c) => ({
+          s: { r: HEADER_ROWS + upperIdx, c },
+          e: { r: HEADER_ROWS + lowerIdx, c },
+        }))
+      : []),
   ];
   ws["!cols"] = [
     { wch: 10 },

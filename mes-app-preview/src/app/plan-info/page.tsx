@@ -11,6 +11,12 @@ interface ItemHit {
 
 type Draft = { daily_capa: string; yield_rate: string; lot_size: string };
 
+// 입력칸에서 엔터를 치면 같은 열의 다음 행으로 포커스를 옮긴다(엑셀 느낌의 연속 입력,
+// 2026-09-13 사용자 요청) — 포커스가 옮겨가며 발생하는 blur가 그대로 저장을 트리거한다.
+function focusId(id: string) {
+  document.getElementById(id)?.focus();
+}
+
 function toNum(s: string): number | null {
   const t = s.trim();
   if (t === "") return null;
@@ -83,6 +89,7 @@ function ItemProcessPlanTab() {
   const [loadingRows, setLoadingRows] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [savingCode, setSavingCode] = useState<string | null>(null);
+  const [savingAll, setSavingAll] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   // 품목 검색어는 300ms 디바운스 후 서버 검색 — 품목이 7만 건대라 전체를 내려받지 않는다.
@@ -176,6 +183,38 @@ function ItemProcessPlanTab() {
       setToast(err instanceof Error ? err.message : "저장에 실패했습니다.");
     } finally {
       setSavingCode(null);
+    }
+  }
+
+  // 행마다 blur/엔터로도 바로 저장되지만, 여러 칸을 한 번에 입력한 뒤 눌러서 화면에
+  // 남아있는 입력값을 통째로 저장 확인할 수 있는 버튼도 따로 둔다(2026-09-13 사용자 요청).
+  async function saveAllRows() {
+    if (!selectedItem || rows.length === 0) return;
+    setSavingAll(true);
+    try {
+      const results = await Promise.all(
+        rows.map(async (r) => {
+          const d = drafts[r.process_code] ?? draftOf(r);
+          const res = await fetch("/api/item-process-routing", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              item_code: selectedItem.item_code,
+              process_code: r.process_code,
+              daily_capa: toNum(d.daily_capa),
+              yield_rate: toNum(d.yield_rate),
+              lot_size: toNum(d.lot_size),
+            }),
+          });
+          return res.ok;
+        })
+      );
+      loadRows(selectedItem.item_code);
+      setToast(results.every(Boolean) ? "저장했습니다." : "일부 저장에 실패했습니다.");
+    } catch {
+      setToast("저장에 실패했습니다.");
+    } finally {
+      setSavingAll(false);
     }
   }
 
@@ -274,9 +313,10 @@ function ItemProcessPlanTab() {
                   </tr>
                 )}
                 {!loadingRows &&
-                  rows.map((r) => {
+                  rows.map((r, i) => {
                     const d = drafts[r.process_code] ?? draftOf(r);
                     const saving = savingCode === r.process_code;
+                    const nextCode = rows[i + 1]?.process_code;
                     return (
                       <tr key={r.process_code} className="hover:bg-slate-50">
                         <td className="px-3 py-2.5 text-center text-slate-400">{r.seq}</td>
@@ -286,11 +326,17 @@ function ItemProcessPlanTab() {
                         <td className="px-3 py-2.5">{r.process_name}</td>
                         <td className="px-2 py-1.5">
                           <input
+                            id={`ip-daily_capa-${r.process_code}`}
                             value={d.daily_capa}
                             onChange={(e) =>
                               setDraft(r.process_code, "daily_capa", e.target.value.replace(/[^0-9.]/g, ""))
                             }
                             onBlur={() => saveRow(r.process_code)}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              e.preventDefault();
+                              if (nextCode) focusId(`ip-daily_capa-${nextCode}`);
+                            }}
                             disabled={saving}
                             placeholder={
                               r.default_daily_capa != null ? `${r.default_daily_capa} (기본값)` : "-"
@@ -300,11 +346,17 @@ function ItemProcessPlanTab() {
                         </td>
                         <td className="px-2 py-1.5">
                           <input
+                            id={`ip-yield_rate-${r.process_code}`}
                             value={d.yield_rate}
                             onChange={(e) =>
                               setDraft(r.process_code, "yield_rate", e.target.value.replace(/[^0-9.]/g, ""))
                             }
                             onBlur={() => saveRow(r.process_code)}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              e.preventDefault();
+                              if (nextCode) focusId(`ip-yield_rate-${nextCode}`);
+                            }}
                             disabled={saving}
                             placeholder={
                               r.default_yield_rate != null ? `${r.default_yield_rate} (기본값)` : "-"
@@ -314,11 +366,17 @@ function ItemProcessPlanTab() {
                         </td>
                         <td className="px-2 py-1.5">
                           <input
+                            id={`ip-lot_size-${r.process_code}`}
                             value={d.lot_size}
                             onChange={(e) =>
                               setDraft(r.process_code, "lot_size", e.target.value.replace(/[^0-9.]/g, ""))
                             }
                             onBlur={() => saveRow(r.process_code)}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              e.preventDefault();
+                              if (nextCode) focusId(`ip-lot_size-${nextCode}`);
+                            }}
                             disabled={saving}
                             placeholder={
                               r.default_lot_size != null ? `${r.default_lot_size} (기본값)` : "-"
@@ -336,6 +394,13 @@ function ItemProcessPlanTab() {
             <p className="text-xs text-slate-500">
               칸을 비우고 저장하면 공정 기본값을 따릅니다 · 전체 {rows.length.toLocaleString()}개 공정
             </p>
+            <button
+              onClick={saveAllRows}
+              disabled={savingAll || loadingRows}
+              className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white hover:bg-navy/90 transition-colors disabled:opacity-40"
+            >
+              {savingAll ? "저장 중..." : "저장"}
+            </button>
           </div>
         </div>
       )}
@@ -361,6 +426,7 @@ function LineCapaPlanTab() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [remarkDrafts, setRemarkDrafts] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [savingAll, setSavingAll] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   function load() {
@@ -427,6 +493,47 @@ function LineCapaPlanTab() {
     }
   }
 
+  // 칸마다 blur/엔터로도 바로 저장되지만, 여러 칸을 한 번에 입력한 뒤 눌러서 화면에
+  // 남아있는 입력값을 통째로 저장 확인할 수 있는 버튼도 따로 둔다(2026-09-13 사용자 요청).
+  async function saveAllLineCapa() {
+    if (!result) return;
+    setSavingAll(true);
+    try {
+      const results = await Promise.all(
+        result.rows.flatMap((r) => {
+          const tasks: Promise<boolean>[] = [];
+          if (!r.isIndirect) {
+            const raw = drafts[r.key] ?? "";
+            const dailyCapa = raw.trim() === "" ? null : Number(raw);
+            if (dailyCapa == null || Number.isFinite(dailyCapa)) {
+              tasks.push(
+                fetch("/api/line-capa-plan", {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ yearMonth, lineKey: r.key, dailyCapa }),
+                }).then((res) => res.ok)
+              );
+            }
+          }
+          tasks.push(
+            fetch("/api/line-capa-plan", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ yearMonth, lineKey: r.key, remark: remarkDrafts[r.key] ?? "" }),
+            }).then((res) => res.ok)
+          );
+          return tasks;
+        })
+      );
+      load();
+      setToast(results.every(Boolean) ? "저장했습니다." : "일부 저장에 실패했습니다.");
+    } catch {
+      setToast("저장에 실패했습니다.");
+    } finally {
+      setSavingAll(false);
+    }
+  }
+
   const thCls = "text-center px-3 py-2.5 font-semibold sticky top-0 z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0]";
 
   return (
@@ -454,6 +561,13 @@ function LineCapaPlanTab() {
           className="px-3.5 py-2 rounded-md text-sm font-medium bg-emerald-700 text-white hover:bg-emerald-800 transition-colors"
         >
           엑셀 다운로드
+        </button>
+        <button
+          onClick={saveAllLineCapa}
+          disabled={savingAll || loading}
+          className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white hover:bg-navy/90 transition-colors disabled:opacity-40"
+        >
+          {savingAll ? "저장 중..." : "저장"}
         </button>
       </div>
 
@@ -501,22 +615,56 @@ function LineCapaPlanTab() {
                 </tr>
               )}
               {!loading &&
-                result?.rows.map((r) => (
+                result?.rows.map((r, i) => {
+                  // 사출_상/사출_하는 실제로는 같은 사출(P100) 인원이 담당하는 한 라인이라
+                  // 인원·근무시간·근무일수가 항상 동일하다(2026-09-13 사용자 요청) — 사출_상
+                  // 행에서 두 행에 걸쳐 병합해 보여주고, 사출_하 행에서는 그 세 칸을 생략한다.
+                  // "공정별 계획"(일CAPA)은 라인마다 다를 수 있어 병합하지 않고 그대로 둔다.
+                  const mergeStatsDown = r.key === "injection_upper";
+                  const skipStatsCells = r.key === "injection_lower";
+                  const nextCapaRow = result.rows.slice(i + 1).find((x) => !x.isIndirect);
+                  const nextRemarkKey = result.rows[i + 1]?.key;
+                  return (
                   <tr key={r.key} className="hover:bg-slate-50">
                     <td className="px-3 py-2.5 font-medium text-slate-700">{r.label}</td>
-                    <td className="px-3 py-2.5 text-right font-mono">{r.headcount.toLocaleString()} 명</td>
-                    <td className="px-3 py-2.5 text-right font-mono">{r.hoursPerDay.toFixed(2)} hr</td>
-                    <td className="px-3 py-2.5 text-right font-mono">{r.workDays.toLocaleString()} 일</td>
+                    {!skipStatsCells && (
+                      <>
+                        <td
+                          className="px-3 py-2.5 text-right font-mono"
+                          rowSpan={mergeStatsDown ? 2 : undefined}
+                        >
+                          {r.headcount.toLocaleString()} 명
+                        </td>
+                        <td
+                          className="px-3 py-2.5 text-right font-mono"
+                          rowSpan={mergeStatsDown ? 2 : undefined}
+                        >
+                          {r.hoursPerDay.toFixed(2)} hr
+                        </td>
+                        <td
+                          className="px-3 py-2.5 text-right font-mono"
+                          rowSpan={mergeStatsDown ? 2 : undefined}
+                        >
+                          {r.workDays.toLocaleString()} 일
+                        </td>
+                      </>
+                    )}
                     <td className="px-2 py-1.5">
                       {r.isIndirect ? (
                         <span className="block text-right text-slate-300 px-2">-</span>
                       ) : (
                         <input
+                          id={`lc-capa-${r.key}`}
                           value={drafts[r.key] ?? ""}
                           onChange={(e) =>
                             setDrafts((prev) => ({ ...prev, [r.key]: e.target.value.replace(/[^0-9.]/g, "") }))
                           }
                           onBlur={() => saveCapa(r.key)}
+                          onKeyDown={(e) => {
+                            if (e.key !== "Enter") return;
+                            e.preventDefault();
+                            if (nextCapaRow) focusId(`lc-capa-${nextCapaRow.key}`);
+                          }}
                           disabled={savingKey === `${r.key}:capa`}
                           placeholder="-"
                           className="w-28 border border-slate-300 rounded-md px-2 py-1.5 text-sm text-right font-mono disabled:opacity-50"
@@ -529,18 +677,25 @@ function LineCapaPlanTab() {
                     </td>
                     <td className="px-2 py-1.5">
                       <input
+                        id={`lc-remark-${r.key}`}
                         value={remarkDrafts[r.key] ?? ""}
                         onChange={(e) =>
                           setRemarkDrafts((prev) => ({ ...prev, [r.key]: e.target.value }))
                         }
                         onBlur={() => saveRemark(r.key)}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") return;
+                          e.preventDefault();
+                          if (nextRemarkKey) focusId(`lc-remark-${nextRemarkKey}`);
+                        }}
                         disabled={savingKey === `${r.key}:remark`}
                         placeholder={r.defaultRemark ?? "-"}
                         className="w-64 border border-slate-300 rounded-md px-2 py-1.5 text-sm placeholder:text-slate-400 placeholder:italic disabled:opacity-50"
                       />
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               {!loading && result && (
                 <tr className="bg-slate-50 font-semibold text-navy">
                   <td className="px-3 py-2.5">합계</td>
