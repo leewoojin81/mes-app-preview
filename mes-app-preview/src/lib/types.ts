@@ -250,6 +250,51 @@ export interface LineCapaResult {
   };
 }
 
+// 경영정보 "공정별생산현황(MGMT-05, 매일 아침 회의용)" 라인 1행 —
+// src/lib/production-status.ts의 computeProductionStatus가 만들어 내려준다.
+export interface ProductionStatusRow {
+  key: string;
+  label: string;
+  isMold: boolean;
+  headcount: number;
+  monthlyTarget: number | null;
+  dailyTarget: number | null;
+  yesterdayQty: number;
+  mtdQty: number;
+  wip: number;
+  shortage: number | null;
+  achievementRate: number | null;
+  progressRate: number | null;
+  progressGap: number | null;
+  cumulativeShortage: number | null;
+  yesterdayUph: number | null;
+  mtdUph: number | null;
+  prevMonthUph: number | null;
+}
+export interface ProductionStatusResult {
+  asOfDate: string;
+  yesterday: string;
+  yearMonth: string;
+  totalWorkDays: number;
+  doneWorkDays: number;
+  remainingWorkDays: number;
+  overallProgressRate: number | null;
+  prevYearMonth: string;
+  rows: ProductionStatusRow[];
+}
+
+// MGMT-05 표 하단 그래프 — src/lib/production-status.ts의 computeProductionTrend가 만들어 내려준다.
+export interface ProductionTrendPoint {
+  label: string;
+  qty: number;
+}
+export interface ProductionTrendResult {
+  lineKey: string;
+  label: string;
+  points: ProductionTrendPoint[];
+  average: number;
+}
+
 // 인원관리(PSN-04) "공정별근무현황" — 조회기간 내 공정(BASE-04 process_name)별 연인원(person-day) 집계 1행.
 export interface ProcessWorkSummaryRow {
   process_name: string;

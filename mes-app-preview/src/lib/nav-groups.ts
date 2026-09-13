@@ -92,6 +92,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/reports/monthly-orders", label: "월별수주현황", code: "MGMT-02" },
       { href: "/reports/customer-orders", label: "거래처별수주추이", code: "MGMT-03" },
       { href: "/reports/sales-dashboard", label: "월별수주현황분석", code: "MGMT-04" },
+      { href: "/production-status", label: "공정별생산현황", code: "MGMT-05" },
     ],
   },
   {

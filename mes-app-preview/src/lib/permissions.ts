@@ -121,6 +121,7 @@ const CODE_API_PREFIXES: Record<string, string[]> = {
   "MGMT-02": ["/api/analytics/monthly-orders"],
   "MGMT-03": ["/api/analytics/customers"],
   "MGMT-04": ["/api/analytics/sales-dashboard"],
+  "MGMT-05": ["/api/production-status"],
   "SYS-01": ["/api/users"],
 };
 

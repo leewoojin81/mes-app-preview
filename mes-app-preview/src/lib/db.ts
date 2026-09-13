@@ -765,6 +765,7 @@ CREATE TABLE IF NOT EXISTS line_capa_plan (
   updated_by TEXT,
   PRIMARY KEY (year_month, line_key)
 );
+
 `;
 
 function migrate(db: DatabaseSync) {
