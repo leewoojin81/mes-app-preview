@@ -541,6 +541,29 @@ CREATE TABLE IF NOT EXISTS mold_receipt_status (
   detail TEXT
 );
 
+-- 재고관리 "창고이동현황(INV-05)" 화면 — ERP 창고간 이동 리포트(d_mmmr010) 엑셀 업로드.
+-- mold_receipt_status(INV-04)와 같은 모양이지만 창고가 출고/입고 둘이라 warehouse
+-- 하나 대신 from_warehouse/to_warehouse 둘을 둔다(출고품목=입고품목이 원본에서 항상
+-- 같음을 확인해 item_code는 하나만 둔다). 이동 1건이 품목별로 여러 행(순번)으로 나뉘어
+-- 이동번호만으론 유일하지 않으므로 record_key(이동번호|순번)에 UNIQUE 제약을 두고
+-- 자연키로 upsert한다. 원본이 누적 로그라 기간을 나눠 여러 번 업로드하는 경우가 많은데,
+-- 다른 대용량 리포트와 같은 이유로 "구간 재동기화" 방식을 쓴다: 업로드마다 파일의
+-- 이동일자 최소~최대 구간을 구해 그 구간의 기존 데이터를 지우고 새로 채운다.
+-- transfer_date(이동일자)는 원본 "YYYY.MM.DD" 표기를 "YYYY-MM-DD"로 정규화해 저장
+-- (필터/정렬/구간 계산용).
+CREATE TABLE IF NOT EXISTS warehouse_transfer_status (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  record_key TEXT UNIQUE,
+  transfer_date TEXT,
+  item_code TEXT,
+  from_warehouse TEXT,
+  to_warehouse TEXT,
+  transfer_no TEXT,
+  lot_no TEXT,
+  uploaded_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  detail TEXT
+);
+
 -- 생산관리 "도수변경등록(PROD-06)" 화면 — ERP 조립 실적 리포트(d_pmmr543) 엑셀 업로드.
 -- 조립 LOT마다 투입되는 자재(BASE/착색 등) 단위로 한 행씩 잡혀 원본 헤더에 "주야간"이
 -- 두 번(작업 주야간·검사 주야간) 나오는데, JSON 키가 겹치지 않도록 두 번째는 내부적으로
@@ -1112,6 +1135,12 @@ function migrate(db: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_mold_receipt_status_receipt_date ON mold_receipt_status(receipt_date DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_mold_receipt_status_item_code ON mold_receipt_status(item_code);
     CREATE INDEX IF NOT EXISTS idx_mold_receipt_status_receipt_no ON mold_receipt_status(receipt_no);
+
+    CREATE INDEX IF NOT EXISTS idx_warehouse_transfer_status_transfer_date ON warehouse_transfer_status(transfer_date DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_warehouse_transfer_status_item_code ON warehouse_transfer_status(item_code);
+    CREATE INDEX IF NOT EXISTS idx_warehouse_transfer_status_transfer_no ON warehouse_transfer_status(transfer_no);
+    CREATE INDEX IF NOT EXISTS idx_warehouse_transfer_status_from_warehouse ON warehouse_transfer_status(from_warehouse);
+    CREATE INDEX IF NOT EXISTS idx_warehouse_transfer_status_to_warehouse ON warehouse_transfer_status(to_warehouse);
 
     CREATE INDEX IF NOT EXISTS idx_equipments_equipment_name ON equipments(equipment_name);
 
