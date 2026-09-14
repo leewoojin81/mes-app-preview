@@ -14,7 +14,7 @@ interface HistoryResponse {
   pageSize: number;
   entityTypes: readonly string[];
   fields: { key: string; label: string }[];
-  changedByOptions: string[];
+  changedByOptions: { value: string; label: string }[];
 }
 
 function toLocalDateStr(d: Date): string {
@@ -44,7 +44,7 @@ export default function MasterDataChangeHistoryPage() {
   const [total, setTotal] = useState(0);
   const [entityTypes, setEntityTypes] = useState<readonly string[]>([]);
   const [fields, setFields] = useState<{ key: string; label: string }[]>([]);
-  const [changedByOptions, setChangedByOptions] = useState<string[]>([]);
+  const [changedByOptions, setChangedByOptions] = useState<{ value: string; label: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [page, setPage] = useTabState("mdchPage", 1);
@@ -240,9 +240,9 @@ export default function MasterDataChangeHistoryPage() {
           className={selectCls}
         >
           <option value="">변경자 전체</option>
-          {changedByOptions.map((v) => (
-            <option key={v} value={v}>
-              {v}
+          {changedByOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
             </option>
           ))}
         </select>
@@ -320,7 +320,7 @@ export default function MasterDataChangeHistoryPage() {
                     <td className="px-3 py-2 text-slate-500">{fmtValue(r.field, r.old_value)}</td>
                     <td className="px-3 py-2 font-semibold text-navy">{fmtValue(r.field, r.new_value)}</td>
                     <td className="px-3 py-2 text-slate-600">{r.change_date}</td>
-                    <td className="px-3 py-2 text-slate-500">{r.changed_by ?? "-"}</td>
+                    <td className="px-3 py-2 text-slate-500">{r.changed_by_name ?? r.changed_by ?? "-"}</td>
                     <td className="px-3 py-2 text-xs text-slate-400">{r.created_at}</td>
                   </tr>
                 ))}

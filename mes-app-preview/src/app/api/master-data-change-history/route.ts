@@ -85,7 +85,12 @@ export async function GET(req: NextRequest) {
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   // 지금은 entity_type="작업자"만 실제 데이터가 있어 workers 하나만 조인한다 — 다른
   // 기준정보가 연결되면 그 마스터도 LEFT JOIN하고 COALESCE로 대상명을 합치면 된다.
-  const fromClause = `FROM master_data_change_history h LEFT JOIN workers w ON h.entity_type = '${ENTITY_TYPE_WORKER}' AND w.employee_no = h.entity_id`;
+  // changed_by는 로그인 계정명(username)을 그대로 저장하므로(필터·통계용 키는 계정명이
+  // 안정적), users에 조인해 표시용 이름(display_name, 없으면 계정명 그대로)만 따로
+  // 붙인다 — src/lib/auth.ts의 세션 n 필드(표시이름) 계산과 동일한 폴백 규칙.
+  const fromClause = `FROM master_data_change_history h
+    LEFT JOIN workers w ON h.entity_type = '${ENTITY_TYPE_WORKER}' AND w.employee_no = h.entity_id
+    LEFT JOIN users u ON h.changed_by = u.username`;
 
   const total = (db.prepare(`SELECT COUNT(*) AS c ${fromClause} ${where}`).get(...args) as { c: number }).c;
 
@@ -93,7 +98,8 @@ export async function GET(req: NextRequest) {
   const rows = db
     .prepare(
       `SELECT h.id, h.entity_type, h.entity_id, w.worker_name AS entity_name, h.field, h.field_label,
-              h.old_value, h.new_value, h.change_date, h.changed_by, h.created_at
+              h.old_value, h.new_value, h.change_date, h.changed_by,
+              COALESCE(u.display_name, h.changed_by) AS changed_by_name, h.created_at
        ${fromClause}
        ${where}
        ORDER BY h.change_date DESC, h.created_at DESC, h.id DESC
@@ -108,11 +114,13 @@ export async function GET(req: NextRequest) {
     )
     .all(...(entityType ? [entityType] : [])) as { field: string; field_label: string }[];
 
-  const changedByOptions = (
-    db.prepare("SELECT DISTINCT changed_by FROM master_data_change_history WHERE changed_by IS NOT NULL ORDER BY changed_by").all() as {
-      changed_by: string;
-    }[]
-  ).map((r) => r.changed_by);
+  const changedByOptions = db
+    .prepare(
+      `SELECT DISTINCT h.changed_by AS value, COALESCE(u.display_name, h.changed_by) AS label
+       FROM master_data_change_history h LEFT JOIN users u ON h.changed_by = u.username
+       WHERE h.changed_by IS NOT NULL ORDER BY label`
+    )
+    .all() as { value: string; label: string }[];
 
   return NextResponse.json({
     rows,

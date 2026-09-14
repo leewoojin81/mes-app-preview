@@ -102,6 +102,7 @@ export interface MasterDataChangeHistoryRow {
   new_value: string | null;
   change_date: string;
   changed_by: string | null;
+  changed_by_name: string | null;
   created_at: string;
 }
 
