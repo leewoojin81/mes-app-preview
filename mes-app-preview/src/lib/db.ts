@@ -84,6 +84,10 @@ CREATE TABLE IF NOT EXISTS workers (
   bus_stop TEXT,
   uniform_size TEXT,
   shoe_size TEXT,
+  -- 조끼/안전화 사이즈(2026-09-14 사용자 요청) — 방진복/방진화와 각각 별개 값(사람마다
+  -- 방진복과 조끼 사이즈가 다를 수 있음)이라 같이 묶지 않고 독립 컬럼으로 둔다.
+  vest_size TEXT,
+  safety_shoe_size TEXT,
   status TEXT,
   resign_date TEXT,
   resign_reason TEXT,
@@ -1212,6 +1216,15 @@ function migrate(db: DatabaseSync) {
   // 시작한다(사용자 명시 요청 — 백필하지 말 것).
   if (!workerCols.some((c) => c.name === "shift_group")) {
     db.exec("ALTER TABLE workers ADD COLUMN shift_group TEXT");
+  }
+
+  // workers: 조끼/안전화 사이즈 컬럼 추가(2026-09-14) — 방진복/방진화와 별개 값. 기존
+  // 행은 이 정보 자체가 없으므로 전부 NULL(미지정)로 시작한다.
+  if (!workerCols.some((c) => c.name === "vest_size")) {
+    db.exec("ALTER TABLE workers ADD COLUMN vest_size TEXT");
+  }
+  if (!workerCols.some((c) => c.name === "safety_shoe_size")) {
+    db.exec("ALTER TABLE workers ADD COLUMN safety_shoe_size TEXT");
   }
 
   // work_hours_daily: 휴가(연차/공가) 컬럼 추가(2026-09-07) — 이미 저장된 행이 있어

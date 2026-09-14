@@ -77,6 +77,8 @@ export interface Worker {
   bus_stop: string | null;
   uniform_size: string | null;
   shoe_size: string | null;
+  vest_size: string | null;
+  safety_shoe_size: string | null;
   status: string | null;
   resign_date: string | null;
   resign_reason: string | null;

@@ -105,6 +105,8 @@ export async function POST(req: NextRequest) {
   const iBusStop = findCol(header, ["정류장", "탑승지"]);
   const iUniformSize = findCol(header, ["방진복사이즈", "방진복&조끼"]);
   const iShoeSize = findCol(header, ["방진화사이즈", "방진화&안전화"]);
+  const iVestSize = header.indexOf("조끼사이즈");
+  const iSafetyShoeSize = header.indexOf("안전화사이즈");
   const iStatus = header.indexOf("상태");
   const iResignDate = header.indexOf("퇴사일자");
   const iResignReason = header.indexOf("퇴사사유");
@@ -124,9 +126,9 @@ export async function POST(req: NextRequest) {
     `INSERT INTO workers
        (employee_no, erp_code, employee_qr, worker_name, contractor, process_code, work_group,
         biz_employee_no, biz_dept, duty, team,
-        phone, hire_date, bus_route, bus_stop, uniform_size, shoe_size, status, resign_date, resign_reason,
-        remark, seq, use_yn)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        phone, hire_date, bus_route, bus_stop, uniform_size, shoe_size, vest_size, safety_shoe_size,
+        status, resign_date, resign_reason, remark, seq, use_yn)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(employee_no) DO UPDATE SET
        erp_code = excluded.erp_code,
        employee_qr = excluded.employee_qr,
@@ -144,6 +146,8 @@ export async function POST(req: NextRequest) {
        bus_stop = excluded.bus_stop,
        uniform_size = excluded.uniform_size,
        shoe_size = excluded.shoe_size,
+       vest_size = excluded.vest_size,
+       safety_shoe_size = excluded.safety_shoe_size,
        status = excluded.status,
        resign_date = excluded.resign_date,
        resign_reason = excluded.resign_reason,
@@ -188,6 +192,8 @@ export async function POST(req: NextRequest) {
         iBusStop === -1 ? null : strOrNull(r[iBusStop]),
         iUniformSize === -1 ? null : strOrNull(r[iUniformSize]),
         iShoeSize === -1 ? null : strOrNull(r[iShoeSize]),
+        iVestSize === -1 ? null : strOrNull(r[iVestSize]),
+        iSafetyShoeSize === -1 ? null : strOrNull(r[iSafetyShoeSize]),
         iStatus === -1 ? null : strOrNull(r[iStatus]),
         iResignDate === -1 ? null : dateOrNull(r[iResignDate]),
         iResignReason === -1 ? null : strOrNull(r[iResignReason]),

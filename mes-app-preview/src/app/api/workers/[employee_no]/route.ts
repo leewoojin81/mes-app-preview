@@ -72,6 +72,8 @@ export async function PATCH(
   const busStop = strOrNull(body.bus_stop);
   const uniformSize = strOrNull(body.uniform_size);
   const shoeSize = strOrNull(body.shoe_size);
+  const vestSize = strOrNull(body.vest_size);
+  const safetyShoeSize = strOrNull(body.safety_shoe_size);
   const status = strOrNull(body.status);
   const resignDate = strOrNull(body.resign_date);
   const resignReason = strOrNull(body.resign_reason);
@@ -83,8 +85,8 @@ export async function PATCH(
     db.prepare(
       `UPDATE workers SET
          erp_code=?, employee_qr=?, worker_name=?, contractor=?, process_code=?, work_group=?, duty=?, team=?,
-         shift_group=?, phone=?, hire_date=?, bus_route=?, bus_stop=?, uniform_size=?, shoe_size=?, status=?,
-         resign_date=?, resign_reason=?, remark=?, use_yn=?
+         shift_group=?, phone=?, hire_date=?, bus_route=?, bus_stop=?, uniform_size=?, shoe_size=?,
+         vest_size=?, safety_shoe_size=?, status=?, resign_date=?, resign_reason=?, remark=?, use_yn=?
        WHERE employee_no=?`
     ).run(
       erpCode,
@@ -102,6 +104,8 @@ export async function PATCH(
       busStop,
       uniformSize,
       shoeSize,
+      vestSize,
+      safetyShoeSize,
       status,
       resignDate,
       resignReason,

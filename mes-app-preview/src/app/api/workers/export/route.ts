@@ -39,6 +39,8 @@ export async function GET(req: NextRequest) {
     정류장: r.bus_stop,
     방진복사이즈: r.uniform_size,
     방진화사이즈: r.shoe_size,
+    조끼사이즈: r.vest_size,
+    안전화사이즈: r.safety_shoe_size,
     상태: r.status,
     퇴사일자: r.resign_date,
     퇴사사유: r.resign_reason,

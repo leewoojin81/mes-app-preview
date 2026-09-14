@@ -42,6 +42,8 @@ type FormState = {
   bus_stop: string;
   uniform_size: string;
   shoe_size: string;
+  vest_size: string;
+  safety_shoe_size: string;
   status: string;
   resign_date: string;
   resign_reason: string;
@@ -65,6 +67,8 @@ const EMPTY_FORM: FormState = {
   bus_stop: "",
   uniform_size: "",
   shoe_size: "",
+  vest_size: "",
+  safety_shoe_size: "",
   status: "",
   resign_date: "",
   resign_reason: "",
@@ -87,6 +91,8 @@ const COLUMNS: { key: keyof Worker; label: string }[] = [
   { key: "bus_stop", label: "정류장" },
   { key: "uniform_size", label: "방진복" },
   { key: "shoe_size", label: "방진화" },
+  { key: "vest_size", label: "조끼" },
+  { key: "safety_shoe_size", label: "안전화" },
   { key: "phone", label: "연락처" },
   { key: "hire_date", label: "입사일" },
   { key: "resign_date", label: "퇴사일" },
@@ -395,7 +401,9 @@ export default function WorkerMasterPage() {
                 {COLUMNS.map((c) => (
                   <th
                     key={c.key}
-                    className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]"
+                    className={`text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0] ${
+                      c.key === "uniform_size" ? "border-l-2 border-slate-300" : ""
+                    }`}
                   >
                     {c.label}
                   </th>
@@ -473,11 +481,18 @@ export default function WorkerMasterPage() {
                         <td
                           key={c.key}
                           className={`px-4 py-3 ${
+                            c.key === "uniform_size" ? "border-l-2 border-slate-200" : ""
+                          } ${
                             c.key === "employee_no" || c.key === "erp_code" || c.key === "employee_qr"
                               ? "font-mono text-xs text-slate-500"
                               : c.key === "worker_name"
                                 ? "font-medium"
-                                : "text-slate-500"
+                                : c.key === "uniform_size" ||
+                                    c.key === "shoe_size" ||
+                                    c.key === "vest_size" ||
+                                    c.key === "safety_shoe_size"
+                                  ? "text-center text-slate-500"
+                                  : "text-slate-500"
                           }`}
                         >
                           {empty ? "-" : String(v)}
@@ -643,6 +658,8 @@ function WorkerFormModal({
           bus_stop: editing.bus_stop ?? "",
           uniform_size: editing.uniform_size ?? "",
           shoe_size: editing.shoe_size ?? "",
+          vest_size: editing.vest_size ?? "",
+          safety_shoe_size: editing.safety_shoe_size ?? "",
           status: editing.status ?? "",
           resign_date: editing.resign_date ?? "",
           resign_reason: editing.resign_reason ?? "",
@@ -711,6 +728,8 @@ function WorkerFormModal({
       bus_stop: form.bus_stop.trim(),
       uniform_size: form.uniform_size.trim(),
       shoe_size: form.shoe_size.trim(),
+      vest_size: form.vest_size.trim(),
+      safety_shoe_size: form.safety_shoe_size.trim(),
       status: form.status.trim(),
       resign_date: form.resign_date.trim(),
       resign_reason: form.resign_reason.trim(),
@@ -1007,6 +1026,31 @@ function WorkerFormModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-sm">
+              <span className="text-slate-600">조끼 사이즈</span>
+              <select
+                value={form.vest_size}
+                onChange={(e) => set("vest_size", e.target.value)}
+                className={`${inputCls} bg-white`}
+              >
+                <option value="">선택 안 함</option>
+                {UNIFORM_SIZE_OPTIONS.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">안전화 사이즈</span>
+              <input
+                value={form.safety_shoe_size}
+                onChange={(e) => set("safety_shoe_size", e.target.value)}
+                className={inputCls}
+              />
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-sm">
               <span className="text-slate-600">퇴사일자</span>
               <input
                 value={form.resign_date}
@@ -1286,6 +1330,8 @@ function WorkerBulkEditModal({
         bus_stop: w.bus_stop,
         uniform_size: w.uniform_size,
         shoe_size: w.shoe_size,
+        vest_size: w.vest_size,
+        safety_shoe_size: w.safety_shoe_size,
         status: w.status,
         resign_date: w.resign_date,
         resign_reason: w.resign_reason,
