@@ -383,6 +383,9 @@ export default function WorkerMasterPage() {
                   />
                 </th>
                 <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
+                  관리
+                </th>
+                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
                   순번
                 </th>
                 {showBizColumns && (
@@ -410,9 +413,6 @@ export default function WorkerMasterPage() {
                 ))}
                 <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
                   사용여부
-                </th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
-                  관리
                 </th>
               </tr>
             </thead>
@@ -444,6 +444,28 @@ export default function WorkerMasterPage() {
                         onChange={() => toggleOne(r.employee_no)}
                         aria-label={`${r.worker_name} 선택`}
                       />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => {
+                            setEditing(r);
+                            setShowForm(true);
+                          }}
+                          className="text-xs font-medium text-navy hover:underline"
+                        >
+                          수정
+                        </button>
+                        <button
+                          onClick={() => {
+                            setDeleteError(null);
+                            setDeleteTarget(r);
+                          }}
+                          className="text-xs font-medium text-rose-600 hover:underline"
+                        >
+                          삭제
+                        </button>
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
                     {showBizColumns && (
@@ -509,28 +531,6 @@ export default function WorkerMasterPage() {
                       >
                         {r.use_yn === "Y" ? "사용" : "중단"}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            setEditing(r);
-                            setShowForm(true);
-                          }}
-                          className="text-xs font-medium text-navy hover:underline"
-                        >
-                          수정
-                        </button>
-                        <button
-                          onClick={() => {
-                            setDeleteError(null);
-                            setDeleteTarget(r);
-                          }}
-                          className="text-xs font-medium text-rose-600 hover:underline"
-                        >
-                          삭제
-                        </button>
-                      </div>
                     </td>
                   </tr>
                 ))}
