@@ -19,6 +19,7 @@ Thumbs.db
 # Backups and logs
 /backups/
 /logs/
+*.log
 
 # Stray/accidental files
 mes-app-preview/UsersAdministratorDesktopmes-systemmes-app-previewdatames-preview.db
