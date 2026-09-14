@@ -52,6 +52,8 @@ export interface WorkHoursLookupWorkerBlock {
   employee_no: string;
   worker_name: string;
   work_group: string | null;
+  process_code: string | null;
+  process_name: string | null;
   contractor: string | null;
   /** "비즈" 원본 사번·부서(없으면 null) — PSN-05 "초과신청" 다운로드에서 사번/공정
    *  대신 이 값을 우선 쓴다(export-overtime/route.ts 참고). */
@@ -176,13 +178,17 @@ export function fetchWorkHoursLookup(
   const placeholders = params.employeeNos.map(() => "?").join(",");
   const workerRows = db
     .prepare(
-      `SELECT employee_no, worker_name, work_group, contractor, biz_employee_no, biz_dept
-       FROM workers WHERE employee_no IN (${placeholders}) ORDER BY seq, employee_no`
+      `SELECT w.employee_no, w.worker_name, w.work_group, w.process_code, p.process_name,
+              w.contractor, w.biz_employee_no, w.biz_dept
+       FROM workers w LEFT JOIN processes p ON p.process_code = w.process_code
+       WHERE w.employee_no IN (${placeholders}) ORDER BY w.seq, w.employee_no`
     )
     .all(...params.employeeNos) as {
     employee_no: string;
     worker_name: string;
     work_group: string | null;
+    process_code: string | null;
+    process_name: string | null;
     contractor: string | null;
     biz_employee_no: string | null;
     biz_dept: string | null;
@@ -253,6 +259,8 @@ export function fetchWorkHoursLookup(
       employee_no: w.employee_no,
       worker_name: w.worker_name,
       work_group: resolveFieldAsOf(workGroupHistory, w.employee_no, params.dateTo, w.work_group),
+      process_code: w.process_code,
+      process_name: w.process_name,
       contractor: w.contractor,
       biz_employee_no: w.biz_employee_no,
       biz_dept: w.biz_dept,

@@ -359,7 +359,7 @@ export default function WorkHoursLookupPage() {
           <table className="text-sm whitespace-nowrap">
             <thead className="bg-[#D9E1F2] text-slate-500 text-xs">
               <tr>
-                {["No.", "사번", "공정", "성명", "일자", "저장상태", "근무시간", "정상", "잔업", "조출", "중교", "지각", "조퇴", "외출", "지원"].map(
+                {["No.", "사번", "공정", "공정코드", "성명", "일자", "저장상태", "근무시간", "정상", "잔업", "조출", "중교", "지각", "조퇴", "외출", "지원"].map(
                   (label) => (
                     <th
                       key={label}
@@ -374,28 +374,28 @@ export default function WorkHoursLookupPage() {
             <tbody className="divide-y divide-slate-100">
               {!canQuery && (
                 <tr>
-                  <td colSpan={15} className="text-center py-10 text-slate-400">
+                  <td colSpan={16} className="text-center py-10 text-slate-400">
                     사용자 정보를 불러오는 중...
                   </td>
                 </tr>
               )}
               {canQuery && loading && (
                 <tr>
-                  <td colSpan={15} className="text-center py-10 text-slate-400">
+                  <td colSpan={16} className="text-center py-10 text-slate-400">
                     불러오는 중...
                   </td>
                 </tr>
               )}
               {canQuery && !loading && result && result.workers.length === 0 && (
                 <tr>
-                  <td colSpan={15} className="text-center py-10 text-slate-400">
+                  <td colSpan={16} className="text-center py-10 text-slate-400">
                     조건에 맞는 작업자가 없습니다.
                   </td>
                 </tr>
               )}
               {canQuery && !loading && result && result.workers.length > 0 && visibleWorkerBlocks.length === 0 && (
                 <tr>
-                  <td colSpan={15} className="text-center py-10 text-slate-400">
+                  <td colSpan={16} className="text-center py-10 text-slate-400">
                     선택한 저장상태에 맞는 일자가 없습니다.
                   </td>
                 </tr>
@@ -410,6 +410,9 @@ export default function WorkHoursLookupPage() {
                         <td className="px-3 py-2 text-center text-slate-500">{idx === 0 ? wIdx + 1 : ""}</td>
                         <td className="px-3 py-2 font-mono text-slate-500">{idx === 0 ? w.employee_no : ""}</td>
                         <td className="px-3 py-2 text-slate-500">{idx === 0 ? w.work_group ?? "-" : ""}</td>
+                        <td className="px-3 py-2 font-mono text-slate-500">
+                          {idx === 0 ? (w.process_code ? `${w.process_code} · ${w.process_name ?? ""}` : "-") : ""}
+                        </td>
                         <td className="px-3 py-2 font-medium text-slate-700">{idx === 0 ? w.worker_name : ""}</td>
                         <td className={`px-3 py-2 ${dateTextColor(r.work_date, result.calendar[r.work_date])}`}>
                           {r.work_date}
@@ -439,7 +442,7 @@ export default function WorkHoursLookupPage() {
                       </tr>
                     ))}
                     <tr key={`${w.employee_no}-subtotal`} className="bg-slate-50/70 font-medium">
-                      <td className="px-3 py-2 text-center text-slate-400" colSpan={4}>
+                      <td className="px-3 py-2 text-center text-slate-400" colSpan={5}>
                         {w.worker_name} 소계
                       </td>
                       <td className="px-3 py-2 text-slate-400" colSpan={2}></td>
@@ -455,7 +458,7 @@ export default function WorkHoursLookupPage() {
             {canQuery && !loading && result && result.totalWorkers > 1 && (
               <tfoot>
                 <tr className="bg-slate-100 font-semibold border-t-2 border-slate-200">
-                  <td className="px-3 py-2.5 text-center text-slate-500" colSpan={4}>
+                  <td className="px-3 py-2.5 text-center text-slate-500" colSpan={5}>
                     전체합계 <span className="text-slate-400 font-normal">({result.totalWorkers}명)</span>
                   </td>
                   <td className="px-3 py-2.5 text-slate-500" colSpan={2}>
