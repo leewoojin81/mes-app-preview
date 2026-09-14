@@ -146,12 +146,12 @@ function StatusBadge({ status }: { status: AttendanceAuditRowStatus }) {
 function ItemCells({ item, mismatch }: { item: AttendanceAuditItem; mismatch: boolean }) {
   return (
     <>
-      <td className="px-2 py-2 text-right font-mono text-slate-600">{fmtHours(item.psn01)}</td>
+      <td className="px-2 py-2 text-right font-mono text-slate-600 border-l-2 border-slate-200">
+        {fmtHours(item.psn01)}
+      </td>
       <td className="px-2 py-2 text-right font-mono text-slate-600">{fmtHours(item.psn02)}</td>
       <td
-        className={`px-2 py-2 text-right font-mono border-r border-slate-100 ${
-          mismatch ? "text-rose-600 font-semibold" : "text-slate-400"
-        }`}
+        className={`px-2 py-2 text-right font-mono ${mismatch ? "text-rose-600 font-semibold" : "text-slate-400"}`}
       >
         {fmtDiff(item.diff)}
       </td>
@@ -165,7 +165,7 @@ function ItemCells({ item, mismatch }: { item: AttendanceAuditItem; mismatch: bo
 function ReferenceCell({ psn01, highlightPositive }: { psn01: number; highlightPositive?: boolean }) {
   const emphasize = highlightPositive && psn01 > 0;
   return (
-    <td className="px-2 py-2 text-right border-r border-slate-100">
+    <td className="px-2 py-2 text-right border-l-2 border-slate-200">
       <span className={`font-mono ${emphasize ? "text-blue-600 font-semibold" : "text-slate-600"}`}>
         {fmtHours(psn01)}
       </span>
@@ -547,14 +547,14 @@ export default function AttendanceAuditPage() {
                   <th
                     key={it.key}
                     colSpan={it.kind === "compare" ? 3 : 1}
-                    className="text-center px-2 py-1.5 font-semibold sticky top-0 z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0] border-l border-slate-300/60"
+                    className="text-center px-2 py-1.5 font-semibold sticky top-0 z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0] border-l-2 border-slate-300"
                   >
                     {it.label}
                   </th>
                 ))}
                 <th
                   rowSpan={2}
-                  className="text-center px-3 py-2 font-semibold sticky top-0 z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0] align-middle border-l border-slate-300/60"
+                  className="text-center px-3 py-2 font-semibold sticky top-0 z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0] align-middle border-l-2 border-slate-300"
                 >
                   종합상태
                 </th>
@@ -563,7 +563,7 @@ export default function AttendanceAuditPage() {
                 {ITEM_DEFS.map((it) =>
                   it.kind === "compare" ? (
                     <Fragment key={it.key}>
-                      <th className="text-center px-2 py-1.5 font-medium sticky top-[29px] z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0] border-l border-slate-300/60">
+                      <th className="text-center px-2 py-1.5 font-medium sticky top-[29px] z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0] border-l-2 border-slate-300">
                         PSN-01
                       </th>
                       <th className="text-center px-2 py-1.5 font-medium sticky top-[29px] z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0]">
@@ -576,7 +576,7 @@ export default function AttendanceAuditPage() {
                   ) : (
                     <th
                       key={it.key}
-                      className="text-center px-2 py-1.5 font-medium sticky top-[29px] z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0] border-l border-slate-300/60"
+                      className="text-center px-2 py-1.5 font-medium sticky top-[29px] z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0] border-l-2 border-slate-300"
                     >
                       PSN-01
                     </th>
@@ -647,7 +647,7 @@ export default function AttendanceAuditPage() {
                         />
                       )
                     )}
-                    <td className="px-3 py-2 text-center border-l border-slate-100">
+                    <td className="px-3 py-2 text-center border-l-2 border-slate-200">
                       <StatusBadge status={r.status} />
                     </td>
                   </tr>
