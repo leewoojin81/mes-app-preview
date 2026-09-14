@@ -19,9 +19,8 @@ import {
 //
 // PSN-01과 동일하게 9개 항목(근로시간/정상/잔업/조출/중교/지각/조퇴/외출/지원시간)을 전부
 // 보여주되(2026-09-10 사용자 요청), 세콤 근거 유무에 따라 처리가 다르다:
-// - 대사(비교) 대상 6개: 근로시간, 정상, 잔업, 조출, 지각, 조퇴 — PSN-01/PSN-02 값을
-//   나란히 보여주고 일치/불일치를 판정한다. 조퇴는 지각과 동일하게 그레이스 없이 정확한
-//   시간차로 계산한다(정식 퇴근시각 = PSN-07 "3Q" 종료시각, 2026-09-10 사용자 확인).
+// - 대사(비교) 대상 5개: 근로시간, 정상, 잔업, 조출, 지각 — PSN-01/PSN-02 값을 나란히
+//   보여주고 일치/불일치를 판정한다.
 //   근로시간은 PSN-01은 화면 그대로(정상+잔업+조출+중교+지원)를 쓰고, 세콤 쪽은 세콤
 //   재계산값 정상+조출+잔업 + 중교(PSN-01 값 그대로 반영, 2026-09-10 사용자 확인 —
 //   세콤 카드에는 중교로 일한 시간도 출퇴근 사이에 그대로 찍혀 있어 정상 재계산이 휴게
@@ -31,9 +30,15 @@ import {
 //   그 시간까지 전부 정상으로 잡아버림). 지원시간만 세콤에 대응되는 시간대 자체가 없어
 //   계속 제외한다 — 지원시간을 실제로 쓴 날은 이 항목만 항상 차이가 남을 수 있다(의도된
 //   동작).
-// - 참고 표시 전용 3개: 중교, 외출, 지원시간 — 세콤에 근거 데이터 자체가 없어(외출은
-//   기존부터, 중교/지원시간도 마찬가지) PSN-01 값만 그대로 보여주고 세콤 값은 항상 null,
-//   mismatch도 항상 false로 고정한다(일치/불일치 판정 안 함, 종합상태 판정에도 포함 안 함).
+// - 참고 표시 전용 4개: 중교, 조퇴, 외출, 지원시간 — PSN-01 값만 그대로 인정하고
+//   일치/불일치 판정에서 뺀다(종합상태 판정에도 포함 안 함). 중교/외출/지원시간은 세콤에
+//   근거 데이터 자체가 없어(외출은 기존부터, 중교/지원시간도 마찬가지) 세콤 값을 항상
+//   null로 둔다. 조퇴는 세콤 값(derivedEarlyLeave)은 계속 재계산해 참고용으로 나란히
+//   보여주되, mismatch만 항상 false로 고정한다(2026-09-14 사용자 요청, 틸라이 09-09
+//   사례 — 카드 퇴근 12:18은 정식 퇴근 16:00보다 3시간42분 이르지만, 조장이 PSN-01에
+//   3시간으로 입력한 게 승인된 조퇴 사유·시간이라 세콤 재계산과 달라도 그대로 인정해야
+//   한다. 지각과 달리 조퇴는 "카드를 늦게/일찍 찍었는지"가 아니라 조장이 사유를 보고
+//   승인한 시간이 기준이라 세콤 시간차로 강제 대사하면 안 된다는 것이 요지).
 // 기준(basis)은 PSN-01과 같은 대상 작업자(use_yn='Y' AND status='정상') × 조회기간
 // 전체 날짜다(2026-09-09 사용자 요청 — "저장, 미저장 둘 다 화면에 보여야" 하므로, 저장분만
 // 훑던 이전 방식을 버리고 PSN-01/PSN-05와 동일한 "전체 그리드" 방식으로 바꿨다). 저장 안 된
@@ -135,7 +140,7 @@ export interface AttendanceAuditRow {
 }
 
 /** "종합상태" 판정에 실제로 반영되는 대사 대상 항목만 — 참고 표시 전용 항목은 제외한다. */
-const COMPARABLE_ITEM_KEYS = ["total", "normal", "overtime", "early_start", "late", "early_leave"] as const;
+const COMPARABLE_ITEM_KEYS = ["total", "normal", "overtime", "early_start", "late"] as const;
 
 export interface AttendanceAuditSummary {
   /** 조회기간(dateFrom~dateTo) 전체 중 "불일치" 건수(날짜별 행 단위로 그대로 셈, 2026-09-11
@@ -181,6 +186,13 @@ function buildEarlyStartItem(psn01: number, derivedPsn02: number | null): Attend
   const item = buildItem(psn01, derivedPsn02);
   if (psn01 === 0) return { ...item, mismatch: false };
   return item;
+}
+
+// 조퇴는 세콤 재계산값(derivedPsn02)을 참고용으로 계속 보여주되 mismatch는 항상 false로
+// 고정한다(2026-09-14 사용자 요청 — 조장이 PSN-01에 입력한 조퇴시간이 승인된 사유·시간이라
+// 세콤 카드 시간차와 달라도 그대로 인정해야 한다).
+function buildEarlyLeaveItem(psn01: number, derivedPsn02: number | null): AttendanceAuditItem {
+  return { ...buildItem(psn01, derivedPsn02), mismatch: false };
 }
 
 // 18:30 종료(정식 잔업 종료시각, PSN-07 1조 잔업 구간 16:10~18:30 기준)까지 채운 "고정
@@ -480,7 +492,7 @@ export function fetchAttendanceAudit(
         overtime: overtimeItem,
         early_start: earlyStartItem,
         late: buildItem(lateHours, derivedLate),
-        early_leave: buildItem(earlyLeaveHours, derivedEarlyLeave),
+        early_leave: buildEarlyLeaveItem(earlyLeaveHours, derivedEarlyLeave),
         // 중교/외출/지원시간은 세콤 원본에 근거 자체가 없다(외출시간 필드도 항상 "00:00",
         // 외출List/복귀List도 전부 공란으로 확인됨, 2026-09-09 — 중교/지원시간도 대응되는
         // 세콤 필드 자체가 없음) — 비교하지 않고 항상 참고 표시 전용으로 둔다.
