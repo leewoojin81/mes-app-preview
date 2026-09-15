@@ -13,8 +13,10 @@ import * as XLSX from "xlsx";
 export const runtime = "nodejs";
 
 // 근무시간조회(PSN-05) 화면과 같은 조건(공정/작업자/조회기간)으로 "근무시간조회.xlsx"
-// 원본과 같은 컬럼(No/사번/공정/성명/일자/정상/잔업/조출/중교/지각/조퇴/외출/지원)을
-// 내려준다 — 원본처럼 사번/공정/성명은 각 작업자 블록의 첫 데이터행에만 채우고 나머지
+// 원본과 같은 컬럼(No/사번/공정/공정코드/성명/일자/정상/잔업/조출/중교/지각/조퇴/외출/지원)을
+// 내려준다 — 공정코드는 원본 파일엔 없던 컬럼이지만 화면 그리드에 이미 "공정"과 "성명"
+// 사이에 있어(2026-09-11 추가) 다운로드에도 같은 위치로 맞췄다(2026-09-15 사용자 요청).
+// 원본처럼 사번/공정/공정코드/성명은 각 작업자 블록의 첫 데이터행에만 채우고 나머지
 // 행은 비워둔다. 화면에만 있는 소계/전체합계 요약행도 작업자 블록마다, 그리고 맨
 // 마지막에 한 줄씩 덧붙인다.
 //
@@ -56,14 +58,33 @@ export async function GET(req: NextRequest) {
 
   const result = fetchWorkHoursLookup(db, { employeeNos, dateFrom, dateTo });
 
-  const header = ["No.", "사번", "공정", "성명", "일자", "정상", "잔업", "조출", "중교", "지각", "조퇴", "외출", "지원"];
+  // 공정코드는 화면 그리드(work-hours-lookup/page.tsx)와 같은 표기(코드 · 공정명)로,
+  // "공정"과 "성명" 사이에 넣는다(2026-09-15 사용자 요청).
+  const header = [
+    "No.",
+    "사번",
+    "공정",
+    "공정코드",
+    "성명",
+    "일자",
+    "정상",
+    "잔업",
+    "조출",
+    "중교",
+    "지각",
+    "조퇴",
+    "외출",
+    "지원",
+  ];
   const aoa: (string | number | null)[][] = [header];
   result.workers.forEach((w, wIdx) => {
+    const processCodeLabel = w.process_code ? `${w.process_code} · ${w.process_name ?? ""}` : "-";
     w.rows.forEach((r, idx) => {
       aoa.push([
         idx === 0 ? wIdx + 1 : null,
         idx === 0 ? w.employee_no : null,
         idx === 0 ? w.work_group : null,
+        idx === 0 ? processCodeLabel : null,
         idx === 0 ? w.worker_name : null,
         r.work_date,
         r.normal_hours || null,
@@ -77,6 +98,7 @@ export async function GET(req: NextRequest) {
       ]);
     });
     aoa.push([
+      null,
       null,
       null,
       null,
@@ -94,6 +116,7 @@ export async function GET(req: NextRequest) {
   });
   if (result.workers.length > 1) {
     aoa.push([
+      null,
       null,
       null,
       null,
