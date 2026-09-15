@@ -26,6 +26,7 @@ interface WorkHoursDailyRow {
   leave_type: string | null;
   normal_hours: number;
   overtime_hours: number;
+  overtime_input_hours: number;
   early_start_hours: number;
   lunch_shift_hours: number;
   late_hours: number;
@@ -114,8 +115,8 @@ export async function GET(req: NextRequest) {
 
   const dailyRows = db
     .prepare(
-      `SELECT employee_no, leave_type, normal_hours, overtime_hours, early_start_hours, lunch_shift_hours,
-              late_hours, early_leave_hours, outing_hours, total_hours
+      `SELECT employee_no, leave_type, normal_hours, overtime_hours, overtime_input_hours, early_start_hours,
+              lunch_shift_hours, late_hours, early_leave_hours, outing_hours, total_hours
        FROM work_hours_daily WHERE work_date = ?`
     )
     .all(date) as unknown as WorkHoursDailyRow[];
@@ -147,10 +148,13 @@ export async function GET(req: NextRequest) {
     const earlyLeaveHours = d ? d.early_leave_hours : 0;
     const outingHours = d ? d.outing_hours : 0;
     // 정상/잔업 둘 다 사람이 고칠 수 없다 — 저장분이 있어도 무시하고 휴가구분·지각·조퇴·
-    // 외출·지원시간·잔업신청값(저장된 잔업)으로 다시 계산해 내려준다(2026-09-11 사용자
-    // 요청으로 잔업도 정상과 같은 계산값이 됨).
+    // 외출·지원시간·잔업신청값으로 다시 계산해 내려준다(2026-09-11 사용자 요청으로 잔업도
+    // 정상과 같은 계산값이 됨). 잔업신청값은 반드시 overtime_input_hours(원본)에서 가져와야
+    // 한다 — overtime_hours(계산 결과)를 다시 신청값으로 넣으면 조회할 때마다 지각/조퇴/
+    // 외출 차감이 중복 적용된다(2026-09-15 발견·수정).
+    const overtimeInput = d ? d.overtime_input_hours : 0;
     const { normalHours, overtimeHours } = computeAttendanceHours(leaveType, {
-      overtimeInput: d ? d.overtime_hours : 0,
+      overtimeInput,
       lateHours,
       earlyLeaveHours,
       outingHours,
@@ -170,6 +174,7 @@ export async function GET(req: NextRequest) {
       has_record: d != null,
       normal_hours: normalHours,
       overtime_hours: overtimeHours,
+      overtime_input_hours: overtimeInput,
       early_start_hours: d ? d.early_start_hours : 0,
       lunch_shift_hours: d ? d.lunch_shift_hours : 0,
       late_hours: lateHours,
@@ -231,13 +236,14 @@ export async function PUT(req: NextRequest) {
 
   const upsertDaily = db.prepare(
     `INSERT INTO work_hours_daily
-       (work_date, employee_no, process_code, leave_type, normal_hours, overtime_hours, early_start_hours,
-        lunch_shift_hours, late_hours, early_leave_hours, outing_hours, total_hours, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+       (work_date, employee_no, process_code, leave_type, normal_hours, overtime_hours, overtime_input_hours,
+        early_start_hours, lunch_shift_hours, late_hours, early_leave_hours, outing_hours, total_hours, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
      ON CONFLICT(work_date, employee_no) DO UPDATE SET
        process_code=excluded.process_code, leave_type=excluded.leave_type,
        normal_hours=excluded.normal_hours,
-       overtime_hours=excluded.overtime_hours, early_start_hours=excluded.early_start_hours,
+       overtime_hours=excluded.overtime_hours, overtime_input_hours=excluded.overtime_input_hours,
+       early_start_hours=excluded.early_start_hours,
        lunch_shift_hours=excluded.lunch_shift_hours, late_hours=excluded.late_hours,
        early_leave_hours=excluded.early_leave_hours, outing_hours=excluded.outing_hours,
        total_hours=excluded.total_hours, updated_at=datetime('now','localtime')`
@@ -260,7 +266,10 @@ export async function PUT(req: NextRequest) {
     if (leaderEmployeeNos && !leaderEmployeeNos.has(employeeNo)) continue;
 
     const leaveType = strOrNull(r.leave_type);
-    const overtimeInput = numOrNull(r.overtime_hours) ?? 0;
+    // 잔업 신청값은 반드시 overtime_input_hours로 받는다 — overtime_hours(계산 결과)를
+    // 신청값으로 다시 받으면 저장할 때마다 지각/조퇴/외출 차감이 중복 적용된다(2026-09-15
+    // 발견·수정, work-hours/page.tsx의 수정 팝업도 이 필드를 편집 대상으로 쓰도록 맞춤).
+    const overtimeInput = numOrNull(r.overtime_input_hours) ?? 0;
     const earlyStartHours = numOrNull(r.early_start_hours) ?? 0;
     const lunchShiftHours = numOrNull(r.lunch_shift_hours) ?? 0;
     const lateHours = numOrNull(r.late_hours) ?? 0;
@@ -294,6 +303,7 @@ export async function PUT(req: NextRequest) {
       leaveType,
       normalHours,
       overtimeHours,
+      overtimeInput,
       earlyStartHours,
       lunchShiftHours,
       lateHours,

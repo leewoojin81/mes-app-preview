@@ -80,6 +80,14 @@ type HourField =
   | "early_leave_hours"
   | "outing_hours";
 
+// "잔업" 필드는 그리드 표시(계산된 실제 인정 잔업, r.overtime_hours)와 편집 대상(잔업
+// 신청값 원본, r.overtime_input_hours)이 서로 다르다 — 수정 팝업/미리보기/저장 요청은
+// 전부 이 헬퍼로 편집용 원본값을 읽어야 한다(overtime_hours를 다시 신청값으로 쓰면 저장할
+// 때마다 지각/조퇴/외출 차감이 중복 적용된다, 2026-09-15 발견·수정).
+function editableHourValue(r: WorkHoursRow, key: HourField): number {
+  return key === "overtime_hours" ? r.overtime_input_hours : r[key];
+}
+
 const HOUR_FIELDS: { key: HourField; label: string }[] = [
   { key: "overtime_hours", label: "잔업" },
   { key: "early_start_hours", label: "조출" },
@@ -621,10 +629,9 @@ function WorkHoursEditModal({
   const [team, setTeam] = useState<string>(single?.team ?? "");
   const [leaveType, setLeaveType] = useState<string>(single?.leave_type ?? "");
   const [hourValues, setHourValues] = useState<Record<HourField, string>>(() =>
-    Object.fromEntries(HOUR_FIELDS.map((f) => [f.key, single ? String(single[f.key]) : ""])) as Record<
-      HourField,
-      string
-    >
+    Object.fromEntries(
+      HOUR_FIELDS.map((f) => [f.key, single ? String(editableHourValue(single, f.key)) : ""])
+    ) as Record<HourField, string>
   );
   const [supportGroup, setSupportGroup] = useState<string>(single?.support_work_group ?? "");
   const [supportHours, setSupportHours] = useState<string>(single ? String(single.support_hours) : "");
@@ -684,7 +691,9 @@ function WorkHoursEditModal({
     for (const r of rows) {
       const patched = {
         leave_type: enabled.leave_type ? leaveType || null : r.leave_type,
-        overtime_hours: enabled.overtime_hours ? Number(hourValues.overtime_hours) || 0 : r.overtime_hours,
+        overtime_hours: enabled.overtime_hours
+          ? Number(hourValues.overtime_hours) || 0
+          : r.overtime_input_hours,
         early_start_hours: enabled.early_start_hours
           ? Number(hourValues.early_start_hours) || 0
           : r.early_start_hours,
@@ -748,7 +757,12 @@ function WorkHoursEditModal({
       const patchedRows = rows.map((r) => ({
         employee_no: r.employee_no,
         leave_type: enabled.leave_type ? leaveType || null : r.leave_type,
-        overtime_hours: enabled.overtime_hours ? Number(hourValues.overtime_hours) || 0 : r.overtime_hours,
+        // /api/work-hours PUT은 잔업 신청값을 overtime_input_hours로 받는다(2026-09-15
+        // 수정) — r.overtime_hours(계산된 실제 인정 잔업)를 다시 보내면 저장할 때마다
+        // 지각/조퇴/외출 차감이 중복 적용된다.
+        overtime_input_hours: enabled.overtime_hours
+          ? Number(hourValues.overtime_hours) || 0
+          : r.overtime_input_hours,
         early_start_hours: enabled.early_start_hours
           ? Number(hourValues.early_start_hours) || 0
           : r.early_start_hours,

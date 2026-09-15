@@ -192,6 +192,10 @@ export interface WorkHoursRow {
   has_record: boolean;
   normal_hours: number;
   overtime_hours: number;
+  /** 잔업 "신청값"(계산 전 원본 입력) — overtime_hours는 이 값에서 지각/조퇴/외출을 흡수한
+   *  "계산값"이라 서로 다르다. 수정 팝업의 잔업 입력칸은 반드시 이 값을 편집 대상으로
+   *  써야 한다(overtime_hours를 다시 신청값으로 쓰면 저장할 때마다 흡수가 중복 적용된다). */
+  overtime_input_hours: number;
   early_start_hours: number;
   lunch_shift_hours: number;
   late_hours: number;

@@ -120,6 +120,13 @@ CREATE TABLE IF NOT EXISTS work_hours_daily (
   -- 뿐이다(2026-09-07 사용자 요청, 엑셀 원본에는 없던 항목을 새로 추가).
   leave_type TEXT,
   normal_hours REAL NOT NULL DEFAULT 0,
+  -- 잔업 "신청값"(사람이 입력하는 원본 값) — overtime_hours(아래)는 이 값에서 지각/조퇴/
+  -- 외출을 흡수하고 남은 "실제 인정된 잔업"(계산값)이라 서로 다르다. 이 원본을 별도
+  -- 컬럼에 안 두고 overtime_hours 하나로 돌려쓰면, 조회(GET)나 재저장 때마다 이미
+  -- 계산된 값을 다시 신청값으로 착각해 지각/조퇴/외출을 두 번 빼는 버그가 생긴다(2026-09-15
+  -- 발견 — PSN-06 근태대사가 보여주는 DB 원본값과 PSN-01 조회 화면이 서로 달라 보이던
+  -- 원인). GET/PUT/엑셀 업로드·다운로드 전부 이 컬럼을 신청값의 유일한 출처로 써야 한다.
+  overtime_input_hours REAL NOT NULL DEFAULT 0,
   overtime_hours REAL NOT NULL DEFAULT 0,
   early_start_hours REAL NOT NULL DEFAULT 0,
   lunch_shift_hours REAL NOT NULL DEFAULT 0,
@@ -1254,6 +1261,67 @@ function migrate(db: DatabaseSync) {
     "UPDATE work_hours_daily SET leave_type = '전반' WHERE leave_type IN ('반차', '반차(전반)')"
   );
   db.exec("UPDATE work_hours_daily SET leave_type = '후반' WHERE leave_type = '반차(후반)'");
+
+  // work_hours_daily: 잔업 "신청값" 컬럼 분리(2026-09-15, 이중차감 버그 수정) — 기존에는
+  // overtime_hours 하나에 신청값과 계산값을 겹쳐 썼다. 새 컬럼을 추가하고, 이미 저장된
+  // 행은 지금 저장된 overtime_hours/normal_hours로부터 원래 신청값을 역산해 채운다
+  // (work-hours-leave.ts computeAttendanceHours의 역함수 — 아래 backfillOvertimeInputHours
+  // 참고). 이 시점 이후로는 절대 재역산하지 않고 이 컬럼을 그대로 신청값의 원본으로 쓴다.
+  if (
+    workHoursDailyCols.length > 0 &&
+    !workHoursDailyCols.some((c) => c.name === "overtime_input_hours")
+  ) {
+    db.exec("ALTER TABLE work_hours_daily ADD COLUMN overtime_input_hours REAL NOT NULL DEFAULT 0");
+    backfillOvertimeInputHours(db);
+  }
+}
+
+// overtime_hours/normal_hours(계산 결과)로부터 당시 잔업 신청값을 역산한다.
+// - 휴가구분이 있는 날(연차/전반/후반/공가/휴무): computeAttendanceHours가 신청값을 그대로
+//   통과시키므로(잔업은 흡수 대상이 아님) overtime_hours 자체가 이미 신청값이다.
+// - 휴가구분이 없는 날(출근): normalHours = max(0, 8 - excess - support), excess =
+//   max(0, deduction - raw) 이므로, overtime_hours(=raw-deduction 결과)가 0보다 크면
+//   raw = overtime_hours + deduction, 0이면 raw = deduction - (8 - support - normal)로
+//   정확히 복원된다(마이그레이션 시점엔 아직 재저장이 없어 값이 훼손되기 전이라 항상
+//   유일하게 복원 가능).
+function backfillOvertimeInputHours(db: DatabaseSync) {
+  const rows = db
+    .prepare(
+      `SELECT d.work_date, d.employee_no, d.leave_type, d.normal_hours, d.overtime_hours,
+              d.late_hours, d.early_leave_hours, d.outing_hours,
+              COALESCE(s.support_hours, 0) AS support_hours
+       FROM work_hours_daily d
+       LEFT JOIN work_support_detail s
+         ON s.work_date = d.work_date AND s.employee_no = d.employee_no`
+    )
+    .all() as {
+    work_date: string;
+    employee_no: string;
+    leave_type: string | null;
+    normal_hours: number;
+    overtime_hours: number;
+    late_hours: number;
+    early_leave_hours: number;
+    outing_hours: number;
+    support_hours: number;
+  }[];
+
+  const update = db.prepare(
+    "UPDATE work_hours_daily SET overtime_input_hours = ? WHERE work_date = ? AND employee_no = ?"
+  );
+  for (const r of rows) {
+    let raw: number;
+    if (r.leave_type) {
+      raw = r.overtime_hours;
+    } else {
+      const deduction = r.late_hours + r.early_leave_hours + r.outing_hours;
+      raw =
+        r.overtime_hours > 0
+          ? r.overtime_hours + deduction
+          : deduction - (8 - r.support_hours - r.normal_hours);
+    }
+    update.run(Math.max(0, raw), r.work_date, r.employee_no);
+  }
 }
 
 // items/processes/equipments 기준정보는 전부 실제 원본 엑셀 임포트로 채운다

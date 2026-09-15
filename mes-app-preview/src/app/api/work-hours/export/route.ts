@@ -47,8 +47,8 @@ export async function GET(req: NextRequest) {
 
   const dailyRows = db
     .prepare(
-      `SELECT employee_no, leave_type, normal_hours, overtime_hours, early_start_hours, lunch_shift_hours,
-              late_hours, early_leave_hours, outing_hours
+      `SELECT employee_no, leave_type, normal_hours, overtime_hours, overtime_input_hours, early_start_hours,
+              lunch_shift_hours, late_hours, early_leave_hours, outing_hours
        FROM work_hours_daily WHERE work_date = ?`
     )
     .all(date) as {
@@ -56,6 +56,7 @@ export async function GET(req: NextRequest) {
     leave_type: string | null;
     normal_hours: number;
     overtime_hours: number;
+    overtime_input_hours: number;
     early_start_hours: number;
     lunch_shift_hours: number;
     late_hours: number;
@@ -79,7 +80,10 @@ export async function GET(req: NextRequest) {
   const data = workers.map((w, idx) => {
     const d = dailyByEmployee.get(w.employee_no);
     const support = supportByEmployee.get(w.employee_no);
-    const overtime = d?.overtime_hours ?? 0;
+    // 잔업은 반드시 overtime_input_hours(신청값 원본)에서 가져온다 — overtime_hours(계산
+    // 결과)를 다시 신청값으로 넣으면 이 파일을 그대로 재업로드할 때 지각/조퇴/외출 차감이
+    // 중복 적용된다(2026-09-15 발견·수정, api/work-hours/route.ts GET과 동일한 이유).
+    const overtimeInput = d?.overtime_input_hours ?? 0;
     const earlyStart = d?.early_start_hours ?? 0;
     const lunchShift = d?.lunch_shift_hours ?? 0;
     const late = d?.late_hours ?? 0;
@@ -90,7 +94,7 @@ export async function GET(req: NextRequest) {
     // 정상/잔업 둘 다 사람이 고칠 수 없다 — 저장분이 있어도 무시하고 새 계산 순서
     // (work-hours-leave.ts의 computeAttendanceHours)로 다시 구해 내려준다.
     const { normalHours: normal, overtimeHours: overtimeFinal } = computeAttendanceHours(leaveType, {
-      overtimeInput: overtime,
+      overtimeInput,
       lateHours: late,
       earlyLeaveHours: earlyLeave,
       outingHours: outing,
@@ -110,7 +114,10 @@ export async function GET(req: NextRequest) {
       근무시간: total,
       휴가: leaveType,
       정상: normal,
-      잔업: overtimeFinal,
+      // 재업로드(import) 시 "잔업" 컬럼을 신청값 원본으로 다시 읽으므로, 여기도 계산
+      // 결과(overtimeFinal)가 아니라 신청값(overtimeInput)을 내려야 왕복해도 값이 깎이지
+      // 않는다(2026-09-15 수정) — 실제로 인정된 잔업(계산값)은 근무시간 합계에 반영돼 있다.
+      잔업: overtimeInput,
       조출: earlyStart,
       중교: lunchShift,
       지각: late,
