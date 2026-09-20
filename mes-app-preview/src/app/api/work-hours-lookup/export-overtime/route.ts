@@ -9,6 +9,7 @@ import {
   resolveEmployeeNos,
 } from "@/lib/work-hours-lookup";
 import { formatBizName } from "@/lib/biz-import";
+import { FIXED_OVERTIME_APPLICATION_HOURS } from "@/lib/attendance-audit";
 import * as XLSX from "xlsx";
 
 export const runtime = "nodejs";
@@ -27,6 +28,11 @@ export const runtime = "nodejs";
 // 사번=biz_employee_no, 부서=biz_dept, 성명=도급사 접두사를 되살린 비즈이름 표기
 // (formatBizName). 비즈 연동 없이 등록된 작업자(biz_employee_no/biz_dept가 NULL)는
 // 그 값이 없으니 우리 사번/공정으로 대체한다.
+//
+// 2026-09-20: 잔업 컬럼은 저장된 값 그대로가 아니라 고정 신청분(FIXED_OVERTIME_APPLICATION_HOURS,
+// 2.34h = 2시간20분, PSN-06 근태대사와 동일 기준)을 초과한 분만 표기한다(사용자 요청, 예:
+// 잔업 3.50 → 3.50-2.34=1.16). 2.34 이하(고정분을 다 못 채웠거나 딱 채운 경우)는 추가로
+// 신청할 초과분이 없으므로 빈칸으로 둔다.
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const workGroup = params.get("workGroup") ?? "";
@@ -68,6 +74,10 @@ export async function GET(req: NextRequest) {
     const bizDept = w.biz_dept || w.work_group;
     const bizName = formatBizName(w.worker_name, w.contractor);
     w.rows.forEach((r) => {
+      const overtimeExcess =
+        r.overtime_hours != null && r.overtime_hours > FIXED_OVERTIME_APPLICATION_HOURS
+          ? Math.round((r.overtime_hours - FIXED_OVERTIME_APPLICATION_HOURS) * 100) / 100
+          : null;
       aoa.push([
         bizEmployeeNo,
         bizDept,
@@ -75,7 +85,7 @@ export async function GET(req: NextRequest) {
         r.work_date,
         r.early_start_hours || null,
         r.lunch_shift_hours || null,
-        r.overtime_hours || null,
+        overtimeExcess,
         null,
       ]);
     });
