@@ -65,9 +65,10 @@ function computeTotal(r: {
   return normalHours + overtimeHours + r.early_start_hours + r.lunch_shift_hours + r.support_hours;
 }
 
-// 근무시간 상한 — 12.01로 잡아서 "정확히 12"는 정상(경계값), 12를 조금이라도 넘긴
-// 경우만 걸린다(2026-09-07 사용자 요청).
-const MAX_TOTAL_HOURS = 12.01;
+// 근무시간 표시용 기준값 — 12.01로 잡아서 "정확히 12"는 정상(경계값), 12를 조금이라도
+// 넘긴 경우만 빨간색으로 표시한다. 저장을 막는 상한은 아니다(2026-09-20 사용자 요청으로
+// 저장 제한 제거, 표시만 유지).
+const OVER_HOURS_THRESHOLD = 12.01;
 
 // 근무조(workers.team) — 1조/2조/3조 소속 표시(작업자등록 BASE-09 TEAM_OPTIONS와 동일).
 const TEAM_OPTIONS = ["1조", "2조", "3조"] as const;
@@ -527,7 +528,7 @@ export default function WorkHoursPage() {
                     <td className={`px-2 py-1.5 text-slate-500 ${wCls}`}>{r.shift_group ?? "-"}</td>
                     <td
                       className={`px-2 py-1.5 text-right font-mono font-semibold ${wCls} ${
-                        r.total_hours > MAX_TOTAL_HOURS ? "bg-rose-50 text-rose-700" : "text-navy"
+                        r.total_hours > OVER_HOURS_THRESHOLD ? "bg-rose-50 text-rose-700" : "text-navy"
                       }`}
                     >
                       {r.total_hours.toLocaleString(undefined, {
@@ -686,34 +687,6 @@ function WorkHoursEditModal({
       if (!Number.isFinite(v) || v < 0) return "지원시간은 음수를 입력할 수 없습니다.";
     }
 
-    // 근무시간 12시간 초과 — 대상 각 행에 활성화된 항목을 적용해봤을 때를 기준으로 판정.
-    const overLimit: string[] = [];
-    for (const r of rows) {
-      const patched = {
-        leave_type: enabled.leave_type ? leaveType || null : r.leave_type,
-        overtime_hours: enabled.overtime_hours
-          ? Number(hourValues.overtime_hours) || 0
-          : r.overtime_input_hours,
-        early_start_hours: enabled.early_start_hours
-          ? Number(hourValues.early_start_hours) || 0
-          : r.early_start_hours,
-        lunch_shift_hours: enabled.lunch_shift_hours
-          ? Number(hourValues.lunch_shift_hours) || 0
-          : r.lunch_shift_hours,
-        late_hours: enabled.late_hours ? Number(hourValues.late_hours) || 0 : r.late_hours,
-        early_leave_hours: enabled.early_leave_hours
-          ? Number(hourValues.early_leave_hours) || 0
-          : r.early_leave_hours,
-        outing_hours: enabled.outing_hours ? Number(hourValues.outing_hours) || 0 : r.outing_hours,
-        support_hours: enabled.support_hours ? Number(supportHours) || 0 : r.support_hours,
-      };
-      if (computeTotal(patched) > MAX_TOTAL_HOURS) overLimit.push(r.worker_name);
-    }
-    if (overLimit.length > 0) {
-      return `근무시간이 12시간을 초과합니다: ${overLimit.slice(0, 5).join(", ")}${
-        overLimit.length > 5 ? ` 외 ${overLimit.length - 5}명` : ""
-      }`;
-    }
     return null;
   }
 
@@ -919,7 +892,7 @@ function WorkHoursEditModal({
               미리보기 — 정상 <span className="font-mono font-semibold text-navy">{preview.normal}</span>
               , 근무시간{" "}
               <span
-                className={`font-mono font-semibold ${preview.total > MAX_TOTAL_HOURS ? "text-rose-600" : "text-navy"}`}
+                className={`font-mono font-semibold ${preview.total > OVER_HOURS_THRESHOLD ? "text-rose-600" : "text-navy"}`}
               >
                 {preview.total.toFixed(2)}
               </span>
