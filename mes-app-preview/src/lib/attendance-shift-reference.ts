@@ -146,6 +146,27 @@ export function parseCardClockTime(v: unknown): number | null {
   return parseHHMMToMinutes(v);
 }
 
+// 세콤 "총근무시간"(HH:MM 기간, parseCardDuration으로 파싱 — 24시간을 넘길 수 있음)은
+// 출근~퇴근 사이 실제 경과시간을 정확히 담고 있다(정상적인 자정 넘김 야간조부터, 다음날을
+// 꼬박 넘기는 극단적 사례까지 실측으로 확인됨, 2026-09-24 이빛나라·전수연·김광진 9/17
+// 사례 — 출근 06:42, 퇴근 07:24로 시각만 보면 퇴근이 출근보다 늦어(자정을 안 넘긴 것처럼
+// 보여) 46분 근무로 오판되지만, 실제로는 다음날 07:24까지 24시간42분 근무했고 총근무시간
+// 필드에 정확히 "24:42"로 찍혀 있었다(punchIn 06:42 + 24:42 = 다음날 07:24, 실제 일치
+// 확인). 출퇴근 "시각"만으로는 자정을 한 번 넘겼는지 하루를 꼬박 넘겼는지 구분이 안 되는
+// 경우가 있어, 이 필드가 있으면 최우선으로 신뢰해 punchIn + 총근무시간으로 연속축(자정을
+// 넘기면 1440분 이상이 되는 축) 퇴근시각을 만든다. 필드가 없거나 0이면(구형 데이터 등)
+// 기존처럼 "퇴근이 출근보다 이르면 다음날"로만 추정한다.
+export function resolveRawPunchOutMinutes(
+  punchInMinutes: number,
+  punchOutMinutes: number,
+  totalWorkedHours: number | null
+): number {
+  if (totalWorkedHours != null && totalWorkedHours > 0) {
+    return punchInMinutes + Math.round(totalWorkedHours * 60);
+  }
+  return punchOutMinutes < punchInMinutes ? punchOutMinutes + 1440 : punchOutMinutes;
+}
+
 // 지각(시간) = max(0, 출근시각 - 지각기준시각). 출근시간이 없으면(결근/미기록) null.
 export function deriveLateHours(punchInMinutes: number | null, ref: ShiftReference): number | null {
   if (punchInMinutes == null) return null;
@@ -162,34 +183,23 @@ export function deriveEarlyStartHours(punchInMinutes: number | null, ref: ShiftR
 }
 
 // 잔업(시간) = max(0, 퇴근시각 - 정식 잔업시작시각). 잔업 구간이 없는 조(2조 등)나
-// 출퇴근시간이 없으면 null(대사 대상에서 제외). 퇴근이 출근보다 이르면(자정을 넘겨
-// 다음날 찍힌 경우) deriveNormalHours/deriveEarlyLeaveHours와 동일하게 punchIn 기준
-// 하루 연속선상으로 보정한다 — 이 보정이 없으면 하루를 꼬박 넘겨 다음날 새벽에 퇴근
-// 찍은 경우(예: 06:34 출근 → 다음날 05:42 퇴근) 퇴근시각이 잔업시작시각보다 작은
-// 값(05:42)으로 그대로 비교돼 잔업이 0으로 나온다(2026-09-22 실사례로 발견).
-export function deriveOvertimeHours(
-  punchInMinutes: number | null,
-  punchOutMinutes: number | null,
-  ref: ShiftReference
-): number | null {
-  if (punchInMinutes == null || punchOutMinutes == null || ref.overtimeStartMinutes == null) return null;
-  const rawPunchOut = punchOutMinutes < punchInMinutes ? punchOutMinutes + 1440 : punchOutMinutes;
-  return Math.max(0, rawPunchOut - ref.overtimeStartMinutes) / 60;
+// 출퇴근시간이 없으면 null(대사 대상에서 제외). rawPunchOutMinutes는 호출부
+// (resolveRawPunchOutMinutes)가 이미 "자정을 넘기면 1440분 이상"이 되도록 연속축으로
+// 보정해 넘겨준 값이다 — 그냥 퇴근시각을 넘기면 하루를 꼬박 넘겨 다음날 찍힌 경우
+// (예: 06:34 출근 → 다음날 05:42 퇴근) 잔업이 0으로 잘못 나온다(2026-09-22 실사례).
+export function deriveOvertimeHours(rawPunchOutMinutes: number | null, ref: ShiftReference): number | null {
+  if (rawPunchOutMinutes == null || ref.overtimeStartMinutes == null) return null;
+  return Math.max(0, rawPunchOutMinutes - ref.overtimeStartMinutes) / 60;
 }
 
 // 조퇴(시간) = max(0, 정식 퇴근시각 - 퇴근시각). 지각과 동일하게 그레이스 없이 정확한
-// 시간차로 계산한다(2026-09-10 사용자 확인). 2조처럼 정식 퇴근시각이 자정을 넘기는 조는
-// deriveNormalHours와 같은 방식으로 punchIn 기준 하루 연속선상으로 보정한다. 정식
-// 퇴근시각(3Q 종료)이 없는 조나 출퇴근시각이 없으면 null(대사 대상에서 제외).
-export function deriveEarlyLeaveHours(
-  punchInMinutes: number | null,
-  punchOutMinutes: number | null,
-  ref: ShiftReference
-): number | null {
-  if (punchInMinutes == null || punchOutMinutes == null || ref.normalEndMinutes == null) return null;
-  const rawPunchOut = punchOutMinutes < punchInMinutes ? punchOutMinutes + 1440 : punchOutMinutes;
+// 시간차로 계산한다(2026-09-10 사용자 확인). rawPunchOutMinutes는 deriveOvertimeHours와
+// 마찬가지로 호출부(resolveRawPunchOutMinutes)가 이미 연속축으로 보정해 넘겨준 값이다.
+// 정식 퇴근시각(3Q 종료)이 없는 조나 출퇴근시각이 없으면 null(대사 대상에서 제외).
+export function deriveEarlyLeaveHours(rawPunchOutMinutes: number | null, ref: ShiftReference): number | null {
+  if (rawPunchOutMinutes == null || ref.normalEndMinutes == null) return null;
   const rawNormalEnd = ref.normalEndMinutes < ref.normalStartMinutes ? ref.normalEndMinutes + 1440 : ref.normalEndMinutes;
-  return Math.max(0, rawNormalEnd - rawPunchOut) / 60;
+  return Math.max(0, rawNormalEnd - rawPunchOutMinutes) / 60;
 }
 
 // 정상근무시간(시간) = 정규 근무구간(1조 07:00~16:00, 2조 16:00~01:00 — PSN-07 "1Q"
@@ -201,18 +211,18 @@ export function deriveEarlyLeaveHours(
 // 정규 구간 안쪽에서 실제 출퇴근시각이 더 늦게/일찍 찍히면 그만큼 그대로 줄어든다(PSN-01의
 // "정상"이 지각/조퇴 시간을 빼는 것과 같은 결과). 2조처럼 정규 구간이 자정을 넘기는 조는
 // deriveEarlyLeaveHours와 같은 방식으로 punchIn 기준 하루 연속선상으로 보정한다. 정규
-// 종료시각(3Q 종료)이 없거나 출퇴근시각 중 하나라도 없으면 null.
+// 종료시각(3Q 종료)이 없거나 출퇴근시각 중 하나라도 없으면 null. rawPunchOutMinutes는
+// 호출부(resolveRawPunchOutMinutes)가 이미 연속축으로 보정해 넘겨준 값이다.
 export function deriveNormalHours(
   punchInMinutes: number | null,
-  punchOutMinutes: number | null,
+  rawPunchOutMinutes: number | null,
   ref: ShiftReference
 ): number | null {
-  if (punchInMinutes == null || punchOutMinutes == null || ref.normalEndMinutes == null) return null;
-  const rawPunchOut = punchOutMinutes < punchInMinutes ? punchOutMinutes + 1440 : punchOutMinutes;
+  if (punchInMinutes == null || rawPunchOutMinutes == null || ref.normalEndMinutes == null) return null;
   const rawNormalEnd = ref.normalEndMinutes < ref.normalStartMinutes ? ref.normalEndMinutes + 1440 : ref.normalEndMinutes;
 
   const effectiveStart = Math.max(punchInMinutes, ref.normalStartMinutes);
-  const effectiveEnd = Math.min(rawPunchOut, rawNormalEnd);
+  const effectiveEnd = Math.min(rawPunchOutMinutes, rawNormalEnd);
   if (effectiveEnd <= effectiveStart) return 0;
 
   let breakOverlapMinutes = 0;
