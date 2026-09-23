@@ -65,6 +65,7 @@ export default function AttendanceCardStatusPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [editingRow, setEditingRow] = useState<AttendanceCardRow | null>(null);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AttendanceCardRow | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -157,6 +158,12 @@ export default function AttendanceCardStatusPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowCreate(true)}
+            className="px-3.5 py-2 rounded-md text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:border-navy transition-colors"
+          >
+            신규 등록
+          </button>
           <button
             onClick={() => setShowBulkEdit(true)}
             disabled={selected.size === 0}
@@ -421,6 +428,19 @@ export default function AttendanceCardStatusPage() {
         />
       )}
 
+      {showCreate && (
+        <AttendanceCardEditModal
+          rows={[]}
+          isNew
+          onClose={() => setShowCreate(false)}
+          onSaved={() => {
+            setShowCreate(false);
+            setPage(1);
+            refresh();
+          }}
+        />
+      )}
+
       {showBulkEdit && (
         <AttendanceCardEditModal
           rows={rows.filter((r) => selected.has(r.id))}
@@ -503,19 +523,25 @@ function formatMinutesToHHMM(mins: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-// 행 수정 겸 선택 일괄변경 모달 — rows가 1개면 "행 수정"(전체 컬럼 항상 편집 가능, 사원번호·
-// 근무일자 포함), 2개 이상이면 "선택 일괄변경"(컬럼별로 체크해야 그 값이 선택된 모든 행에
-// 같은 값으로 적용되고, 자연키인 사원번호·근무일자는 목록에서 뺀다) 화면을 같이 쓴다.
+// 행 수정 겸 선택 일괄변경 겸 신규 등록 모달 — rows가 1개면 "행 수정"(전체 컬럼 항상 편집
+// 가능, 사원번호·근무일자 포함), 2개 이상이면 "선택 일괄변경"(컬럼별로 체크해야 그 값이
+// 선택된 모든 행에 같은 값으로 적용되고, 자연키인 사원번호·근무일자는 목록에서 뺀다) 화면을
+// 같이 쓴다. isNew=true면 rows는 빈 배열이고 "행 수정"과 같은 화면(전체 컬럼 편집)을
+// 빈 값에서 시작해 새 행을 만든다(2026-09-24 사용자 요청 — 작업자가 카드를 안 찍어 그
+// 사원번호·근무일자에 행 자체가 없으면 "수정"을 누를 대상이 없다. 실제 회사 절차상
+// 근태신청서 결재 후 담당 직원이 여기서 직접 채워 넣는다).
 function AttendanceCardEditModal({
   rows,
+  isNew = false,
   onClose,
   onSaved,
 }: {
   rows: AttendanceCardRow[];
+  isNew?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const isBulk = rows.length > 1;
+  const isBulk = !isNew && rows.length > 1;
   const fields = DETAIL_COLS.filter((c) => !isBulk || !BULK_EXCLUDED_KEYS.has(c.key));
 
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
@@ -523,7 +549,7 @@ function AttendanceCardEditModal({
   );
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
-      fields.map((f) => [f.key, !isBulk ? String(rows[0].detail?.[f.key] ?? "") : ""])
+      fields.map((f) => [f.key, !isBulk && !isNew ? String(rows[0].detail?.[f.key] ?? "") : ""])
     )
   );
   const [saving, setSaving] = useState(false);
@@ -562,9 +588,28 @@ function AttendanceCardEditModal({
       setError("변경할 항목을 하나 이상 선택하세요.");
       return;
     }
+    if (isNew && (!values["사원번호"]?.trim() || !values["근무일자"]?.trim())) {
+      setError("사원번호·근무일자는 필수입니다.");
+      return;
+    }
     setSaving(true);
     setError(null);
     setProgress(0);
+    if (isNew) {
+      const res = await fetch("/api/attendance-card-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ detail: values }),
+      });
+      setSaving(false);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setError(data?.error ?? "저장에 실패했습니다.");
+        return;
+      }
+      onSaved();
+      return;
+    }
     let ok = 0;
     let fail = 0;
     for (const r of rows) {
@@ -595,7 +640,9 @@ function AttendanceCardEditModal({
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
           <h2 className="text-base font-bold text-navy">
-            {isBulk ? (
+            {isNew ? (
+              "카드 신규 등록"
+            ) : isBulk ? (
               <>
                 선택 일괄변경 <span className="text-slate-400 font-normal">({rows.length}건)</span>
               </>
@@ -612,6 +659,14 @@ function AttendanceCardEditModal({
           </button>
         </div>
         <div className="px-5 py-4 overflow-y-auto">
+          {isNew && (
+            <p className="text-xs text-slate-500 mb-3">
+              카드를 놓고 와서 출근/퇴근이 안 찍힌 경우 등 원본 업로드에 행 자체가 없을 때
+              씁니다(근태신청서 결재 후 담당자가 채워 넣는 용도). 사원번호·근무일자는
+              필수이고, 같은 사원번호·근무일자 행이 이미 있으면 저장이 거부됩니다(그때는
+              목록에서 수정을 이용하세요).
+            </p>
+          )}
           {isBulk && (
             <p className="text-xs text-slate-500 mb-3">
               체크한 항목만 선택된 {rows.length}건 전부에게 같은 값으로 적용됩니다. 체크하지
