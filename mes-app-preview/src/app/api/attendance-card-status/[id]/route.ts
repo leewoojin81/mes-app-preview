@@ -30,8 +30,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const db = getDb();
   const existing = db
-    .prepare("SELECT detail FROM attendance_card_status WHERE id = ?")
-    .get(id) as { detail: string | null } | undefined;
+    .prepare("SELECT detail, edited_fields FROM attendance_card_status WHERE id = ?")
+    .get(id) as { detail: string | null; edited_fields: string | null } | undefined;
   if (!existing) {
     return NextResponse.json({ error: "행을 찾을 수 없습니다." }, { status: 404 });
   }
@@ -41,6 +41,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     : {};
   const patch = body.detail as Record<string, string | number | null>;
   const mergedDetail = { ...currentDetail, ...patch };
+
+  // 실제로 값이 바뀐 컬럼만 "수정됨"으로 기록한다(2026-09-24 사용자 요청) — 단일행
+  // 수정은 화면이 안 바뀐 필드까지 전부 patch에 담아 보내므로, patch에 있다고 무조건
+  // 수정된 게 아니라 기존값과 달라진 것만 골라야 한다. 이전에 이미 수정 기록이 있으면
+  // 계속 누적한다(한 번 고친 값은 나중에 또 다른 값으로 고쳐도 "원본 그대로"가 아니므로).
+  const prevEdited: string[] = existing.edited_fields ? JSON.parse(existing.edited_fields) : [];
+  const newlyChanged = Object.keys(patch).filter(
+    (k) => String(patch[k] ?? "") !== String(currentDetail[k] ?? "")
+  );
+  const editedFields = Array.from(new Set([...prevEdited, ...newlyChanged]));
 
   const employeeNo = str(mergedDetail["사원번호"]);
   const workDate = normalizeCardDate(
@@ -64,7 +74,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   db.prepare(
     `UPDATE attendance_card_status SET
-       record_key = ?, employee_no = ?, work_date = ?, org = ?, worker_name = ?, team = ?, detail = ?
+       record_key = ?, employee_no = ?, work_date = ?, org = ?, worker_name = ?, team = ?, detail = ?,
+       edited_fields = ?
      WHERE id = ?`
   ).run(
     recordKey,
@@ -74,6 +85,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     str(mergedDetail["이름"]),
     str(mergedDetail["근무조"]),
     JSON.stringify(mergedDetail),
+    editedFields.length > 0 ? JSON.stringify(editedFields) : null,
     id
   );
 

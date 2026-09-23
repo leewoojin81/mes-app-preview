@@ -172,7 +172,12 @@ CREATE TABLE IF NOT EXISTS attendance_card_status (
   worker_name TEXT,
   team TEXT,
   uploaded_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-  detail TEXT
+  detail TEXT,
+  -- 업로드 이후 사람이 손으로 고친 detail 컬럼명을 담은 JSON 배열(예: '["출근시간"]') —
+  -- [id]/route.ts의 PATCH가 실제로 바뀐 컬럼만 골라 누적 기록해 화면에서 빨간색으로
+  -- 표시한다. 재업로드(구간 재동기화)로 새로 들어온 행은 이 컬럼을 안 채우므로 NULL —
+  -- 원본 그대로인 새 행이라 "수정한 곳" 자체가 없는 게 맞다.
+  edited_fields TEXT
 );
 
 -- 인원관리(PSN-03) "보호구지급관리" 보호구품목 마스터 — 지금은 고정 3종(방진복&조끼/
@@ -1273,6 +1278,21 @@ function migrate(db: DatabaseSync) {
   ) {
     db.exec("ALTER TABLE work_hours_daily ADD COLUMN overtime_input_hours REAL NOT NULL DEFAULT 0");
     backfillOvertimeInputHours(db);
+  }
+
+  // attendance_card_status: 업로드 이후 사람이 손으로 고친 컬럼을 기록해 화면에 빨간색으로
+  // 표시한다(2026-09-24 사용자 요청). 값은 JSON 배열(예: '["출근시간","퇴근시간"]") —
+  // [id]/route.ts의 PATCH가 실제로 바뀐 컬럼만 골라 누적 기록하고, import/route.ts의
+  // 재업로드(구간 재동기화, DELETE 후 새로 INSERT)는 이 컬럼 자체를 새로 안 채우니
+  // 자동으로 초기화된다(원본 그대로인 새 행이니 "수정한 곳" 자체가 없는 게 맞음).
+  const attendanceCardCols = db.prepare("PRAGMA table_info(attendance_card_status)").all() as {
+    name: string;
+  }[];
+  if (
+    attendanceCardCols.length > 0 &&
+    !attendanceCardCols.some((c) => c.name === "edited_fields")
+  ) {
+    db.exec("ALTER TABLE attendance_card_status ADD COLUMN edited_fields TEXT");
   }
 }
 

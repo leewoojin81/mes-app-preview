@@ -1063,6 +1063,9 @@ export interface AttendanceCardRow {
   uploaded_at: string;
   /** 원본 엑셀 전체 컬럼(헤더명 → 값) */
   detail: Record<string, string | number | null> | null;
+  /** 업로드 이후 사람이 손으로 고친 detail 컬럼명 목록 — 그리드에서 빨간색으로 표시한다.
+   *  재업로드로 새로 들어온 행이면 null(수정한 적 없음). */
+  edited_fields: string[] | null;
 }
 
 export interface AttendanceCardListResponse {

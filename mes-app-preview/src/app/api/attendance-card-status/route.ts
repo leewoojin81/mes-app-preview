@@ -4,8 +4,12 @@ import { buildAttendanceCardWhere } from "@/lib/attendance-card-filters";
 
 export const runtime = "nodejs";
 
-function parseDetail<T extends { detail?: string | null }>(r: T) {
-  return { ...r, detail: r.detail ? JSON.parse(r.detail) : null };
+function parseDetail<T extends { detail?: string | null; edited_fields?: string | null }>(r: T) {
+  return {
+    ...r,
+    detail: r.detail ? JSON.parse(r.detail) : null,
+    edited_fields: r.edited_fields ? (JSON.parse(r.edited_fields) as string[]) : null,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -27,7 +31,7 @@ export async function GET(req: NextRequest) {
       .prepare(
         `SELECT * FROM attendance_card_status ${where} ORDER BY work_date DESC, id DESC LIMIT ? OFFSET ?`
       )
-      .all(...args, pageSize, offset) as { detail: string | null }[]
+      .all(...args, pageSize, offset) as { detail: string | null; edited_fields: string | null }[]
   ).map(parseDetail);
 
   const uploadedAt = (

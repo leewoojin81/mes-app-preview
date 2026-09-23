@@ -58,6 +58,9 @@ export default function AttendanceCardStatusPage() {
 
   const [searchInput, setSearchInput] = useTabState("acsSearchInput", "");
   const [search, setSearch] = useTabState("acsSearch", "");
+  // "수정" 필터(2026-09-24 사용자 요청) — 업로드 이후 사람이 손으로 고친 행(edited_fields
+  // 있는 행)만 골라 본다.
+  const [editedOnly, setEditedOnly] = useTabState("acsEditedOnly", false);
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [editingRow, setEditingRow] = useState<AttendanceCardRow | null>(null);
@@ -80,6 +83,7 @@ export default function AttendanceCardStatusPage() {
     if (org) params.set("org", org);
     if (team) params.set("team", team);
     if (search) params.set("search", search);
+    if (editedOnly) params.set("edited", "1");
     return params;
   }
 
@@ -105,7 +109,7 @@ export default function AttendanceCardStatusPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, dateFrom, dateTo, org, team, search, refreshKey]);
+  }, [page, pageSize, dateFrom, dateTo, org, team, search, editedOnly, refreshKey]);
 
   const orgOptions = distinctOptions(rows, "org");
   const teamOptions = distinctOptions(rows, "team");
@@ -237,6 +241,18 @@ export default function AttendanceCardStatusPage() {
           placeholder="사원번호, 이름 검색"
           className="border border-slate-300 rounded-md px-3 py-2 text-sm w-64"
         />
+        <label className="flex items-center gap-1.5 text-sm text-slate-600 shrink-0">
+          <input
+            type="checkbox"
+            checked={editedOnly}
+            onChange={(e) => {
+              setEditedOnly(e.target.checked);
+              setPage(1);
+            }}
+            className="rounded border-slate-300"
+          />
+          수정
+        </label>
         <select
           value={pageSize}
           onChange={(e) => {
@@ -332,14 +348,19 @@ export default function AttendanceCardStatusPage() {
                     </td>
                     {DETAIL_COLS.map((col) => {
                       const v = row.detail?.[col.key];
+                      // 업로드 이후 사람이 손으로 고친 컬럼만 빨간색으로 표시한다(2026-09-24
+                      // 사용자 요청) — 원본 그대로인 값과 구분해 어디를 고쳤는지 한눈에 보이게.
+                      const edited = row.edited_fields?.includes(col.key) ?? false;
                       return (
                         <td
                           key={col.key}
                           title={v == null ? undefined : String(v)}
                           className={`px-3 py-2.5 max-w-64 truncate ${
-                            typeof v === "number"
-                              ? "text-right text-slate-500 font-mono text-xs"
-                              : "text-slate-500"
+                            edited
+                              ? `font-semibold ${typeof v === "number" ? "text-right font-mono text-xs" : ""} text-rose-600`
+                              : typeof v === "number"
+                                ? "text-right text-slate-500 font-mono text-xs"
+                                : "text-slate-500"
                           }`}
                         >
                           {v == null || v === "" ? "-" : typeof v === "number" ? v.toLocaleString() : String(v)}
