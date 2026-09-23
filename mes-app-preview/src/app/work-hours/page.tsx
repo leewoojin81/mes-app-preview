@@ -5,6 +5,7 @@ import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
 import { LEAVE_TYPE_OPTIONS, computeAttendanceHours } from "@/lib/work-hours-leave";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
+import { formatHoursClock } from "@/lib/format-hours";
 import type { Process, WorkHoursResponse, WorkHoursRow } from "@/lib/types";
 
 function toLocalDateStr(d: Date): string {
@@ -531,10 +532,7 @@ export default function WorkHoursPage() {
                         r.total_hours > OVER_HOURS_THRESHOLD ? "bg-rose-50 text-rose-700" : "text-navy"
                       }`}
                     >
-                      {r.total_hours.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      {formatHoursClock(r.total_hours)}
                     </td>
                     <td className={`px-2 py-1.5 text-center ${wCls}`}>
                       {r.has_record ? (
@@ -549,16 +547,16 @@ export default function WorkHoursPage() {
                     </td>
                     <td className={`px-2 py-1.5 text-slate-600 ${wCls}`}>{r.leave_type ?? "출근"}</td>
                     <td className={`px-2 py-1.5 text-right font-mono font-semibold text-navy ${wCls}`}>
-                      {r.normal_hours.toLocaleString()}
+                      {formatHoursClock(r.normal_hours)}
                     </td>
                     {HOUR_FIELDS.map((f) => (
                       <td key={f.key} className={`px-2 py-1.5 text-right font-mono text-slate-600 ${wCls}`}>
-                        {r[f.key].toLocaleString()}
+                        {formatHoursClock(r[f.key])}
                       </td>
                     ))}
                     <td className={`px-2 py-1.5 text-slate-600 ${wCls}`}>{r.support_work_group ?? "-"}</td>
                     <td className={`px-2 py-1.5 text-right font-mono text-slate-600 ${wCls}`}>
-                      {r.support_hours.toLocaleString()}
+                      {formatHoursClock(r.support_hours)}
                     </td>
                   </tr>
                 ))}
@@ -889,12 +887,13 @@ function WorkHoursEditModal({
           </div>
           {preview && (
             <p className="text-xs text-slate-500 pt-1 border-t border-slate-100">
-              미리보기 — 정상 <span className="font-mono font-semibold text-navy">{preview.normal}</span>
+              미리보기 — 정상{" "}
+              <span className="font-mono font-semibold text-navy">{formatHoursClock(preview.normal)}</span>
               , 근무시간{" "}
               <span
                 className={`font-mono font-semibold ${preview.total > OVER_HOURS_THRESHOLD ? "text-rose-600" : "text-navy"}`}
               >
-                {preview.total.toFixed(2)}
+                {formatHoursClock(preview.total)}
               </span>
             </p>
           )}

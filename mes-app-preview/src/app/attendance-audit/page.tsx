@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
+import { formatHoursClock } from "@/lib/format-hours";
 import type {
   AttendanceAuditItem,
   AttendanceAuditResult,
@@ -110,18 +111,18 @@ function firstDayOfMonth(): string {
   return toLocalDateStr(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 
+// 소수 시간(0.5) 대신 "시:분"(0:30)으로 보여준다(2026-09-24 사용자 요청). 0/null은
+// 기존 관례(빈 대사 대상은 "-", 실제 0시간은 "0") 그대로 유지한다.
 function fmtHours(v: number | null): string {
   if (v == null) return "-";
   if (v === 0) return "0";
-  return Number.isInteger(v) ? String(v) : v.toFixed(2);
+  return formatHoursClock(v);
 }
 
 function fmtDiff(v: number | null): string {
   if (v == null) return "-";
   if (v === 0) return "0";
-  const abs = Math.abs(v);
-  const s = Number.isInteger(abs) ? String(abs) : abs.toFixed(2);
-  return (v > 0 ? "+" : "-") + s;
+  return (v > 0 ? "+" : "-") + formatHoursClock(Math.abs(v));
 }
 
 function rowClass(status: AttendanceAuditRowStatus): string {

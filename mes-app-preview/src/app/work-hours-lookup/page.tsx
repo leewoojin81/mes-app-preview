@@ -7,6 +7,7 @@ import { useTabState } from "@/lib/use-tab-state";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
 import { formatBizName } from "@/lib/biz-import";
 import { FIXED_OVERTIME_APPLICATION_HOURS } from "@/lib/overtime-application";
+import { formatHoursClock } from "@/lib/format-hours";
 import type { WorkHoursLookupPage, WorkHoursLookupTotals } from "@/lib/work-hours-lookup";
 
 interface WorkerOption {
@@ -76,11 +77,7 @@ function fmtTotal(key: keyof WorkHoursLookupTotals, v: number): string {
 // 초과신청 탭 그리드의 조출/중교/잔업 칸 — 소수 시간(0.5)이 아니라 "시:분"(0:30)으로
 // 보여준다(2026-09-24 사용자 요청). 값이 0이면 fmt()와 동일하게 빈칸.
 function fmtHM(v: number): string {
-  if (v === 0) return "";
-  const totalMinutes = Math.round(v * 60);
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  return `${h}:${String(m).padStart(2, "0")}`;
+  return v === 0 ? "" : formatHoursClock(v);
 }
 
 // "초과신청" 탭 그리드의 잔업 칸 — 다운로드(export-overtime/route.ts)와 똑같이 고정
