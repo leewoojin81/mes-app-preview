@@ -162,10 +162,19 @@ export function deriveEarlyStartHours(punchInMinutes: number | null, ref: ShiftR
 }
 
 // 잔업(시간) = max(0, 퇴근시각 - 정식 잔업시작시각). 잔업 구간이 없는 조(2조 등)나
-// 퇴근시간이 없으면 null(대사 대상에서 제외).
-export function deriveOvertimeHours(punchOutMinutes: number | null, ref: ShiftReference): number | null {
-  if (punchOutMinutes == null || ref.overtimeStartMinutes == null) return null;
-  return Math.max(0, punchOutMinutes - ref.overtimeStartMinutes) / 60;
+// 출퇴근시간이 없으면 null(대사 대상에서 제외). 퇴근이 출근보다 이르면(자정을 넘겨
+// 다음날 찍힌 경우) deriveNormalHours/deriveEarlyLeaveHours와 동일하게 punchIn 기준
+// 하루 연속선상으로 보정한다 — 이 보정이 없으면 하루를 꼬박 넘겨 다음날 새벽에 퇴근
+// 찍은 경우(예: 06:34 출근 → 다음날 05:42 퇴근) 퇴근시각이 잔업시작시각보다 작은
+// 값(05:42)으로 그대로 비교돼 잔업이 0으로 나온다(2026-09-22 실사례로 발견).
+export function deriveOvertimeHours(
+  punchInMinutes: number | null,
+  punchOutMinutes: number | null,
+  ref: ShiftReference
+): number | null {
+  if (punchInMinutes == null || punchOutMinutes == null || ref.overtimeStartMinutes == null) return null;
+  const rawPunchOut = punchOutMinutes < punchInMinutes ? punchOutMinutes + 1440 : punchOutMinutes;
+  return Math.max(0, rawPunchOut - ref.overtimeStartMinutes) / 60;
 }
 
 // 조퇴(시간) = max(0, 정식 퇴근시각 - 퇴근시각). 지각과 동일하게 그레이스 없이 정확한

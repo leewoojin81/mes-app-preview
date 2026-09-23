@@ -212,13 +212,19 @@ const OVERTIME_FULL_CUTOFF_MINUTES = 18 * 60 + 30; // 18:30
 function buildOvertimeItem(
   psn01: number,
   derivedPsn02: number | null,
+  punchInMinutes: number | null,
   punchOutMinutes: number | null
 ): AttendanceAuditItem {
   const item = buildItem(psn01, derivedPsn02);
   if (derivedPsn02 == null) return item;
   const isFixedApplication = Math.abs(psn01 - FIXED_OVERTIME_APPLICATION_HOURS) < 0.001;
-  if (isFixedApplication && punchOutMinutes != null) {
-    return { ...item, mismatch: punchOutMinutes < OVERTIME_FULL_CUTOFF_MINUTES };
+  if (isFixedApplication && punchInMinutes != null && punchOutMinutes != null) {
+    // deriveOvertimeHours와 동일하게 자정을 넘겨 다음날 찍힌 퇴근시각을 punchIn 기준
+    // 연속선상으로 보정한 뒤 18:30 기준과 비교한다(2026-09-22 실사례 — 06:34 출근,
+    // 다음날 05:42 퇴근처럼 하루를 꼬박 넘긴 경우, 보정 없이 원시 퇴근시각만 보면
+    // 05:42 < 18:30이라 실제로는 18:30을 훨씬 넘겨 채웠는데도 미달로 오판된다).
+    const rawPunchOut = punchOutMinutes < punchInMinutes ? punchOutMinutes + 1440 : punchOutMinutes;
+    return { ...item, mismatch: rawPunchOut < OVERTIME_FULL_CUTOFF_MINUTES };
   }
   return { ...item, mismatch: psn01 - derivedPsn02 >= MISMATCH_THRESHOLD_HOURS };
 }
@@ -397,7 +403,7 @@ export function fetchAttendanceAudit(
     let items: AttendanceAuditRow["items"] = {
       total: buildItem(totalHours, null),
       normal: buildNormalItem(normalHours, null, supportHours),
-      overtime: buildOvertimeItem(overtimeHours, null, null),
+      overtime: buildOvertimeItem(overtimeHours, null, null, null),
       early_start: buildEarlyStartItem(earlyStartHours, null),
       late: buildItem(lateHours, null),
       early_leave: buildItem(earlyLeaveHours, null),
@@ -440,7 +446,7 @@ export function fetchAttendanceAudit(
       const isAfternoonHalfDay = daily?.leave_type === "후반";
       const derivedLate = isMorningHalfDay ? 0 : ref ? deriveLateHours(punchIn, ref) : null;
       const derivedEarlyStart = ref ? deriveEarlyStartHours(punchIn, ref) : null;
-      const derivedOvertime = ref ? deriveOvertimeHours(punchOut, ref) : null;
+      const derivedOvertime = ref ? deriveOvertimeHours(punchIn, punchOut, ref) : null;
       // 조퇴는 지각과 동일하게 그레이스 없이 정확한 시간차로 계산한다(정식 퇴근시각 =
       // PSN-07 "3Q" 종료시각, 2026-09-10 사용자 확인).
       const derivedEarlyLeave = isAfternoonHalfDay ? 0 : ref ? deriveEarlyLeaveHours(punchIn, punchOut, ref) : null;
@@ -467,7 +473,7 @@ export function fetchAttendanceAudit(
       const normalPsn02Raw =
         derivedNormal ?? parseCardDuration(card.detail["정상근무시간"] as string | number | null);
       const normalPsn02 = Math.max(0, normalPsn02Raw - outingExcessOnNormal);
-      const overtimeItem = buildOvertimeItem(overtimeHours, derivedOvertimeAfterOuting, punchOut);
+      const overtimeItem = buildOvertimeItem(overtimeHours, derivedOvertimeAfterOuting, punchIn, punchOut);
       const earlyStartItem = buildEarlyStartItem(earlyStartHours, derivedEarlyStart);
       // 근로시간의 조출/잔업 기여분 — 세콤 카드가 일찍 출근·늦게 퇴근을 찍어도 PSN-01에
       // 조출·잔업 신청이 없으면 인정되지 않는다(2026-09-10 사용자 확인, 실링 박용자·
