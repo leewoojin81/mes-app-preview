@@ -166,6 +166,16 @@ function buildItem(psn01: number, psn02: number | null): AttendanceAuditItem {
   return { psn01, psn02, diff, mismatch: Math.abs(diff) >= MISMATCH_THRESHOLD_HOURS };
 }
 
+// 중교는 세콤에 대응되는 근거가 없어(psn02 항상 null) 원래 참고 표시 전용이었지만,
+// 0.51시간을 초과하면 그리드에서 "불일치"로 표기한다(2026-09-24 사용자 요청 — 세콤과
+// 대조하는 게 아니라 PSN-01 값 자체가 비정상적으로 큰지만 본다). 종합상태 판정/일치율
+// 집계(COMPARABLE_ITEM_KEYS)에는 안 넣는다 — 그리드 표시만 바꿔달라는 요청이라 대사
+// 로직 자체는 그대로 둔다.
+const LUNCH_SHIFT_FLAG_THRESHOLD_HOURS = 0.51;
+function buildLunchShiftItem(psn01: number): AttendanceAuditItem {
+  return { psn01, psn02: null, diff: null, mismatch: psn01 > LUNCH_SHIFT_FLAG_THRESHOLD_HOURS };
+}
+
 // 세콤 카드는 "정상 근무시간대"에 실제로 있었던 시간을 통째로 재계산할 뿐, 그 시간이
 // 자공정(정상)인지 다른 공정 지원인지는 구분 못 한다(대응되는 세콤 필드 자체가 없음).
 // 그래서 정상만 단독으로 비교하지 않고 정상+지원(PSN-01)의 합으로 세콤 재계산값과
@@ -407,8 +417,9 @@ export function fetchAttendanceAudit(
       late: buildItem(lateHours, null),
       early_leave: buildItem(earlyLeaveHours, null),
       // 중교/외출/지원시간은 세콤에 근거 데이터 자체가 없어 카드가 있어도 비교하지 않는다
-      // (아래 if(card) 블록에서도 다시 안 건드림 — 항상 참고 표시 전용).
-      lunch_shift: buildItem(lunchShiftHours, null),
+      // (아래 if(card) 블록에서도 다시 안 건드림 — 항상 참고 표시 전용). 중교만
+      // buildLunchShiftItem으로 0.51시간 초과 시 그리드에 불일치로 표기한다.
+      lunch_shift: buildLunchShiftItem(lunchShiftHours),
       outing: buildItem(outingHours, null),
       support: buildItem(supportHours, null),
     };
@@ -508,8 +519,9 @@ export function fetchAttendanceAudit(
         early_leave: buildEarlyLeaveItem(earlyLeaveHours, derivedEarlyLeave),
         // 중교/외출/지원시간은 세콤 원본에 근거 자체가 없다(외출시간 필드도 항상 "00:00",
         // 외출List/복귀List도 전부 공란으로 확인됨, 2026-09-09 — 중교/지원시간도 대응되는
-        // 세콤 필드 자체가 없음) — 비교하지 않고 항상 참고 표시 전용으로 둔다.
-        lunch_shift: buildItem(lunchShiftHours, null),
+        // 세콤 필드 자체가 없음) — 비교하지 않고 항상 참고 표시 전용으로 둔다. 중교만
+        // buildLunchShiftItem으로 0.51시간 초과 시 그리드에 불일치로 표기한다.
+        lunch_shift: buildLunchShiftItem(lunchShiftHours),
         outing: buildItem(outingHours, null),
         support: buildItem(supportHours, null),
       };
