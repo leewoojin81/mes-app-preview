@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import TimeSegmentInput from "@/components/TimeSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
-import type { AttendanceCardListResponse, AttendanceCardRow } from "@/lib/types";
+import type { AttendanceCardListResponse, AttendanceCardRow, Worker } from "@/lib/types";
 import { ATTENDANCE_CARD_COLS as DETAIL_COLS } from "@/lib/attendance-card-columns";
+import { secomStyleName } from "@/lib/biz-import";
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -13,6 +14,13 @@ const PAGE_SIZE_OPTIONS = [50, 100, 200];
 // 같은 값을 한꺼번에 넣으면 서로 record_key가 겹쳐 저장이 실패한다. 단일행 수정에서는
 // (한 행만 고치는 것이라 충돌 걱정이 없어) 그대로 편집 가능하다.
 const BULK_EXCLUDED_KEYS = new Set(["사원번호", "근무일자"]);
+
+// "수동 수정시간"/"수동 수정자"는 세콤 자체 시스템에서 원본 카드값을 고쳤을 때 세콤이
+// 남기는 이력 필드라, 우리 쪽에서 새로 만드는 행(신규 등록)에는 애초에 해당 사항이 없다
+// (2026-09-24 사용자 요청으로 신규 등록 팝업에서만 제외 — 목록 그리드나 기존 행 수정/
+// 일괄변경에는 그대로 남겨둔다, 업로드된 원본 데이터에는 세콤이 채워준 실제 값일 수
+// 있으므로).
+const CREATE_EXCLUDED_KEYS = new Set(["수동 수정시간", "수동 수정자"]);
 
 // 로컬 타임존 기준 YYYY-MM-DD (toISOString은 UTC라 자정 근처에 날짜가 밀릴 수 있음)
 function toLocalDateStr(d: Date): string {
@@ -542,7 +550,9 @@ function AttendanceCardEditModal({
   onSaved: () => void;
 }) {
   const isBulk = !isNew && rows.length > 1;
-  const fields = DETAIL_COLS.filter((c) => !isBulk || !BULK_EXCLUDED_KEYS.has(c.key));
+  const fields = DETAIL_COLS.filter(
+    (c) => (!isBulk || !BULK_EXCLUDED_KEYS.has(c.key)) && (!isNew || !CREATE_EXCLUDED_KEYS.has(c.key))
+  );
 
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(fields.map((f) => [f.key, !isBulk]))
@@ -555,6 +565,16 @@ function AttendanceCardEditModal({
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  // 신규 등록 팝업의 "이름" 자동완성용 작업자 목록 — 다른 화면(수정/일괄변경)에서는
+  // 안 쓰니 isNew일 때만 불러온다.
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  useEffect(() => {
+    if (!isNew) return;
+    fetch("/api/workers", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: Worker[]) => setWorkers(data));
+  }, [isNew]);
 
   function toggleField(key: string) {
     setEnabled((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -590,6 +610,10 @@ function AttendanceCardEditModal({
     }
     if (isNew && (!values["사원번호"]?.trim() || !values["근무일자"]?.trim())) {
       setError("사원번호·근무일자는 필수입니다.");
+      return;
+    }
+    if (isNew && !values["수정 사유"]?.trim()) {
+      setError("수정 사유는 필수입니다.");
       return;
     }
     setSaving(true);
@@ -662,9 +686,11 @@ function AttendanceCardEditModal({
           {isNew && (
             <p className="text-xs text-slate-500 mb-3">
               카드를 놓고 와서 출근/퇴근이 안 찍힌 경우 등 원본 업로드에 행 자체가 없을 때
-              씁니다(근태신청서 결재 후 담당자가 채워 넣는 용도). 사원번호·근무일자는
-              필수이고, 같은 사원번호·근무일자 행이 이미 있으면 저장이 거부됩니다(그때는
-              목록에서 수정을 이용하세요).
+              씁니다(근태신청서 결재 후 담당자가 채워 넣는 용도). 사원번호·근무일자·수정
+              사유는 필수이고, 같은 사원번호·근무일자 행이 이미 있으면 저장이 거부됩니다
+              (그때는 목록에서 수정을 이용하세요). 이름 칸에 입력하면 등록된 작업자 목록에서
+              찾아주고, 선택하면 도급사 접두사가 붙은 세콤 표기와 사원번호(비즈사번)가
+              자동으로 채워집니다.
             </p>
           )}
           {isBulk && (
@@ -685,8 +711,21 @@ function AttendanceCardEditModal({
                     aria-label={`${f.title} 변경`}
                   />
                 )}
-                <label className="text-xs text-slate-500 w-24 shrink-0">{f.title}</label>
-                {TIME_FIELD_KEYS.has(f.key) ? (
+                <label className="text-xs text-slate-500 w-24 shrink-0">
+                  {f.title}
+                  {isNew && f.key === "수정 사유" && <span className="text-rose-500">*</span>}
+                </label>
+                {isNew && f.key === "이름" ? (
+                  <WorkerNameAutocomplete
+                    workers={workers}
+                    value={values[f.key]}
+                    onChangeText={(v) => setValue(f.key, v)}
+                    onSelect={(w) => {
+                      setValue("이름", secomStyleName(w.worker_name, w.contractor));
+                      setValue("사원번호", w.biz_employee_no ?? w.employee_no);
+                    }}
+                  />
+                ) : TIME_FIELD_KEYS.has(f.key) ? (
                   <TimeSegmentInput
                     value={values[f.key]}
                     onChange={(v) => setValue(f.key, v)}
@@ -727,6 +766,80 @@ function AttendanceCardEditModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// 신규 등록 팝업의 "이름" 자동완성(2026-09-24 사용자 요청, PSN-05 조회탭 사번·성명
+// 검색과 같은 맥락) — 등록된 작업자(workers) 중 이름·사번이 일치하는 목록을 보여주고
+// 고르면 이름 칸을 도급사 접두사가 붙은 세콤 표기(secomStyleName)로, 사원번호 칸을
+// 비즈사번(세콤 카드 매칭에 실제로 쓰이는 13자리 사번, 없으면 workers.employee_no)으로
+// 같이 채운다 — 담당자가 접두사를 몰라서 안 붙이면 근태대사(PSN-06)가 이름불일치로
+// 잘못 표시하던 문제(2026-09-24 실사례, 이준영 9/18)를 막기 위함. 자동완성은 어디까지나
+// 보조라 선택 없이 자유 타이핑도 그대로 허용한다.
+function WorkerNameAutocomplete({
+  workers,
+  value,
+  onChangeText,
+  onSelect,
+}: {
+  workers: Worker[];
+  value: string;
+  onChangeText: (v: string) => void;
+  onSelect: (w: Worker) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const q = value.trim().toLowerCase();
+  const results = useMemo(() => {
+    if (!q) return [];
+    return workers
+      .filter((w) => w.worker_name.toLowerCase().includes(q) || w.employee_no.toLowerCase().includes(q))
+      .slice(0, 20);
+  }, [workers, q]);
+
+  return (
+    <div className="relative w-full">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => {
+          onChangeText(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setOpen(false);
+        }}
+        placeholder="이름 또는 사번 검색"
+        className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white w-full"
+      />
+      {open && q && (
+        <ul className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-md shadow-lg">
+          {results.length === 0 && (
+            <li className="px-3 py-2 text-sm text-slate-400">일치하는 작업자가 없습니다.</li>
+          )}
+          {results.map((w) => (
+            <li
+              key={w.employee_no}
+              className="px-3 py-2 text-sm hover:bg-slate-50 cursor-pointer"
+              onMouseDown={() => {
+                onSelect(w);
+                setOpen(false);
+              }}
+            >
+              <div className="font-medium">
+                {w.worker_name}
+                <span className="text-slate-400 font-normal">
+                  {" "}
+                  · {w.contractor ?? "메디오스"} · {w.work_group ?? "-"}
+                </span>
+              </div>
+              <div className="text-xs text-slate-400 font-mono">{w.employee_no}</div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

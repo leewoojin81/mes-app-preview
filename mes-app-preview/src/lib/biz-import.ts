@@ -51,3 +51,14 @@ export function formatBizName(workerName: string, contractor: string | null | un
   const prefix = BIZ_NAME_PREFIXES.find((p) => p.contractor === contractor)?.prefix;
   return prefix ? `${prefix}${workerName}` : workerName;
 }
+
+// 세콤 카드(PSN-02)에 실제로 찍히는 이름 표기 — attendance-audit.ts의
+// secomNameMatchesWorker/splitSecomName이 인식하는 접두사는 하이픈을 뗀 형태("DO" 등)라
+// formatBizName(하이픈 붙인 "DO-이준영")을 그대로 쓰면 오히려 이름불일치로 판정된다.
+// 출퇴근카드등록(PSN-02) "신규 등록" 팝업의 이름 자동완성에서 쓴다(2026-09-24 사용자
+// 요청 — 담당자가 도급사 접두사를 몰라서 안 붙이면 PSN-06이 매칭오류로 잘못 표시하던
+// 문제를 막기 위함).
+export function secomStyleName(workerName: string, contractor: string | null | undefined): string {
+  const prefix = BIZ_NAME_PREFIXES.find((p) => p.contractor === contractor)?.prefix.replace(/-$/, "");
+  return prefix ? `${prefix} ${workerName}` : workerName;
+}
