@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
+import HourMinuteInput from "@/components/HourMinuteInput";
 import { useTabState } from "@/lib/use-tab-state";
 import { LEAVE_TYPE_OPTIONS, computeAttendanceHours } from "@/lib/work-hours-leave";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
@@ -99,10 +100,9 @@ const HOUR_FIELDS: { key: HourField; label: string }[] = [
   { key: "outing_hours", label: "외출" },
 ];
 
-// 시간 입력칸(잔업/조출/중교/지각/조퇴/외출/지원시간) 스피너 단위 — 10분(1/6시간) 단위.
-// 스피너를 한 번 누를 때마다 0.17/0.34/0.5/0.67/0.83/1/1.17/1.34/1.5/1.67/1.83/2 …로
-// 깔끔하게 떨어지도록, 2시간(=12칸) 주기로 이 표를 반복하고 정수 주기마다 정확히 2를
-// 더한다.
+// 시간 입력칸(잔업/조출/중교/지각/조퇴/외출/지원시간) 검증 단위 — 10분(1/6시간) 단위인지
+// 확인할 때 쓴다. 실제 입력은 HourMinuteInput(시:분 칸)이 받고, 이 표는 그 값이 10분
+// 단위에서 벗어났는지 저장 시점에 확인하는 용도로만 남아 있다.
 const HOUR_STEP = 1 / 6;
 const TEN_MINUTE_TABLE = [0, 0.17, 0.34, 0.5, 0.67, 0.83, 1, 1.17, 1.34, 1.5, 1.67, 1.83];
 
@@ -111,36 +111,6 @@ function nearestTenMinuteHours(hours: number): number {
   const cycleIndex = ((units % 12) + 12) % 12;
   const fullCycles = Math.floor(units / 12);
   return fullCycles * 2 + TEN_MINUTE_TABLE[cycleIndex];
-}
-
-// oldValue(항상 위 표의 값 중 하나)를 표 안에서 정확히 ±1칸만 옮긴다 — 브라우저가 계산해준
-// raw 값을 그대로 재반올림하면 0.83처럼 그리드보다 작게 반올림된 값에서 스핀 버튼이
-// 멈춰버리는 문제가 있어(2026-09-10 확인), 방향(위/아래)만 보고 표의 인덱스를 직접
-// ±1 이동시킨다.
-function stepTenMinuteHours(oldValue: number, direction: 1 | -1): number {
-  const oldUnits = Math.round(oldValue / HOUR_STEP);
-  const newUnits = oldUnits + direction;
-  const cycleIndex = ((newUnits % 12) + 12) % 12;
-  const fullCycles = Math.floor(newUnits / 12);
-  return fullCycles * 2 + TEN_MINUTE_TABLE[cycleIndex];
-}
-
-// 스피너(▲▼) 클릭이나 방향키로 값이 바뀌었을 때만 위 표에 맞춰 한 칸 이동하고, 사람이 직접
-// 타이핑한 값은 그대로 존중한다.
-function applyHourFieldStep(oldValue: number, raw: number, isSpinnerEvent: boolean): number {
-  if (isSpinnerEvent && Number.isFinite(raw)) {
-    if (raw > oldValue) return stepTenMinuteHours(oldValue, 1);
-    if (raw < oldValue) return stepTenMinuteHours(oldValue, -1);
-    return oldValue;
-  }
-  return raw;
-}
-
-// number input의 onChange에서 이 변화가 스피너 클릭/방향키로 발생했는지 판별한다 — 그
-// 경우 nativeEvent.inputType이 undefined이고, 사람이 타이핑/붙여넣기하면 "insertText"
-// 등으로 채워진다.
-function isSpinnerChangeEvent(e: ChangeEvent<HTMLInputElement>): boolean {
-  return !(e.nativeEvent as InputEvent).inputType;
 }
 
 // 잔업/조출/중교/지각/조퇴/외출은 10분 단위(0.17/0.34/0.5/…) 표에서 벗어난 값을 막는다.
@@ -627,13 +597,13 @@ function WorkHoursEditModal({
   );
   const [team, setTeam] = useState<string>(single?.team ?? "");
   const [leaveType, setLeaveType] = useState<string>(single?.leave_type ?? "");
-  const [hourValues, setHourValues] = useState<Record<HourField, string>>(() =>
+  const [hourValues, setHourValues] = useState<Record<HourField, number>>(() =>
     Object.fromEntries(
-      HOUR_FIELDS.map((f) => [f.key, single ? String(editableHourValue(single, f.key)) : ""])
-    ) as Record<HourField, string>
+      HOUR_FIELDS.map((f) => [f.key, single ? editableHourValue(single, f.key) : 0])
+    ) as Record<HourField, number>
   );
   const [supportGroup, setSupportGroup] = useState<string>(single?.support_work_group ?? "");
-  const [supportHours, setSupportHours] = useState<string>(single ? String(single.support_hours) : "");
+  const [supportHours, setSupportHours] = useState<number>(single ? single.support_hours : 0);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -642,12 +612,8 @@ function WorkHoursEditModal({
     setEnabled((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-  function setHourValue(key: HourField, raw: number, isSpinner: boolean) {
-    setHourValues((prev) => {
-      const oldValue = Number(prev[key]) || 0;
-      const stepped = applyHourFieldStep(oldValue, raw, isSpinner);
-      return { ...prev, [key]: String(stepped) };
-    });
+  function setHourValue(key: HourField, hours: number) {
+    setHourValues((prev) => ({ ...prev, [key]: hours }));
   }
 
   // 단일행 수정일 때만 정상/근무시간 미리보기를 보여준다(2026-09-13) — 여러 명을 한 번에
@@ -656,13 +622,13 @@ function WorkHoursEditModal({
     if (!single) return null;
     const patched = {
       leave_type: leaveType || null,
-      overtime_hours: Number(hourValues.overtime_hours) || 0,
-      early_start_hours: Number(hourValues.early_start_hours) || 0,
-      lunch_shift_hours: Number(hourValues.lunch_shift_hours) || 0,
-      late_hours: Number(hourValues.late_hours) || 0,
-      early_leave_hours: Number(hourValues.early_leave_hours) || 0,
-      outing_hours: Number(hourValues.outing_hours) || 0,
-      support_hours: supportGroup ? Number(supportHours) || 0 : 0,
+      overtime_hours: hourValues.overtime_hours || 0,
+      early_start_hours: hourValues.early_start_hours || 0,
+      lunch_shift_hours: hourValues.lunch_shift_hours || 0,
+      late_hours: hourValues.late_hours || 0,
+      early_leave_hours: hourValues.early_leave_hours || 0,
+      outing_hours: hourValues.outing_hours || 0,
+      support_hours: supportGroup ? supportHours || 0 : 0,
     };
     const { normalHours } = computeAttendance(patched);
     return { normal: normalHours, total: computeTotal(patched) };
@@ -675,14 +641,13 @@ function WorkHoursEditModal({
 
     for (const f of HOUR_FIELDS) {
       if (!enabled[f.key]) continue;
-      const v = Number(hourValues[f.key]);
+      const v = hourValues[f.key];
       if (!Number.isFinite(v)) return `${f.label} 값이 올바르지 않습니다.`;
       if (v < 0) return `${f.label}은(는) 음수를 입력할 수 없습니다.`;
       if (!isValidTenMinuteHours(v, f.key)) return `${f.label}은(는) 10분 단위로만 입력할 수 있습니다.`;
     }
     if (enabled.support_hours) {
-      const v = Number(supportHours);
-      if (!Number.isFinite(v) || v < 0) return "지원시간은 음수를 입력할 수 없습니다.";
+      if (!Number.isFinite(supportHours) || supportHours < 0) return "지원시간은 음수를 입력할 수 없습니다.";
     }
 
     return null;
@@ -732,26 +697,26 @@ function WorkHoursEditModal({
         // 수정) — r.overtime_hours(계산된 실제 인정 잔업)를 다시 보내면 저장할 때마다
         // 지각/조퇴/외출 차감이 중복 적용된다.
         overtime_input_hours: enabled.overtime_hours
-          ? Number(hourValues.overtime_hours) || 0
+          ? hourValues.overtime_hours || 0
           : r.overtime_input_hours,
         early_start_hours: enabled.early_start_hours
-          ? Number(hourValues.early_start_hours) || 0
+          ? hourValues.early_start_hours || 0
           : r.early_start_hours,
         lunch_shift_hours: enabled.lunch_shift_hours
-          ? Number(hourValues.lunch_shift_hours) || 0
+          ? hourValues.lunch_shift_hours || 0
           : r.lunch_shift_hours,
-        late_hours: enabled.late_hours ? Number(hourValues.late_hours) || 0 : r.late_hours,
+        late_hours: enabled.late_hours ? hourValues.late_hours || 0 : r.late_hours,
         early_leave_hours: enabled.early_leave_hours
-          ? Number(hourValues.early_leave_hours) || 0
+          ? hourValues.early_leave_hours || 0
           : r.early_leave_hours,
-        outing_hours: enabled.outing_hours ? Number(hourValues.outing_hours) || 0 : r.outing_hours,
+        outing_hours: enabled.outing_hours ? hourValues.outing_hours || 0 : r.outing_hours,
         support_work_group: enabled.support_work_group ? supportGroup || null : r.support_work_group,
         support_hours: enabled.support_work_group
           ? supportGroup
-            ? Number(supportHours) || 0
+            ? supportHours || 0
             : 0
           : enabled.support_hours
-            ? Number(supportHours) || 0
+            ? supportHours || 0
             : r.support_hours,
       }));
       const res = await fetch("/api/work-hours", {
@@ -844,14 +809,10 @@ function WorkHoursEditModal({
                     ))}
                   </select>
                 ) : f.kind === "hour" ? (
-                  <input
-                    type="number"
-                    step={HOUR_STEP}
-                    min={0}
+                  <HourMinuteInput
                     value={hourValues[f.key]}
-                    onChange={(e) => setHourValue(f.key, Number(e.target.value), isSpinnerChangeEvent(e))}
+                    onChange={(v) => setHourValue(f.key, v)}
                     disabled={isBulk && !enabled[f.key]}
-                    className={inputCls}
                   />
                 ) : f.kind === "support_group" ? (
                   <select
@@ -872,14 +833,10 @@ function WorkHoursEditModal({
                     ))}
                   </select>
                 ) : (
-                  <input
-                    type="number"
-                    step={HOUR_STEP}
-                    min={0}
+                  <HourMinuteInput
                     value={supportHours}
-                    onChange={(e) => setSupportHours(e.target.value)}
+                    onChange={setSupportHours}
                     disabled={(isBulk && !enabled.support_hours) || (!isBulk && !supportGroup)}
-                    className={inputCls}
                   />
                 )}
               </div>
