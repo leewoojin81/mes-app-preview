@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { BIZ_NAME_PREFIXES, convertBizEmployeeNo } from "@/lib/biz-import";
+import { FIXED_OVERTIME_APPLICATION_HOURS } from "@/lib/overtime-application";
 import { dateRange } from "@/lib/work-hours-lookup";
 import { ENTITY_TYPE_WORKER, fetchFieldHistoryMap, resolveFieldAsOf } from "@/lib/master-data-history";
 import {
@@ -199,7 +200,6 @@ function buildEarlyLeaveItem(psn01: number, derivedPsn02: number | null): Attend
 // 신청값" 2.34시간(2시간20분)은 정확한 시간차 대신 "세콤 퇴근시각이 18:30 이후인지"만
 // 으로 일치/불일치를 정한다(2026-09-09 사용자 요청 — 신청한 잔업을 실제로 다 채웠는지만
 // 확인). 그 외 값은 아래 일반 규칙(신청 vs 세콤 재계산)을 쓴다.
-export const FIXED_OVERTIME_APPLICATION_HOURS = 2.34;
 const OVERTIME_FULL_CUTOFF_MINUTES = 18 * 60 + 30; // 18:30
 
 // 잔업은 "신청한 시간만큼 실제로 채웠는지"만 본다(2026-09-11 사용자 요청, 조립분리

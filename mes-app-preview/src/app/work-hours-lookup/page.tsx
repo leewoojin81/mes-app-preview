@@ -2,9 +2,11 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
-import SpecialWorkDayModal from "@/components/SpecialWorkDayModal";
+import SpecialWorkDayPanel from "@/components/SpecialWorkDayPanel";
 import { useTabState } from "@/lib/use-tab-state";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
+import { formatBizName } from "@/lib/biz-import";
+import { FIXED_OVERTIME_APPLICATION_HOURS } from "@/lib/overtime-application";
 import type { WorkHoursLookupPage, WorkHoursLookupTotals } from "@/lib/work-hours-lookup";
 
 interface WorkerOption {
@@ -17,6 +19,17 @@ interface Me {
   role: string;
   processCodes: string[];
 }
+
+// 2026-09-23 사용자 요청으로 조회/초과신청/특근일을 한 화면 안 3개 탭으로 분리(예전엔
+// 셋 다 버튼이었고 초과신청은 바로 다운로드, 특근일은 팝업이었다). 조회 그리드는 필터와
+// 함께 세 탭 모두에서 그대로 보여주고(탭마다 어떤 인원·날짜가 다운로드 대상인지 바로
+// 확인 가능), 탭별로 다른 건 그 위의 액션 영역(다운로드 버튼/특근일 입력 패널)뿐이다.
+type WorkHoursLookupTab = "lookup" | "overtime" | "special";
+const TABS: { key: WorkHoursLookupTab; label: string }[] = [
+  { key: "lookup", label: "조회" },
+  { key: "overtime", label: "초과신청" },
+  { key: "special", label: "특근일" },
+];
 
 const COLS: { key: keyof WorkHoursLookupTotals; label: string }[] = [
   { key: "total_hours", label: "근무시간" },
@@ -60,6 +73,15 @@ function fmtTotal(key: keyof WorkHoursLookupTotals, v: number): string {
   return key === "total_hours" ? v.toFixed(2) : v.toLocaleString();
 }
 
+// "초과신청" 탭 그리드의 잔업 칸 — 다운로드(export-overtime/route.ts)와 똑같이 고정
+// 신청분(FIXED_OVERTIME_APPLICATION_HOURS, 2.34h)을 초과한 분만 보여준다. 그 이하면
+// 추가로 신청할 초과분이 없으므로 0(=화면엔 빈칸, fmt()가 처리)으로 둔다.
+function overtimeExcessHours(overtimeHours: number): number {
+  return overtimeHours > FIXED_OVERTIME_APPLICATION_HOURS
+    ? Math.round((overtimeHours - FIXED_OVERTIME_APPLICATION_HOURS) * 100) / 100
+    : 0;
+}
+
 // 생산캘린더(BASE-08) 기준 일자 글씨색 — 토요일은 파랑, 일요일과 휴일은 빨강, 그 외는
 // 기본색. 생산캘린더는 토/일요일도 day_type='휴일'(비고 "주말")로 등록해두므로 day_type만
 // 보면 토요일도 전부 빨강이 돼버린다 — 요일 판정을 먼저 적용해 토요일은 파랑으로 고정하고,
@@ -80,6 +102,17 @@ function filterRowsByStatus<T extends { has_record: boolean }>(rows: T[], status
   if (statusFilter === "saved") return rows.filter((r) => r.has_record);
   if (statusFilter === "unsaved") return rows.filter((r) => !r.has_record);
   return rows;
+}
+
+// "초과" 필터(2026-09-24 사용자 요청, 초과신청 탭 전용) — 그 탭에선 저장상태 필터
+// 대신 조출/중교/잔업(초과분) 중 하나라도 있는 일자만 걸러 볼 수 있다.
+function filterRowsByExcess<
+  T extends { early_start_hours: number; lunch_shift_hours: number; overtime_hours: number },
+>(rows: T[], onlyExcess: boolean): T[] {
+  if (!onlyExcess) return rows;
+  return rows.filter(
+    (r) => r.early_start_hours > 0 || r.lunch_shift_hours > 0 || overtimeExcessHours(r.overtime_hours) > 0
+  );
 }
 
 export default function WorkHoursLookupPage() {
@@ -111,7 +144,12 @@ export default function WorkHoursLookupPage() {
   const [page, setPage] = useTabState("whlPage", 1);
   // 저장상태 필터(2026-09-08 사용자 요청) — 서버 조회 조건이 아니라 이미 받아온 일자별
   // 행(has_record)을 화면에서만 걸러 보여준다. ""=전체, "saved"=저장됨, "unsaved"=미저장.
+  // 초과신청 탭에는 안 보여준다(그 탭은 저장상태 대신 "초과" 필터를 쓴다).
   const [statusFilter, setStatusFilter] = useTabState("whlStatusFilter", "");
+  // "초과" 필터(2026-09-24 사용자 요청, 초과신청 탭 전용) — 조출/중교/잔업(초과분) 중
+  // 하나라도 있는 일자만 보여준다. 체크된 채로 다운로드하면 서버(export-overtime)도
+  // 같은 조건으로 걸러 화면에 보이는 것과 다운로드 결과가 일치한다.
+  const [onlyExcess, setOnlyExcess] = useTabState("whlOnlyExcess", false);
 
   // 조장 세션이 확인되면, 아직 아무 필터도 고르지 않은 상태(=탭을 새로 연 직후)일 때만
   // 본인 소속공정을 기본값으로 채운다 — 이미 다른 값을 골라뒀다면(같은 탭에서 이전에
@@ -124,7 +162,7 @@ export default function WorkHoursLookupPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me]);
 
-  const [showSpecialModal, setShowSpecialModal] = useState(false);
+  const [activeTab, setActiveTab] = useTabState<WorkHoursLookupTab>("whlActiveTab", "lookup");
 
   const [result, setResult] = useState<WorkHoursLookupPage | null>(null);
   const [loading, setLoading] = useState(false);
@@ -227,11 +265,15 @@ export default function WorkHoursLookupPage() {
     window.location.href = `/api/work-hours-lookup/export?${buildDownloadParams().toString()}`;
   }
 
-  // "초과신청" 다운로드(2026-09-08 사용자 요청) — 실제 제출용 서식("실링 초과신청.xlsx"
+  // 초과신청 다운로드(2026-09-08 사용자 요청) — 실제 제출용 서식("실링 초과신청.xlsx"
   // 참고, 사번/부서/성명/일자/조출/중교/잔업/비고)으로 같은 조회 조건을 내려받는다.
+  // "초과" 체크박스가 켜져 있으면 화면과 똑같이 서버도 그 조건으로 걸러 내려준다
+  // (2026-09-24 사용자 요청 — 화면에 보이는 값 그대로 다운로드).
   function downloadOvertimeExcel() {
     if (!canQuery) return;
-    window.location.href = `/api/work-hours-lookup/export-overtime?${buildDownloadParams().toString()}`;
+    const params = buildDownloadParams();
+    if (onlyExcess) params.set("onlyExcess", "1");
+    window.location.href = `/api/work-hours-lookup/export-overtime?${params.toString()}`;
   }
 
   // 다운로드는 페이지 구분 없이 조건에 맞는 전체를 내려주므로(export/route.ts) 현재
@@ -244,19 +286,41 @@ export default function WorkHoursLookupPage() {
     .map((w) => ({ w, rows: filterRowsByStatus(w.rows, statusFilter) }))
     .filter((b) => b.rows.length > 0);
 
+  // 초과신청 탭 전용 — 저장상태 대신 "초과" 필터를 적용한다.
+  const overtimeVisibleWorkerBlocks = (result?.workers ?? [])
+    .map((w) => ({ w, rows: filterRowsByExcess(w.rows, onlyExcess) }))
+    .filter((b) => b.rows.length > 0);
+
   return (
     <div className="w-full px-4 sm:px-6 py-6 space-y-6">
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-navy">근무시간조회</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            PSN-05 · 일일근태입력(PSN-01)에 저장된 근태기록을 일자별로 보여주는 조회 전용
-            화면입니다(여기서 입력·수정하지 않습니다). 조장은 본인 소속공정으로 자동
-            필터링되어 시작하고, 관리자는 공정을 전체로 둘 수 있습니다(대상이 많으면 인원
-            단위로 페이지가 나뉩니다). 사번/성명 검색은 그 안에서 한 명만 추려낼 때 씁니다.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <div>
+        <h1 className="text-xl font-bold text-navy">근무시간조회</h1>
+        <p className="text-sm text-slate-500 mt-1">
+          PSN-05 · 일일근태입력(PSN-01)에 저장된 근태기록을 일자별로 보여주는 조회 전용
+          화면입니다(여기서 입력·수정하지 않습니다). 조장은 본인 소속공정으로 자동
+          필터링되어 시작하고, 관리자는 공정을 전체로 둘 수 있습니다(대상이 많으면 인원
+          단위로 페이지가 나뉩니다). 사번/성명 검색은 그 안에서 한 명만 추려낼 때 씁니다.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-1 border-b border-slate-200">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`px-4 py-2.5 -mb-px text-sm font-semibold border-b-2 transition-colors ${
+              activeTab === t.key
+                ? "text-navy border-navy"
+                : "text-slate-400 border-transparent hover:text-slate-600"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "lookup" && (
+        <div className="flex justify-end">
           <button
             onClick={downloadExcel}
             disabled={!canQuery || !hasAnyRows}
@@ -264,29 +328,39 @@ export default function WorkHoursLookupPage() {
           >
             엑셀 다운로드
           </button>
+        </div>
+      )}
+
+      {activeTab === "overtime" && (
+        <div className="bg-white border border-slate-200 rounded-lg p-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-4 flex-wrap">
+            <p className="text-xs text-slate-500 max-w-xl">
+              아래 필터로 좁혀진 조회 조건 그대로, 실제 제출용 "초과신청" 서식(사번/부서/성명/
+              일자/조출/중교/잔업/비고)으로 내려받습니다 — 정상/지각/조퇴/외출/지원은 이
+              서식에 없습니다.
+            </p>
+            <label className="flex items-center gap-1.5 text-sm text-slate-600 shrink-0">
+              <input
+                type="checkbox"
+                checked={onlyExcess}
+                onChange={(e) => setOnlyExcess(e.target.checked)}
+                className="rounded border-slate-300"
+              />
+              초과(조출·중교·잔업)만 보기
+            </label>
+          </div>
           <button
             onClick={downloadOvertimeExcel}
             disabled={!canQuery || !hasAnyRows}
-            className="px-3.5 py-2 rounded-md text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:border-navy disabled:opacity-40 transition-colors"
+            className="px-3.5 py-2 rounded-md text-sm font-medium bg-emerald-700 text-white hover:bg-emerald-800 disabled:opacity-40 transition-colors"
           >
-            초과신청
-          </button>
-          <button
-            onClick={() => setShowSpecialModal(true)}
-            disabled={!canQuery || !hasAnyRows}
-            className="px-3.5 py-2 rounded-md text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:border-navy disabled:opacity-40 transition-colors"
-          >
-            특근일
+            다운로드
           </button>
         </div>
-      </div>
+      )}
 
-      {showSpecialModal && (
-        <SpecialWorkDayModal
-          workGroup={employeeNo ? "" : processFilter}
-          employeeNo={employeeNo}
-          onClose={() => setShowSpecialModal(false)}
-        />
+      {activeTab === "special" && (
+        <SpecialWorkDayPanel workGroup={employeeNo ? "" : processFilter} employeeNo={employeeNo} />
       )}
 
       <div className="flex items-center gap-2 flex-wrap">
@@ -311,15 +385,17 @@ export default function WorkHoursLookupPage() {
             </option>
           ))}
         </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border rounded-md px-2.5 py-2 text-sm bg-white border-slate-300 text-slate-600"
-        >
-          <option value="">저장상태 전체</option>
-          <option value="saved">저장됨</option>
-          <option value="unsaved">미저장</option>
-        </select>
+        {activeTab !== "overtime" && (
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border rounded-md px-2.5 py-2 text-sm bg-white border-slate-300 text-slate-600"
+          >
+            <option value="">저장상태 전체</option>
+            <option value="saved">저장됨</option>
+            <option value="unsaved">미저장</option>
+          </select>
+        )}
         <div ref={boxRef} className="relative">
           <input
             value={searchText}
@@ -356,6 +432,81 @@ export default function WorkHoursLookupPage() {
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
         <div className="overflow-auto max-h-[calc(100vh-19rem)]">
+          {activeTab === "overtime" ? (
+          <table className="text-sm whitespace-nowrap">
+            <thead className="bg-[#D9E1F2] text-slate-500 text-xs">
+              <tr>
+                {["No.", "사번", "부서", "성명", "일자", "조출", "중교", "잔업", "비고"].map((label) => (
+                  <th
+                    key={label}
+                    className="text-center px-3 py-3 font-semibold sticky top-0 z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0]"
+                  >
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {!canQuery && (
+                <tr>
+                  <td colSpan={9} className="text-center py-10 text-slate-400">
+                    사용자 정보를 불러오는 중...
+                  </td>
+                </tr>
+              )}
+              {canQuery && loading && (
+                <tr>
+                  <td colSpan={9} className="text-center py-10 text-slate-400">
+                    불러오는 중...
+                  </td>
+                </tr>
+              )}
+              {canQuery && !loading && result && result.workers.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="text-center py-10 text-slate-400">
+                    조건에 맞는 작업자가 없습니다.
+                  </td>
+                </tr>
+              )}
+              {canQuery &&
+                !loading &&
+                result &&
+                result.workers.length > 0 &&
+                overtimeVisibleWorkerBlocks.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="text-center py-10 text-slate-400">
+                      {onlyExcess ? "초과(조출·중교·잔업)가 있는 일자가 없습니다." : "조건에 맞는 일자가 없습니다."}
+                    </td>
+                  </tr>
+                )}
+              {canQuery &&
+                !loading &&
+                result &&
+                overtimeVisibleWorkerBlocks.map(({ w, rows: workerRows }, wIdx) => {
+                  const bizEmployeeNo = w.biz_employee_no || w.employee_no;
+                  const bizDept = w.biz_dept || w.work_group;
+                  const bizName = formatBizName(w.worker_name, w.contractor);
+                  return workerRows.map((r, idx) => (
+                    <tr key={`${w.employee_no}-${r.work_date}`} className="hover:bg-slate-50">
+                      <td className="px-3 py-2 text-center text-slate-500">{idx === 0 ? wIdx + 1 : ""}</td>
+                      <td className="px-3 py-2 font-mono text-slate-500">{bizEmployeeNo}</td>
+                      <td className="px-3 py-2 text-slate-500">{bizDept ?? "-"}</td>
+                      <td className="px-3 py-2 font-medium text-slate-700">{bizName}</td>
+                      <td className={`px-3 py-2 ${dateTextColor(r.work_date, result.calendar[r.work_date])}`}>
+                        {r.work_date}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-600">{fmt(r.early_start_hours)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-600">{fmt(r.lunch_shift_hours)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-600">
+                        {fmt(overtimeExcessHours(r.overtime_hours))}
+                      </td>
+                      <td className="px-3 py-2 text-slate-300">-</td>
+                    </tr>
+                  ));
+                })}
+            </tbody>
+          </table>
+          ) : (
           <table className="text-sm whitespace-nowrap">
             <thead className="bg-[#D9E1F2] text-slate-500 text-xs">
               <tr>
@@ -473,6 +624,7 @@ export default function WorkHoursLookupPage() {
               </tfoot>
             )}
           </table>
+          )}
         </div>
 
         {/* 조회 대상(작업자 수 × 조회일수)이 PAGE_ROW_LIMIT을 넘으면 서버가 인원 단위로

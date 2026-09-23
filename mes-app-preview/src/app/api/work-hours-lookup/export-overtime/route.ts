@@ -9,7 +9,7 @@ import {
   resolveEmployeeNos,
 } from "@/lib/work-hours-lookup";
 import { formatBizName } from "@/lib/biz-import";
-import { FIXED_OVERTIME_APPLICATION_HOURS } from "@/lib/attendance-audit";
+import { FIXED_OVERTIME_APPLICATION_HOURS } from "@/lib/overtime-application";
 import * as XLSX from "xlsx";
 
 export const runtime = "nodejs";
@@ -33,12 +33,17 @@ export const runtime = "nodejs";
 // 2.34h = 2시간20분, PSN-06 근태대사와 동일 기준)을 초과한 분만 표기한다(사용자 요청, 예:
 // 잔업 3.50 → 3.50-2.34=1.16). 2.34 이하(고정분을 다 못 채웠거나 딱 채운 경우)는 추가로
 // 신청할 초과분이 없으므로 빈칸으로 둔다.
+//
+// 2026-09-24: onlyExcess=1이면 조출/중교/잔업(초과분) 중 하나도 없는 일자는 아예 행을
+// 안 만든다(사용자 요청 — 화면의 "초과만 보기" 체크박스와 같은 조건이어야 화면에 보이는
+// 값 그대로 다운로드된다).
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const workGroup = params.get("workGroup") ?? "";
   const employeeNo = params.get("employeeNo") ?? "";
   const dateFrom = params.get("dateFrom");
   const dateTo = params.get("dateTo");
+  const onlyExcess = params.get("onlyExcess") === "1";
   if (!dateFrom || !dateTo || !/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
     return NextResponse.json({ error: "dateFrom/dateTo는 YYYY-MM-DD 형식이어야 합니다." }, { status: 400 });
   }
@@ -75,9 +80,10 @@ export async function GET(req: NextRequest) {
     const bizName = formatBizName(w.worker_name, w.contractor);
     w.rows.forEach((r) => {
       const overtimeExcess =
-        r.overtime_hours != null && r.overtime_hours > FIXED_OVERTIME_APPLICATION_HOURS
+        r.overtime_hours > FIXED_OVERTIME_APPLICATION_HOURS
           ? Math.round((r.overtime_hours - FIXED_OVERTIME_APPLICATION_HOURS) * 100) / 100
-          : null;
+          : 0;
+      if (onlyExcess && r.early_start_hours <= 0 && r.lunch_shift_hours <= 0 && overtimeExcess <= 0) return;
       aoa.push([
         bizEmployeeNo,
         bizDept,
@@ -85,7 +91,7 @@ export async function GET(req: NextRequest) {
         r.work_date,
         r.early_start_hours || null,
         r.lunch_shift_hours || null,
-        overtimeExcess,
+        overtimeExcess || null,
         null,
       ]);
     });
