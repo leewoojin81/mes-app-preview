@@ -100,27 +100,18 @@ const HOUR_FIELDS: { key: HourField; label: string }[] = [
   { key: "outing_hours", label: "외출" },
 ];
 
-// 시간 입력칸(잔업/조출/중교/지각/조퇴/외출/지원시간) 검증 단위 — 10분(1/6시간) 단위인지
-// 확인할 때 쓴다. 실제 입력은 HourMinuteInput(시:분 칸)이 받고, 이 표는 그 값이 10분
-// 단위에서 벗어났는지 저장 시점에 확인하는 용도로만 남아 있다.
-const HOUR_STEP = 1 / 6;
-const TEN_MINUTE_TABLE = [0, 0.17, 0.34, 0.5, 0.67, 0.83, 1, 1.17, 1.34, 1.5, 1.67, 1.83];
-
-function nearestTenMinuteHours(hours: number): number {
-  const units = Math.round(hours / HOUR_STEP);
-  const cycleIndex = ((units % 12) + 12) % 12;
-  const fullCycles = Math.floor(units / 12);
-  return fullCycles * 2 + TEN_MINUTE_TABLE[cycleIndex];
-}
-
-// 잔업/조출/중교/지각/조퇴/외출은 10분 단위(0.17/0.34/0.5/…) 표에서 벗어난 값을 막는다.
-// 2.25(2시간15분)는 잔업에서만 실제로 수기 입력하는 값이라 예외로 허용한다.
-const EXTRA_VALID_HOURS_BY_FIELD: Partial<Record<HourField, Set<number>>> = {
-  overtime_hours: new Set([2.25]),
+// 잔업/조출/중교/지각/조퇴/외출은 10분 단위로만 입력할 수 있다 — 분 단위(정수)로 직접
+// 비교해 부동소수점 오차를 피한다(0.17 같은 반올림된 소수 표와 비교하던 예전 방식은
+// 1/6시간=10분을 정확히 입력해도 0.1666...≠0.17로 어긋나 저장이 거부되는 버그가 있었다,
+// 2026-09-24 발견·수정). 2:15(135분)는 잔업에서만 실제로 수기 입력하는 값이라 예외로
+// 허용한다.
+const EXTRA_VALID_MINUTES_BY_FIELD: Partial<Record<HourField, Set<number>>> = {
+  overtime_hours: new Set([135]),
 };
 function isValidTenMinuteHours(hours: number, fieldKey: HourField): boolean {
-  if (EXTRA_VALID_HOURS_BY_FIELD[fieldKey]?.has(hours)) return true;
-  return Math.abs(nearestTenMinuteHours(hours) - hours) < 1e-6;
+  const totalMinutes = Math.round(hours * 60);
+  if (EXTRA_VALID_MINUTES_BY_FIELD[fieldKey]?.has(totalMinutes)) return true;
+  return totalMinutes % 10 === 0;
 }
 
 export default function WorkHoursPage() {
