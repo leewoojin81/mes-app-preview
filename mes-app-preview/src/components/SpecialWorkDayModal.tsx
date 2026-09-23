@@ -18,10 +18,33 @@ export default function SpecialWorkDayModal({
   onClose: () => void;
 }) {
   const [dates, setDates] = useState<string[]>([]);
+  const [wage, setWage] = useState("");
   const [baseRate, setBaseRate] = useState("");
   const [overtimeRate, setOvertimeRate] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 시급/기본근무 시급/연장근무 시급은 내부적으로 콤마 없는 숫자 문자열로 들고 있다가
+  // 화면에는 "10,600" 형태로 천단위 콤마 + "원" 단위를 붙여 보여준다(2026-09-23 사용자
+  // 요청). <input type="number">는 콤마 표시를 못 해 text + inputMode="numeric"으로 바꿨다.
+  function onlyDigits(v: string): string {
+    return v.replace(/[^\d]/g, "");
+  }
+  function formatWon(v: string): string {
+    return v === "" ? "" : Number(v).toLocaleString("ko-KR");
+  }
+
+  // 시급을 넣으면 기본근무 시급(1.5배)/연장근무 시급(2.0배)을 자동계산해 채운다(2026-09-23
+  // 사용자 요청). 기본/연장 시급칸은 그대로 남겨둬서, 자동계산된 값을 사람이 다시 손으로
+  // 고칠 수도 있다(그 뒤엔 시급을 다시 바꾸기 전까진 그대로 유지됨).
+  function handleWageChange(v: string) {
+    setWage(v);
+    const n = Number(v);
+    if (v !== "" && Number.isFinite(n)) {
+      setBaseRate(String(Math.round(n * 1.5)));
+      setOvertimeRate(String(Math.round(n * 2.0)));
+    }
+  }
 
   const canDownload = dates.length > 0 && baseRate !== "" && overtimeRate !== "" && !downloading;
 
@@ -104,26 +127,56 @@ export default function SpecialWorkDayModal({
 
               <div className="mt-4 space-y-3">
                 <div>
+                  <label className="text-xs font-medium text-slate-500">시급</label>
+                  <div className="relative mt-1">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={formatWon(wage)}
+                      onChange={(e) => handleWageChange(onlyDigits(e.target.value))}
+                      placeholder="예: 10,600"
+                      className="w-full border border-slate-300 rounded-md pl-3 pr-8 py-2 text-sm text-right"
+                    />
+                    <span className="absolute inset-y-0 right-3 flex items-center text-xs text-slate-400 pointer-events-none">
+                      원
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    시급을 넣으면 기본근무 시급(×1.5)·연장근무 시급(×2.0)이 자동으로 채워집니다.
+                    필요하면 아래에서 직접 고칠 수 있습니다.
+                  </p>
+                </div>
+                <div>
                   <label className="text-xs font-medium text-slate-500">기본근무 시급</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={baseRate}
-                    onChange={(e) => setBaseRate(e.target.value)}
-                    placeholder="예: 15900"
-                    className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
-                  />
+                  <div className="relative mt-1">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={formatWon(baseRate)}
+                      onChange={(e) => setBaseRate(onlyDigits(e.target.value))}
+                      placeholder="예: 15,900"
+                      className="w-full border border-slate-300 rounded-md pl-3 pr-8 py-2 text-sm text-right"
+                    />
+                    <span className="absolute inset-y-0 right-3 flex items-center text-xs text-slate-400 pointer-events-none">
+                      원
+                    </span>
+                  </div>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-slate-500">연장근무 시급</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={overtimeRate}
-                    onChange={(e) => setOvertimeRate(e.target.value)}
-                    placeholder="예: 21200"
-                    className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
-                  />
+                  <div className="relative mt-1">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={formatWon(overtimeRate)}
+                      onChange={(e) => setOvertimeRate(onlyDigits(e.target.value))}
+                      placeholder="예: 21,200"
+                      className="w-full border border-slate-300 rounded-md pl-3 pr-8 py-2 text-sm text-right"
+                    />
+                    <span className="absolute inset-y-0 right-3 flex items-center text-xs text-slate-400 pointer-events-none">
+                      원
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
