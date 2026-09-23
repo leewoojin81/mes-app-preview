@@ -59,19 +59,16 @@ function firstDayOfMonth(): string {
 }
 
 // 값이 0(또는 없음)이면 빈칸으로 보여준다 — "근무시간조회.xlsx" 원본도 값이 없는 칸은
-// 비어 있다(PSN-01 그리드의 "값이 0이면 빈칸" 표시 관례와 동일).
+// 비어 있다(PSN-01 그리드의 "값이 0이면 빈칸" 표시 관례와 동일). 소수 시간(0.5) 대신
+// "시:분"(0:30)으로 보여준다(2026-09-24 사용자 요청, PSN-01/PSN-06과 동일한 포맷).
 function fmt(v: number): string {
-  return v === 0 ? "" : v.toLocaleString();
+  return v === 0 ? "" : formatHoursClock(v);
 }
 
-// 근무시간(total_hours)은 지원시간 등이 더해져 소수점이 흔히 나오므로 항상 소수점
-// 2자리까지 보여준다(다른 항목은 정수라 fmt()의 toLocaleString 그대로 사용).
-function fmtHours(v: number): string {
-  return v === 0 ? "" : v.toFixed(2);
-}
-
-function fmtTotal(key: keyof WorkHoursLookupTotals, v: number): string {
-  return key === "total_hours" ? v.toFixed(2) : v.toLocaleString();
+// 소계/전체합계 행은 값이 0이어도(예: 지원시간 합계 0) 빈칸이 아니라 "0:00"으로 보여준다
+// — 실제로 집계된 합계라는 걸 명확히 하기 위함(개별 셀의 "값 없음 = 빈칸"과는 다른 의미).
+function fmtTotal(v: number): string {
+  return formatHoursClock(v);
 }
 
 // 초과신청 탭 그리드의 조출/중교/잔업 칸 — 소수 시간(0.5)이 아니라 "시:분"(0:30)으로
@@ -587,7 +584,7 @@ export default function WorkHoursLookupPage() {
                           )}
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-navy font-semibold">
-                          {fmtHours(r.total_hours)}
+                          {fmt(r.total_hours)}
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-slate-600">{fmt(r.normal_hours)}</td>
                         <td className="px-3 py-2 text-right font-mono text-slate-600">{fmt(r.overtime_hours)}</td>
@@ -606,7 +603,7 @@ export default function WorkHoursLookupPage() {
                       <td className="px-3 py-2 text-slate-400" colSpan={2}></td>
                       {COLS.map((c) => (
                         <td key={c.key} className="px-3 py-2 text-right font-mono text-slate-600">
-                          {fmtTotal(c.key, w.totals[c.key])}
+                          {fmtTotal(w.totals[c.key])}
                         </td>
                       ))}
                     </tr>
@@ -624,7 +621,7 @@ export default function WorkHoursLookupPage() {
                   </td>
                   {COLS.map((c) => (
                     <td key={c.key} className="px-3 py-2.5 text-right font-mono text-navy">
-                      {fmtTotal(c.key, result.grandTotals[c.key])}
+                      {fmtTotal(result.grandTotals[c.key])}
                     </td>
                   ))}
                 </tr>
