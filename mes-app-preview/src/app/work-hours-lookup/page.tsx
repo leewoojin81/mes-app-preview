@@ -73,6 +73,16 @@ function fmtTotal(key: keyof WorkHoursLookupTotals, v: number): string {
   return key === "total_hours" ? v.toFixed(2) : v.toLocaleString();
 }
 
+// 초과신청 탭 그리드의 조출/중교/잔업 칸 — 소수 시간(0.5)이 아니라 "시:분"(0:30)으로
+// 보여준다(2026-09-24 사용자 요청). 값이 0이면 fmt()와 동일하게 빈칸.
+function fmtHM(v: number): string {
+  if (v === 0) return "";
+  const totalMinutes = Math.round(v * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${h}:${String(m).padStart(2, "0")}`;
+}
+
 // "초과신청" 탭 그리드의 잔업 칸 — 다운로드(export-overtime/route.ts)와 똑같이 고정
 // 신청분(FIXED_OVERTIME_APPLICATION_HOURS, 2.34h)을 초과한 분만 보여준다. 그 이하면
 // 추가로 신청할 초과분이 없으므로 0(=화면엔 빈칸, fmt()가 처리)으로 둔다.
@@ -495,10 +505,10 @@ export default function WorkHoursLookupPage() {
                       <td className={`px-3 py-2 ${dateTextColor(r.work_date, result.calendar[r.work_date])}`}>
                         {r.work_date}
                       </td>
-                      <td className="px-3 py-2 text-right font-mono text-slate-600">{fmt(r.early_start_hours)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-slate-600">{fmt(r.lunch_shift_hours)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-600">{fmtHM(r.early_start_hours)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-600">{fmtHM(r.lunch_shift_hours)}</td>
                       <td className="px-3 py-2 text-right font-mono text-slate-600">
-                        {fmt(overtimeExcessHours(r.overtime_hours))}
+                        {fmtHM(overtimeExcessHours(r.overtime_hours))}
                       </td>
                       <td className="px-3 py-2 text-slate-300">-</td>
                     </tr>
