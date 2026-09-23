@@ -690,8 +690,9 @@ function AttendanceCardEditModal({
               사유는 필수이고, 같은 사원번호·근무일자 행이 이미 있으면 저장이 거부됩니다
               (그때는 목록에서 수정을 이용하세요). 이름 칸에 입력하면 등록된 작업자 목록에서
               찾아주고, 선택하면 도급사 접두사가 붙은 세콤 표기·사원번호(비즈사번)·근무조
-              (비즈 부서)가 자동으로 채워집니다. 조직·직급은 대응되는 작업자등록 값이 없어
-              직접 입력해야 합니다.
+              (비즈 부서)가 자동으로 채워집니다. 조직·직급은 작업자등록에 대응되는 값이
+              없어, 같은 사람의 이 화면(PSN-02) 최근 기록에서 그대로 가져옵니다(카드
+              이력이 없는 사람은 직접 입력하세요).
             </p>
           )}
           {isBulk && (
@@ -721,16 +722,29 @@ function AttendanceCardEditModal({
                     workers={workers}
                     value={values[f.key]}
                     onChangeText={(v) => setValue(f.key, v)}
-                    onSelect={(w) => {
+                    onSelect={async (w) => {
                       setValue("이름", secomStyleName(w.worker_name, w.contractor));
-                      setValue("사원번호", w.biz_employee_no ?? w.employee_no);
+                      const bizNo = w.biz_employee_no ?? w.employee_no;
+                      setValue("사원번호", bizNo);
                       // "근무조"는 BASE-09 화면에 같은 이름으로 표시되는 workers.team(1조/
                       // 2조/3조)과 헷갈리기 쉽지만, 세콤 카드 원본의 "근무조" 칸은 실제로는
                       // workers.biz_dept(비즈 연동 원본 부서, 예: "출하포장")와 항상 일치한다
-                      // (2026-09-24 실 데이터 대조로 확인 — team과는 값 자체가 다름). "조직"/
-                      // "직급"은 대응되는 BASE-09 값이 없어(도급사·직무와 무관하게 뒤섞여
-                      // 있음, 2026-09-24 사용자 확인) 자동으로 채우지 않는다.
+                      // (2026-09-24 실 데이터 대조로 확인 — team과는 값 자체가 다름).
                       if (w.biz_dept) setValue("근무조", w.biz_dept);
+                      // "조직"/"직급"은 BASE-09에 대응되는 값이 없다(도급사·직무와 무관하게
+                      // 뒤섞여 있음, 2026-09-24 사용자 확인). 대신 같은 사람의 PSN-02 원본
+                      // 데이터 중 가장 최근 행에서 그대로 가져온다(2026-09-24 사용자 요청) —
+                      // 세콤이 그 사람에게 실제로 매겼던 조직·직급이라 새로 만드는 행에도
+                      // 그대로 이어지는 게 맞다. 카드 이력이 아예 없는 사람(신규 입사자 등)은
+                      // 채울 값이 없어 그대로 빈칸으로 둔다.
+                      const res = await fetch(
+                        `/api/attendance-card-status?employeeNo=${encodeURIComponent(bizNo)}&pageSize=1`,
+                        { cache: "no-store" }
+                      );
+                      const data: AttendanceCardListResponse = await res.json().catch(() => null);
+                      const latest = data?.rows?.[0]?.detail;
+                      if (latest?.["조직"]) setValue("조직", String(latest["조직"]));
+                      if (latest?.["직급"]) setValue("직급", String(latest["직급"]));
                     }}
                   />
                 ) : TIME_FIELD_KEYS.has(f.key) ? (

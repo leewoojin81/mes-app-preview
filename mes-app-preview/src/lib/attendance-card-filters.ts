@@ -22,6 +22,14 @@ export function buildAttendanceCardWhere(params: URLSearchParams): {
     conditions.push("org = ?");
     args.push(org);
   }
+  // 정확히 일치하는 사원번호(비즈사번) 한 명만 찾을 때 쓴다 — search(LIKE)와 달리 부분
+  // 일치를 허용하지 않는다. 신규 등록(PSN-02) 팝업의 이름 자동완성이 그 사람의 최근
+  // 조직·직급을 가져올 때 쓴다(2026-09-24 사용자 요청).
+  const employeeNo = params.get("employeeNo");
+  if (employeeNo) {
+    conditions.push("employee_no = ?");
+    args.push(employeeNo);
+  }
   const team = params.get("team");
   if (team) {
     conditions.push("team = ?");
