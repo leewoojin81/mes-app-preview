@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTabState } from "@/lib/use-tab-state";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { ProcessWipListResponse, ProcessWipRow } from "@/lib/types";
 import {
   PROCESS_WIP_COLS as DETAIL_COLS,
@@ -255,6 +256,7 @@ function UploadModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ inserted: number; skipped: number } | null>(null);
+  const drag = useDraggableModal();
 
   const submit = async () => {
     if (!file) return;
@@ -275,8 +277,11 @@ function UploadModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">엑셀 업로드</h2>
           <button
             onClick={onClose}

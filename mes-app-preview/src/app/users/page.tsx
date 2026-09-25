@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { AppUser, ScreenPermissionGroup } from "@/lib/types";
 import { EMPLOYMENT_TYPES, POSITIONS_BY_EMPLOYMENT_TYPE, TEAMS, type EmploymentType } from "@/lib/org";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 
 const ROLE_LABEL: Record<AppUser["role"], string> = { leader: "조장", admin: "관리자" };
 
@@ -39,6 +40,7 @@ export default function UsersPage() {
   const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteDrag = useDraggableModal();
   const [permTarget, setPermTarget] = useState<AppUser | null>(null);
 
   const load = () => {
@@ -218,8 +220,11 @@ export default function UsersPage() {
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
-            <div className="px-5 py-4 border-b border-slate-200">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm" style={deleteDrag.style}>
+            <div
+              className="px-5 py-4 border-b border-slate-200 cursor-move"
+              onMouseDown={deleteDrag.onMouseDown}
+            >
               <h2 className="text-base font-bold text-navy">계정 삭제</h2>
             </div>
             <div className="px-5 py-4 space-y-2">
@@ -297,6 +302,7 @@ function UserFormModal({
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const drag = useDraggableModal();
   // 수정 모드에서는 비밀번호 입력란을 기본적으로 DOM에서 아예 빼뒀다가, 체크박스를
   // 눌러야만 나타나게 한다 — 브라우저 자동완성이 "비어 보이지만 실제로는 저장된
   // 값이 채워진" 비밀번호 칸을 만들어 의도치 않게 계정 비밀번호가 바뀌는 사고를
@@ -353,8 +359,11 @@ function UserFormModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">{editing ? "계정 수정" : "계정 추가"}</h2>
           <button
             onClick={onClose}
@@ -572,6 +581,7 @@ function PermissionsModal({
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const drag = useDraggableModal();
 
   useEffect(() => {
     fetch(`/api/users/${encodeURIComponent(user.username)}/permissions`, { cache: "no-store" })
@@ -614,8 +624,11 @@ function PermissionsModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-        <div className="px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" style={drag.style}>
+        <div
+          className="px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">
             화면권한 설정 —{" "}
             <span className="font-mono text-sm text-slate-500">{user.username}</span>{" "}

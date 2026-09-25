@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import {
   PRIORITY_DETAIL_COLS,
   PRIORITY_SUM_KEYS,
@@ -34,6 +35,7 @@ export default function ProductionPriorityPage() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
+  const uploadDrag = useDraggableModal();
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [savingSoNo, setSavingSoNo] = useState<string | null>(null);
@@ -439,8 +441,11 @@ export default function ProductionPriorityPage() {
 
       {showUpload && (
         <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col" style={uploadDrag.style}>
+            <div
+              className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+              onMouseDown={uploadDrag.onMouseDown}
+            >
               <h2 className="text-base font-bold text-navy">엑셀 업로드</h2>
               <button
                 onClick={() => {

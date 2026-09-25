@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTabState } from "@/lib/use-tab-state";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { CalendarDayType, Process, ProcessCalendarDay } from "@/lib/types";
 import { buildProcessCalendarDay, type ProcessBasePattern } from "@/lib/process-calendar";
 
@@ -507,6 +508,7 @@ function ProcessDayEditModal({
     existing.shift2.ot_meal_minutes != null ? String(existing.shift2.ot_meal_minutes) : ""
   );
   const [processNote, setProcessNote] = useState(existing.note ?? "");
+  const drag = useDraggableModal();
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -607,8 +609,11 @@ function ProcessDayEditModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">
             {date} · {processName}
           </h2>
@@ -847,6 +852,7 @@ function HolidayBulkModal({
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const drag = useDraggableModal();
 
   const parsed = useMemo(() => parseDateTokens(input), [input]);
 
@@ -877,8 +883,11 @@ function HolidayBulkModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">공휴일 일괄 등록</h2>
           <button
             onClick={onClose}

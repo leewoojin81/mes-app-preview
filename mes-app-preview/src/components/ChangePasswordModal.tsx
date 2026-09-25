@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
@@ -74,29 +75,7 @@ export default function ChangePasswordModal({ onClose }: { onClose: () => void }
   const [done, setDone] = useState(false);
 
   // 창을 헤더(제목 표시줄)를 드래그해 화면 어디로든 옮길 수 있게 한다.
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(
-    null
-  );
-
-  function handleDragStart(e: React.MouseEvent) {
-    if ((e.target as HTMLElement).closest("button")) return;
-    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: position.x, origY: position.y };
-    window.addEventListener("mousemove", handleDragMove);
-    window.addEventListener("mouseup", handleDragEnd);
-  }
-  function handleDragMove(e: MouseEvent) {
-    if (!dragRef.current) return;
-    setPosition({
-      x: dragRef.current.origX + (e.clientX - dragRef.current.startX),
-      y: dragRef.current.origY + (e.clientY - dragRef.current.startY),
-    });
-  }
-  function handleDragEnd() {
-    dragRef.current = null;
-    window.removeEventListener("mousemove", handleDragMove);
-    window.removeEventListener("mouseup", handleDragEnd);
-  }
+  const drag = useDraggableModal();
 
   const submit = async () => {
     setError(null);
@@ -129,12 +108,9 @@ export default function ChangePasswordModal({ onClose }: { onClose: () => void }
   // stacking context에서 완전히 빼내야 root 기준으로 z-index:50이 제대로 먹는다.
   return createPortal(
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div
-        style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
-        className="bg-white rounded-lg shadow-xl w-full max-w-sm"
-      >
+      <div style={drag.style} className="bg-white rounded-lg shadow-xl w-full max-w-sm">
         <div
-          onMouseDown={handleDragStart}
+          onMouseDown={drag.onMouseDown}
           className="flex items-center justify-between px-5 py-4 border-b border-slate-200 cursor-move select-none"
         >
           <h2 className="text-base font-bold text-navy">비밀번호 변경</h2>

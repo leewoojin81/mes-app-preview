@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { WorkOrder } from "@/lib/types";
 
 const LINES = ["LINE-1", "LINE-2"];
@@ -27,6 +28,7 @@ export default function WorkOrderEditModal({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const drag = useDraggableModal();
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -88,8 +90,12 @@ export default function WorkOrderEditModal({
       <form
         onSubmit={handleSave}
         className="bg-white rounded-lg shadow-xl w-full max-w-xl flex flex-col max-h-[90vh]"
+        style={drag.style}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <div>
             <h2 className="text-base font-bold text-navy">작업지시 수정</h2>
             <p className="text-xs text-slate-500 mt-0.5 font-mono">{wo.wo_no}</p>

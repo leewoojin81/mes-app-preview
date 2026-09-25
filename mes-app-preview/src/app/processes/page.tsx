@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTabState } from "@/lib/use-tab-state";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { Process } from "@/lib/types";
 
 const USE_TABS = [
@@ -70,6 +71,7 @@ export default function ProcessMasterPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Process | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Process | null>(null);
+  const deleteDrag = useDraggableModal();
   const [deleting, setDeleting] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
 
@@ -292,8 +294,11 @@ export default function ProcessMasterPage() {
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
-            <div className="px-5 py-4 border-b border-slate-200">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm" style={deleteDrag.style}>
+            <div
+              className="px-5 py-4 border-b border-slate-200 cursor-move"
+              onMouseDown={deleteDrag.onMouseDown}
+            >
               <h2 className="text-base font-bold text-navy">공정 삭제</h2>
             </div>
             <div className="px-5 py-4 space-y-2">
@@ -379,6 +384,7 @@ function ProcessFormModal({
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const drag = useDraggableModal();
 
   const set = (key: keyof FormState, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -432,8 +438,11 @@ function ProcessFormModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">
             {editing ? "공정 수정" : "공정 추가"}
           </h2>
@@ -723,6 +732,7 @@ function ProcessUploadModal({
     skippedNoCode: number;
     skippedInvalid: number;
   } | null>(null);
+  const drag = useDraggableModal();
 
   const submit = async () => {
     if (!file) return;
@@ -743,8 +753,11 @@ function ProcessUploadModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">엑셀 업로드</h2>
           <button
             onClick={onClose}

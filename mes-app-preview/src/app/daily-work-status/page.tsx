@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { DailyWorkStatusListResponse, DailyWorkStatusRow } from "@/lib/types";
 import {
   DAILY_WORK_STATUS_COLS as DETAIL_COLS,
@@ -451,6 +452,7 @@ function UploadModal({
     skipped: number;
     finalTotal: number;
   } | null>(null);
+  const drag = useDraggableModal();
 
   const submit = async () => {
     if (!file) return;
@@ -471,8 +473,11 @@ function UploadModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">엑셀 업로드</h2>
           <button
             onClick={onClose}

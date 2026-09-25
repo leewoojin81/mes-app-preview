@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { PpeItem, PpeIssuance, PpeStatusCell } from "@/lib/types";
 import { isOverdue, isUpcomingOrOverdue, todayStr } from "@/lib/ppe";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 
 type WorkerOption = { employee_no: string; worker_name: string; process_code: string | null };
 
@@ -227,6 +228,7 @@ function RegisterModal({
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const drag = useDraggableModal();
 
   const submit = async () => {
     setSaving(true);
@@ -255,8 +257,11 @@ function RegisterModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">지급등록</h2>
           <button
             onClick={onClose}
@@ -364,6 +369,7 @@ function HistoryModal({
 }) {
   const [rows, setRows] = useState<PpeIssuance[] | null>(null);
   const [confirmId, setConfirmId] = useState<number | null>(null);
+  const drag = useDraggableModal();
   const itemNameByCode = useMemo(
     () => new Map(items.map((i) => [i.item_code, i.item_name])),
     [items]
@@ -387,8 +393,11 @@ function HistoryModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[85vh] flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">
             지급이력 —{" "}
             <span className="font-mono text-sm text-slate-500">{target.employee_no}</span>{" "}

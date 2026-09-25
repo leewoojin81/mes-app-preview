@@ -7,6 +7,7 @@ import { useTabState } from "@/lib/use-tab-state";
 import type { AttendanceCardListResponse, AttendanceCardRow, Worker } from "@/lib/types";
 import { ATTENDANCE_CARD_COLS as DETAIL_COLS } from "@/lib/attendance-card-columns";
 import { secomStyleName } from "@/lib/biz-import";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -76,6 +77,7 @@ export default function AttendanceCardStatusPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AttendanceCardRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const deleteDrag = useDraggableModal();
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -463,8 +465,11 @@ export default function AttendanceCardStatusPage() {
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
-            <div className="px-5 py-4 border-b border-slate-200">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm" style={deleteDrag.style}>
+            <div
+              className="px-5 py-4 border-b border-slate-200 cursor-move"
+              onMouseDown={deleteDrag.onMouseDown}
+            >
               <h2 className="text-base font-bold text-navy">출퇴근카드 삭제</h2>
             </div>
             <div className="px-5 py-4 space-y-2">
@@ -565,6 +570,7 @@ function AttendanceCardEditModal({
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const drag = useDraggableModal();
 
   // 신규 등록 팝업의 "이름" 자동완성용 작업자 목록 — 다른 화면(수정/일괄변경)에서는
   // 안 쓰니 isNew일 때만 불러온다.
@@ -661,8 +667,11 @@ function AttendanceCardEditModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">
             {isNew ? (
               "카드 신규 등록"
@@ -884,6 +893,7 @@ function UploadModal({
     skipped: number;
     finalTotal: number;
   } | null>(null);
+  const drag = useDraggableModal();
 
   const submit = async () => {
     if (!file) return;
@@ -904,8 +914,11 @@ function UploadModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">엑셀 업로드</h2>
           <button
             onClick={onClose}

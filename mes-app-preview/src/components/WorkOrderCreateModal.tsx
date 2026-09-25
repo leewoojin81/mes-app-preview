@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { SalesOrder, WorkOrder } from "@/lib/types";
 
 const LINES = ["LINE-1", "LINE-2"];
@@ -39,6 +40,7 @@ export default function WorkOrderCreateModal({
   const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const drag = useDraggableModal();
 
   useEffect(() => {
     Promise.all([
@@ -162,8 +164,14 @@ export default function WorkOrderCreateModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-[95vw] max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-[95vw] max-h-[90vh] flex flex-col"
+        style={drag.style}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <div>
             <h2 className="text-base font-bold text-navy">작업지시등록</h2>
             <p className="text-xs text-slate-500 mt-0.5">

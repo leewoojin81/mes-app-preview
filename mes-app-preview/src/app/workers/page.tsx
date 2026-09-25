@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import { useTabState } from "@/lib/use-tab-state";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
 import { convertBizEmployeeNo, formatBizName, hireDateFromEmployeeNo, parseBizName } from "@/lib/biz-import";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { Process, Worker } from "@/lib/types";
 
 const USE_TABS = [
@@ -143,6 +144,7 @@ export default function WorkerMasterPage() {
   const [deleteTarget, setDeleteTarget] = useState<Worker | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteDrag = useDraggableModal();
   const [showUpload, setShowUpload] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showBulkEdit, setShowBulkEdit] = useState(false);
@@ -571,8 +573,11 @@ export default function WorkerMasterPage() {
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
-            <div className="px-5 py-4 border-b border-slate-200">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm" style={deleteDrag.style}>
+            <div
+              className="px-5 py-4 border-b border-slate-200 cursor-move"
+              onMouseDown={deleteDrag.onMouseDown}
+            >
               <h2 className="text-base font-bold text-navy">작업자 삭제</h2>
             </div>
             <div className="px-5 py-4 space-y-2">
@@ -670,6 +675,7 @@ function WorkerFormModal({
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const drag = useDraggableModal();
 
   const set = (key: keyof FormState, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -761,8 +767,11 @@ function WorkerFormModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">
             {editing ? "작업자 수정" : "작업자 추가"}
           </h2>
@@ -1293,6 +1302,7 @@ function WorkerBulkEditModal({
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const drag = useDraggableModal();
 
   function toggleField(field: BulkField) {
     setEnabled((prev) => ({ ...prev, [field]: !prev[field] }));
@@ -1372,8 +1382,11 @@ function WorkerBulkEditModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">
             선택 일괄변경 <span className="text-slate-400 font-normal">({workers.length}명)</span>
           </h2>
@@ -1564,6 +1577,7 @@ function WorkerUploadModal({
     updated: number;
     skippedNoKey: number;
   } | null>(null);
+  const drag = useDraggableModal();
 
   const submit = async () => {
     if (!file) return;
@@ -1584,8 +1598,11 @@ function WorkerUploadModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <h2 className="text-base font-bold text-navy">엑셀 업로드</h2>
           <button
             onClick={onClose}

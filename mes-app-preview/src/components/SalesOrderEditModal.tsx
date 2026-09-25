@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import CustomerSearchSelect from "@/components/CustomerSearchSelect";
 import ItemSearchSelect from "@/components/ItemSearchSelect";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { Customer, Item, SalesOrder, SalesOrderStatus } from "@/lib/types";
 
 const STATUS_OPTIONS: SalesOrderStatus[] = ["수주", "Packing", "출고", "완료", "중단"];
@@ -92,29 +93,7 @@ export default function SalesOrderEditModal({
   const [error, setError] = useState<string | null>(null);
 
   // 창을 헤더(제목 표시줄)를 드래그해 화면 어디로든 옮길 수 있게 한다.
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(
-    null
-  );
-
-  function handleDragStart(e: React.MouseEvent) {
-    if ((e.target as HTMLElement).closest("button")) return;
-    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: position.x, origY: position.y };
-    window.addEventListener("mousemove", handleDragMove);
-    window.addEventListener("mouseup", handleDragEnd);
-  }
-  function handleDragMove(e: MouseEvent) {
-    if (!dragRef.current) return;
-    setPosition({
-      x: dragRef.current.origX + (e.clientX - dragRef.current.startX),
-      y: dragRef.current.origY + (e.clientY - dragRef.current.startY),
-    });
-  }
-  function handleDragEnd() {
-    dragRef.current = null;
-    window.removeEventListener("mousemove", handleDragMove);
-    window.removeEventListener("mouseup", handleDragEnd);
-  }
+  const drag = useDraggableModal();
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -180,11 +159,11 @@ export default function SalesOrderEditModal({
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
       <form
         onSubmit={handleSave}
-        style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
+        style={drag.style}
         className="bg-white rounded-lg shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]"
       >
         <div
-          onMouseDown={handleDragStart}
+          onMouseDown={drag.onMouseDown}
           className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move select-none"
         >
           <div>

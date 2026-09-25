@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import CustomerSearchSelect from "@/components/CustomerSearchSelect";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { Customer, Item } from "@/lib/types";
 
 type ColKey =
@@ -130,6 +131,7 @@ export default function SalesOrderBulkModal({
     skipped: number;
     errors: string[];
   } | null>(null);
+  const drag = useDraggableModal();
 
   // 전표 상단 공통 항목. 수주일자는 등록되는 모든 건에 공통으로 적용되는 값(그리드 컬럼이 아님)이고,
   // 나머지는 값을 채우면 아래 모든 행(및 새로 추가되는 행)에 그대로 적용된다.
@@ -372,8 +374,14 @@ export default function SalesOrderBulkModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-[95vw] max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-[95vw] max-h-[90vh] flex flex-col"
+        style={drag.style}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <div>
             <h2 className="text-base font-bold text-navy">수주 일괄등록</h2>
             <p className="text-xs text-slate-500 mt-0.5">

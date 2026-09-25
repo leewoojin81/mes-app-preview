@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import CustomerSearchSelect from "@/components/CustomerSearchSelect";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { Customer, Item, SalesOrder } from "@/lib/types";
 
 type ColKey =
@@ -115,6 +116,7 @@ export default function SalesOrderBulkEditModal({
     skipped: number;
     errors: string[];
   } | null>(null);
+  const drag = useDraggableModal();
 
   // 전표 상단 일괄 적용 항목. 값을 채우면 현재 그리드에 로드된 모든 행에 즉시 반영된다
   // ("전체로 수정") — 여러 줄이 한 수주번호를 공유하는 경우 한 번에 값을 맞출 때 쓴다.
@@ -291,8 +293,14 @@ export default function SalesOrderBulkEditModal({
 
   return (
     <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-[95vw] max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-[95vw] max-h-[90vh] flex flex-col"
+        style={drag.style}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
           <div>
             <h2 className="text-base font-bold text-navy">수주 일괄수정</h2>
             <p className="text-xs text-slate-500 mt-0.5">
