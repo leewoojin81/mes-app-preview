@@ -24,3 +24,6 @@ Thumbs.db
 # Stray/accidental files
 mes-app-preview/UsersAdministratorDesktopmes-systemmes-app-previewdatames-preview.db
 /mes-app/
+
+# PSN-05 공정별 주간 근태 다운로드가 채워 쓰는 서식 파일 — 서버가 런타임에 읽으므로 추적해야 함
+!mes-app-preview/templates/*.xlsx

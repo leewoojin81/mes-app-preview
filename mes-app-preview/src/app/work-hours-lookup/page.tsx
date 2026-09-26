@@ -280,6 +280,16 @@ export default function WorkHoursLookupPage() {
     window.location.href = `/api/work-hours-lookup/export-overtime?${params.toString()}`;
   }
 
+  // 주간근태 다운로드(2026-09-26 사용자 요청) — 실제 제출용 서식("공정별 주간
+  // 근태_26.09.01~09.06.xlsx")에 PSN-01/PSN-02 데이터를 채워 내려받는다. 조회기간을 그대로
+  // 쓰고(9/7~9/13이면 그 기간만), 서식이 공정별 시트 묶음이라 공정/작업자 필터는 적용하지
+  // 않는다(export-weekly/route.ts).
+  const weeklyRangeOk = !!dateFrom && !!dateTo && dateFrom <= dateTo;
+  function downloadWeeklyExcel() {
+    if (!canQuery || !weeklyRangeOk) return;
+    window.location.href = `/api/work-hours-lookup/export-weekly?${new URLSearchParams({ dateFrom, dateTo }).toString()}`;
+  }
+
   // 다운로드는 페이지 구분 없이 조건에 맞는 전체를 내려주므로(export/route.ts) 현재
   // 페이지가 아니라 totalWorkers로 활성화 여부를 판단한다.
   const hasAnyRows = (result?.totalWorkers ?? 0) > 0;
@@ -324,7 +334,15 @@ export default function WorkHoursLookupPage() {
       </div>
 
       {activeTab === "lookup" && (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={downloadWeeklyExcel}
+            disabled={!canQuery || !weeklyRangeOk}
+            title="조회기간을 그대로 공정별 주간 근태 서식으로 내려받습니다(공정/작업자 필터는 적용되지 않습니다)"
+            className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
+          >
+            주간근태
+          </button>
           <button
             onClick={downloadExcel}
             disabled={!canQuery || !hasAnyRows}
