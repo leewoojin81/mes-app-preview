@@ -41,18 +41,18 @@ export default function MultiDateCalendarPicker({
   }
 
   return (
-    <div className="border border-slate-200 rounded-md p-3 w-full max-w-sm">
-      <div className="flex items-center justify-between mb-2">
+    <div className="border border-slate-200 rounded-md p-2 w-full max-w-[15rem] shrink-0">
+      <div className="flex items-center justify-between mb-1">
         <button
           type="button"
           onClick={() =>
             setCursor((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))
           }
-          className="px-2 py-1 text-slate-500 hover:text-navy"
+          className="px-1.5 text-sm leading-none text-slate-500 hover:text-navy"
         >
           ‹
         </button>
-        <span className="text-sm font-semibold text-slate-700">
+        <span className="text-xs font-semibold text-slate-700">
           {cursor.year}년 {cursor.month + 1}월
         </span>
         <button
@@ -60,17 +60,17 @@ export default function MultiDateCalendarPicker({
           onClick={() =>
             setCursor((c) => (c.month === 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: c.month + 1 }))
           }
-          className="px-2 py-1 text-slate-500 hover:text-navy"
+          className="px-1.5 text-sm leading-none text-slate-500 hover:text-navy"
         >
           ›
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-xs text-slate-400 mb-1">
+      <div className="grid grid-cols-7 gap-0.5 text-center text-[11px] text-slate-400 mb-0.5">
         {["일", "월", "화", "수", "목", "금", "토"].map((w) => (
           <div key={w}>{w}</div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-0.5">
         {cells.map((dateStr, idx) => {
           if (!dateStr) return <div key={idx} />;
           const weekday = idx % 7;
@@ -86,7 +86,7 @@ export default function MultiDateCalendarPicker({
               key={dateStr}
               type="button"
               onClick={() => toggle(dateStr)}
-              className={`aspect-square rounded-md text-sm transition-colors ${
+              className={`aspect-square rounded text-xs transition-colors ${
                 isSelected
                   ? "bg-navy text-white font-semibold"
                   : `hover:bg-slate-100 ${colorClass}`

@@ -8,17 +8,24 @@ import MultiDateCalendarPicker from "@/components/MultiDateCalendarPicker";
 // 특근일들의 PSN-01 저장 실근무시간을 읽어 기본/연장 근무시간과 금액을 계산해 엑셀로
 // 내려받는다. 계산 자체는 서버(export-special/route.ts)에서 하고, 이 패널은 입력
 // (날짜/시급)을 모아 다운로드 요청만 보낸다.
+// 선택한 특근일(dates)은 아래 그리드(SpecialWorkDayGrid)도 같이 쓰므로 부모(page.tsx)가
+// 들고 있고, 이 패널은 달력 입력과 시급/다운로드만 맡는다(2026-09-26).
 export default function SpecialWorkDayPanel({
   workGroup,
   employeeNo,
+  dates,
+  onDatesChange: setDates,
 }: {
   workGroup: string;
   employeeNo: string;
+  dates: string[];
+  onDatesChange: (dates: string[]) => void;
 }) {
-  const [dates, setDates] = useState<string[]>([]);
   const [wage, setWage] = useState("");
   const [baseRate, setBaseRate] = useState("");
   const [overtimeRate, setOvertimeRate] = useState("");
+  // 야간식대 — 야간 근무(카드 출근 20:00 이후) 1회당 금액. 비우면 0원(야간식대 없음).
+  const [nightMeal, setNightMeal] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +67,7 @@ export default function SpecialWorkDayPanel({
           dates,
           baseRate: Number(baseRate),
           overtimeRate: Number(overtimeRate),
+          nightMeal: nightMeal === "" ? 0 : Number(nightMeal),
         }),
       });
       if (!res.ok) {
@@ -71,7 +79,10 @@ export default function SpecialWorkDayPanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `특근일_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.xlsx`;
+      // 파일명은 서버가 정한 값(예: "2026년 09월 특근일근무.xlsx")을 그대로 쓴다.
+      const cd = res.headers.get("Content-Disposition") ?? "";
+      const m = cd.match(/filename\*=UTF-8''([^;]+)/);
+      a.download = m ? decodeURIComponent(m[1]) : `특근일_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -82,16 +93,17 @@ export default function SpecialWorkDayPanel({
   }
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-4">
-      <p className="text-xs text-slate-500 mb-3 max-w-2xl">
+    <div className="bg-white border border-slate-200 rounded-lg p-3">
+      <p className="text-[11px] text-slate-500 mb-2 max-w-2xl">
         아래 필터로 좁혀진 작업자 기준으로, 여기서 고른 특근일들의 PSN-01 저장 근무시간을
-        읽어 기본/연장 근무시간과 금액을 계산해 엑셀로 내려받습니다.
+        읽어 양식(정규세부 급여계산: 출근/퇴근/기본·연장근무/급여산출, 야간식대, 계, TTL)대로 엑셀로 내려받습니다.
+        야간식대를 넣으면 카드 출근이 20시 이후인 날마다 그 금액이 급여에 합산됩니다.
       </p>
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col sm:flex-row gap-3">
         <MultiDateCalendarPicker selected={dates} onChange={setDates} />
         <div className="flex-1 min-w-0">
           <label className="text-xs font-medium text-slate-500">선택한 특근일 ({dates.length}일)</label>
-          <div className="mt-1.5 flex flex-wrap gap-1.5 max-h-28 overflow-auto border border-slate-100 rounded-md p-2 bg-slate-50/60">
+          <div className="mt-1 flex flex-wrap gap-1 max-h-14 overflow-auto border border-slate-100 rounded-md p-1.5 bg-slate-50/60">
             {dates.length === 0 && <span className="text-xs text-slate-400">달력에서 날짜를 선택하세요.</span>}
             {dates.map((d) => (
               <span
@@ -111,7 +123,7 @@ export default function SpecialWorkDayPanel({
             ))}
           </div>
 
-          <div className="mt-4 space-y-3">
+          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 max-w-md">
             <div>
               <label className="text-xs font-medium text-slate-500">시급</label>
               <div className="relative mt-1">
@@ -121,13 +133,13 @@ export default function SpecialWorkDayPanel({
                   value={formatWon(wage)}
                   onChange={(e) => handleWageChange(onlyDigits(e.target.value))}
                   placeholder="예: 10,600"
-                  className="w-full border border-slate-300 rounded-md pl-3 pr-8 py-2 text-sm text-right"
+                  className="w-full border border-slate-300 rounded-md pl-2 pr-6 py-1 text-xs text-right"
                 />
-                <span className="absolute inset-y-0 right-3 flex items-center text-xs text-slate-400 pointer-events-none">
+                <span className="absolute inset-y-0 right-2 flex items-center text-[11px] text-slate-400 pointer-events-none">
                   원
                 </span>
               </div>
-              <p className="mt-1 text-[11px] text-slate-400">
+              <p className="mt-0.5 text-[10px] leading-tight text-slate-400">
                 시급을 넣으면 기본근무 시급(×1.5)·연장근무 시급(×2.0)이 자동으로 채워집니다.
                 필요하면 아래에서 직접 고칠 수 있습니다.
               </p>
@@ -141,9 +153,9 @@ export default function SpecialWorkDayPanel({
                   value={formatWon(baseRate)}
                   onChange={(e) => setBaseRate(onlyDigits(e.target.value))}
                   placeholder="예: 15,900"
-                  className="w-full border border-slate-300 rounded-md pl-3 pr-8 py-2 text-sm text-right"
+                  className="w-full border border-slate-300 rounded-md pl-2 pr-6 py-1 text-xs text-right"
                 />
-                <span className="absolute inset-y-0 right-3 flex items-center text-xs text-slate-400 pointer-events-none">
+                <span className="absolute inset-y-0 right-2 flex items-center text-[11px] text-slate-400 pointer-events-none">
                   원
                 </span>
               </div>
@@ -157,12 +169,31 @@ export default function SpecialWorkDayPanel({
                   value={formatWon(overtimeRate)}
                   onChange={(e) => setOvertimeRate(onlyDigits(e.target.value))}
                   placeholder="예: 21,200"
-                  className="w-full border border-slate-300 rounded-md pl-3 pr-8 py-2 text-sm text-right"
+                  className="w-full border border-slate-300 rounded-md pl-2 pr-6 py-1 text-xs text-right"
                 />
-                <span className="absolute inset-y-0 right-3 flex items-center text-xs text-slate-400 pointer-events-none">
+                <span className="absolute inset-y-0 right-2 flex items-center text-[11px] text-slate-400 pointer-events-none">
                   원
                 </span>
               </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500">야간식대</label>
+              <div className="relative mt-1">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={formatWon(nightMeal)}
+                  onChange={(e) => setNightMeal(onlyDigits(e.target.value))}
+                  placeholder="예: 4,000"
+                  className="w-full border border-slate-300 rounded-md pl-2 pr-6 py-1 text-xs text-right"
+                />
+                <span className="absolute inset-y-0 right-2 flex items-center text-[11px] text-slate-400 pointer-events-none">
+                  원
+                </span>
+              </div>
+              <p className="mt-0.5 text-[10px] leading-tight text-slate-400">
+                야간 근무(카드 출근 20시 이후) 1회당 금액입니다. 비워 두면 야간식대 없이 계산합니다.
+              </p>
             </div>
           </div>
         </div>
@@ -170,7 +201,7 @@ export default function SpecialWorkDayPanel({
 
       {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
 
-      <div className="mt-4 flex justify-end">
+      <div className="mt-2 flex justify-end">
         <button
           onClick={download}
           disabled={!canDownload}

@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import SpecialWorkDayPanel from "@/components/SpecialWorkDayPanel";
+import SpecialWorkDayGrid from "@/components/SpecialWorkDayGrid";
 import { useTabState } from "@/lib/use-tab-state";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
 import { formatBizName } from "@/lib/biz-import";
@@ -167,6 +168,8 @@ export default function WorkHoursLookupPage() {
   }, [me]);
 
   const [activeTab, setActiveTab] = useTabState<WorkHoursLookupTab>("whlActiveTab", "lookup");
+  // "특근일" 탭에서 달력으로 고른 특근일 — 위 입력 패널과 아래 그리드가 같이 쓴다.
+  const [specialDates, setSpecialDates] = useState<string[]>([]);
 
   const [result, setResult] = useState<WorkHoursLookupPage | null>(null);
   const [loading, setLoading] = useState(false);
@@ -382,17 +385,26 @@ export default function WorkHoursLookupPage() {
       )}
 
       {activeTab === "special" && (
-        <SpecialWorkDayPanel workGroup={employeeNo ? "" : processFilter} employeeNo={employeeNo} />
+        <SpecialWorkDayPanel
+          workGroup={employeeNo ? "" : processFilter}
+          employeeNo={employeeNo}
+          dates={specialDates}
+          onDatesChange={setSpecialDates}
+        />
       )}
 
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs font-medium text-slate-500 shrink-0">조회기간</label>
-          <DateSegmentInput value={dateFrom} onChange={setDateFrom} />
-          <span className="text-slate-400 text-sm">~</span>
-          <DateSegmentInput value={dateTo} onChange={setDateTo} />
-        </div>
-        <span className="mx-1 h-6 w-px bg-slate-300" aria-hidden />
+        {activeTab !== "special" && (
+          <>
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs font-medium text-slate-500 shrink-0">조회기간</label>
+              <DateSegmentInput value={dateFrom} onChange={setDateFrom} />
+              <span className="text-slate-400 text-sm">~</span>
+              <DateSegmentInput value={dateTo} onChange={setDateTo} />
+            </div>
+            <span className="mx-1 h-6 w-px bg-slate-300" aria-hidden />
+          </>
+        )}
         <select
           value={processFilter}
           onChange={(e) => changeProcessFilter(e.target.value)}
@@ -407,7 +419,7 @@ export default function WorkHoursLookupPage() {
             </option>
           ))}
         </select>
-        {activeTab !== "overtime" && (
+        {activeTab !== "overtime" && activeTab !== "special" && (
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -450,8 +462,18 @@ export default function WorkHoursLookupPage() {
         </div>
       </div>
 
-      {error && <p className="text-sm text-rose-600">{error}</p>}
+      {activeTab === "special" && (
+        <SpecialWorkDayGrid
+          workGroup={employeeNo ? "" : processFilter}
+          employeeNo={employeeNo}
+          dates={specialDates}
+          enabled={canQuery}
+        />
+      )}
 
+      {activeTab !== "special" && error && <p className="text-sm text-rose-600">{error}</p>}
+
+      {activeTab !== "special" && (
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
         <div className="overflow-auto max-h-[calc(100vh-19rem)]">
           {activeTab === "overtime" ? (
@@ -679,6 +701,7 @@ export default function WorkHoursLookupPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
