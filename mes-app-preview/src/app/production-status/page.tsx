@@ -426,7 +426,8 @@ function niceCeil(v: number): number {
 
 // MGMT-05 표 하단 그래프 — 공정필터(드롭다운) 선택에 따라 해당 공정의 올해 추이를
 // 그린다(그래프.JPG 참고). 선택값은 탭 안에서 유지되고, 기준일이 바뀌면 같은 공정으로
-// 다시 조회한다.
+// 다시 조회한다. 값은 생산수량이 아니라 생산성(UPH, 표 상단 요약의 yesterdayUph·mtdUph와
+// 같은 산식) — 2026-09-28 사용자 요청.
 function ProductionTrendSection({ rows, date }: { rows: ProductionStatusRow[]; date: string }) {
   const [lineKey, setLineKey] = useState(rows[0]?.key ?? "");
   const [trend, setTrend] = useState<ProductionTrendResult | null>(null);
@@ -447,8 +448,8 @@ function ProductionTrendSection({ rows, date }: { rows: ProductionStatusRow[]; d
     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h3 className="font-semibold text-sm text-navy">
-          공정별 생산 추이{" "}
-          <span className="font-normal text-xs text-slate-400">(올해 월별 · 이번달 일별)</span>
+          공정별 생산성 추이{" "}
+          <span className="font-normal text-xs text-slate-400">(올해 월별 · 이번달 일별, UPH)</span>
         </h3>
         <select
           value={lineKey}
@@ -491,14 +492,14 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
   const plotH = H - PAD_T - PAD_B;
 
   const rows = trend.points;
-  const vals = rows.map((r) => r.qty);
+  const vals = rows.map((r) => r.uph);
   const maxVal = Math.max(1, ...vals);
   const yMax = niceCeil(maxVal * 1.15);
   const slot = plotW / Math.max(1, rows.length - 1 || 1);
 
   const points = rows.map((r, i) => {
     const x = rows.length === 1 ? PAD_L + plotW / 2 : PAD_L + slot * i;
-    const y = PAD_T + plotH - (r.qty / yMax) * plotH;
+    const y = PAD_T + plotH - (r.uph / yMax) * plotH;
     return { x, y };
   });
   const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
@@ -510,7 +511,7 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
         viewBox={`0 0 ${W} ${H}`}
         style={{ width: "100%", height: H, display: "block" }}
         role="img"
-        aria-label={`${trend.label} 생산 추이`}
+        aria-label={`${trend.label} 생산성 추이`}
       >
         {[0, 0.25, 0.5, 0.75, 1].map((f) => {
           const y = PAD_T + plotH - f * plotH;
@@ -525,7 +526,7 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
             fontSize={9}
             fill="#94a3b8"
           >
-            {fmtQty(yMax * f)}
+            {fmtUph(yMax * f)}
           </text>
         ))}
         <line
@@ -539,7 +540,7 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
         />
         <path d={linePath} fill="none" stroke="#f59e0b" strokeWidth={2} />
         {points.map((p, i) => {
-          const label = fmtQty(rows[i].qty);
+          const label = fmtUph(rows[i].uph);
           const labelW = label.length * 5.4 + 4;
           return (
             <g key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
@@ -572,7 +573,7 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
           }}
         >
           <p className="font-semibold text-slate-700">{rows[hover].label}</p>
-          <p className="font-mono">{fmtQty(rows[hover].qty)}</p>
+          <p className="font-mono">{fmtUph(rows[hover].uph)} UPH</p>
         </div>
       )}
       <div className="mt-1 flex items-center gap-4 text-[11px] text-slate-400">

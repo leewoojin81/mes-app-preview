@@ -291,9 +291,10 @@ export interface ProductionStatusResult {
 }
 
 // MGMT-05 표 하단 그래프 — src/lib/production-status.ts의 computeProductionTrend가 만들어 내려준다.
+// 2026-09-28 사용자 요청으로 생산수량 대신 생산성(UPH)을 그린다.
 export interface ProductionTrendPoint {
   label: string;
-  qty: number;
+  uph: number;
 }
 export interface ProductionTrendResult {
   lineKey: string;

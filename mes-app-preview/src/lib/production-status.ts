@@ -297,7 +297,9 @@ export function computeProductionStatus(db: DatabaseSync, asOfDate?: string): Pr
 
 export interface ProductionTrendPoint {
   label: string;
-  qty: number;
+  /** 생산성(UPH) = 생산수량 ÷ (인원 × 8hr × 근무일수) — 2026-09-28 사용자 요청으로 그래프를
+   *  생산수량 대신 생산성으로 바꿨다. 표 상단 요약의 yesterdayUph/mtdUph와 같은 산식. */
+  uph: number;
 }
 export interface ProductionTrendResult {
   lineKey: string;
@@ -328,6 +330,39 @@ export function computeProductionTrend(
   const yearStart = `${today.slice(0, 4)}-01-01`;
   const monthStart = monthStartOf(today);
 
+  // 생산성(UPH) 환산용 인원 — 표 상단 요약(computeProductionStatus)의 yesterdayUph·mtdUph와
+  // 같은 기준(사출_하는 사출_상 인원을 같이 씀)으로 이 라인 하나만 다시 센다.
+  const headcountKey = line.key === "injection_lower" ? "injection_upper" : line.key;
+  const headcountProcessCodes = PRODUCTION_LINES.find((l) => l.key === headcountKey)?.processCodes ?? [];
+  const headcount =
+    headcountProcessCodes.length === 0
+      ? 0
+      : (
+          db
+            .prepare(
+              `SELECT COUNT(*) c FROM workers WHERE use_yn = 'Y' AND status = '정상' AND process_code IN (${headcountProcessCodes
+                .map(() => "?")
+                .join(",")})`
+            )
+            .get(...headcountProcessCodes) as { c: number }
+        ).c;
+  const availableHours = headcount * HOURS_PER_DAY;
+
+  // 올해 1월~전월 각 달의 근무일수(production_calendar work_yn='Y') — 월별 점은 그 달
+  // 근무일수로, 이번달 일별 점은 하루(1일)로 나눠 UPH를 만든다.
+  const workDaysByYm = new Map(
+    (
+      db
+        .prepare(
+          `SELECT substr(cal_date, 1, 7) ym, COUNT(*) c FROM production_calendar
+           WHERE cal_date >= ? AND cal_date < ? AND work_yn = 'Y' GROUP BY ym`
+        )
+        .all(yearStart, monthStart) as { ym: string; c: number }[]
+    ).map((r) => [r.ym, r.c])
+  );
+  const toUph = (qty: number, workDays: number): number =>
+    availableHours > 0 && workDays > 0 ? qty / (availableHours * workDays) : 0;
+
   const points: ProductionTrendPoint[] = [];
 
   if (line.isMold && line.moldGroup) {
@@ -340,7 +375,9 @@ export function computeProductionTrend(
          GROUP BY ym ORDER BY ym`
       )
       .all(group, yearStart, monthStart) as { ym: string; s: number | null }[];
-    for (const r of monthRows) points.push({ label: monthLabelOf(r.ym), qty: r.s ?? 0 });
+    for (const r of monthRows) {
+      points.push({ label: monthLabelOf(r.ym), uph: toUph(r.s ?? 0, workDaysByYm.get(r.ym) ?? 0) });
+    }
 
     if (yesterday >= monthStart) {
       const dayRows = db
@@ -353,7 +390,7 @@ export function computeProductionTrend(
         .all(group, monthStart, yesterday) as { d: string; s: number | null }[];
       const byDate = new Map(dayRows.map((r) => [r.d, r.s ?? 0]));
       for (let d = monthStart; d <= yesterday; d = addDays(d, 1)) {
-        points.push({ label: dayLabelOf(d), qty: byDate.get(d) ?? 0 });
+        points.push({ label: dayLabelOf(d), uph: toUph(byDate.get(d) ?? 0, 1) });
       }
     }
   } else if (line.processCode) {
@@ -366,7 +403,9 @@ export function computeProductionTrend(
          GROUP BY ym ORDER BY ym`
       )
       .all(processCode, yearStart, monthStart) as { ym: string; s: number | null }[];
-    for (const r of monthRows) points.push({ label: monthLabelOf(r.ym), qty: r.s ?? 0 });
+    for (const r of monthRows) {
+      points.push({ label: monthLabelOf(r.ym), uph: toUph(r.s ?? 0, workDaysByYm.get(r.ym) ?? 0) });
+    }
 
     if (yesterday >= monthStart) {
       const dayRows = db
@@ -379,12 +418,12 @@ export function computeProductionTrend(
         .all(processCode, monthStart, yesterday) as { d: string; s: number | null }[];
       const byDate = new Map(dayRows.map((r) => [r.d, r.s ?? 0]));
       for (let d = monthStart; d <= yesterday; d = addDays(d, 1)) {
-        points.push({ label: dayLabelOf(d), qty: byDate.get(d) ?? 0 });
+        points.push({ label: dayLabelOf(d), uph: toUph(byDate.get(d) ?? 0, 1) });
       }
     }
   }
 
-  const vals = points.map((p) => p.qty);
+  const vals = points.map((p) => p.uph);
   const average = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
 
   return { lineKey: line.key, label: line.label, points, average };
