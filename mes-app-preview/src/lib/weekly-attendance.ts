@@ -18,7 +18,7 @@ import type { CalendarDayType } from "@/lib/types";
 //  - 직위/출근·퇴근 일자·시간: PSN-02 카드(직급/출근시간/퇴근시간). 퇴근시간이 출근시간보다
 //    이르면 자정을 넘긴 것이라 퇴근일자는 다음날
 //  - 타임: 그날 카드 출근시간이 12시 이후면 2조, 아니면 1조(카드가 없으면 작업자등록 근무조).
-//    시트(주/야)는 그 주에 더 많이 나온 조로 정한다. 카드 없이 연차·공가·결근인 날은 "⑤"
+//    시트(주/야)는 그 주에 더 많이 나온 조로 정한다. 카드 없이 연차·공가·병가·결근인 날은 "⑤"
 //  - 지각: PSN-02 지각시간(없으면 PSN-01 지각), 조퇴: PSN-01 조퇴
 //  - 조출/중교/정근: PSN-01 조출/중식교대/정상. 연장 = 잔업+조출+중교(양식 규칙 — 잔업 칸은 비워둠)
 //  - 야간: 1조는 조출시간 중 05:00~06:00분(조출시간-1시간), 2조는 22:15~01:00(2:45) —
@@ -26,8 +26,8 @@ import type { CalendarDayType } from "@/lib/types";
 //  - 토·일·공휴일(휴일 캘린더 포함)에 일한 날은 정근 대신 특근=정상, 특연(토요/휴일)=연장분이고
 //    조출·중교 칸은 비운다. 비고에 "특근"
 //  - 정근: PSN-01 저장값. PSN-01에 저장분이 없는 평일은 PSN-01 화면처럼 8시간
-//  - 비고: 휴가(연차/공가/오전·오후반차)·특근·지각·조퇴·누락서(카드 출근/퇴근 판정이 비어 있는
-//    날)·결근. 양식에 사람이 손으로 적던 사유(입사, 지각(미제출) 등)는 만들 수 없어 비워 둔다
+//  - 비고: 휴가(연차/공가/병가/오전·오후반차)·특근·지각·조퇴·누락서(카드 출근/퇴근 판정이 비어
+//    있는 날)·결근. 양식에 사람이 손으로 적던 사유(입사, 지각(미제출) 등)는 만들 수 없어 비워 둔다
 
 export const WEEKLY_TEMPLATE_PATH = path.join(process.cwd(), "templates", "weekly-attendance.xlsx");
 
@@ -123,8 +123,14 @@ interface WorkerBlock {
   lines: DayLine[];
 }
 
-const LEAVE_NOTE: Record<string, string> = { 연차: "연차", 공가: "공가", 전반: "오전반차", 후반: "오후반차" };
-const FULL_DAY_LEAVE = new Set(["연차", "공가", "휴무"]);
+const LEAVE_NOTE: Record<string, string> = {
+  연차: "연차",
+  공가: "공가",
+  병가: "병가",
+  전반: "오전반차",
+  후반: "오후반차",
+};
+const FULL_DAY_LEAVE = new Set(["연차", "공가", "병가", "휴무"]);
 
 function isOffDay(date: string, calType: CalendarDayType | undefined): boolean {
   if (calType) return calType !== "평일";
@@ -258,9 +264,11 @@ export function buildWeeklyBlocks(
       const isSat = parseUtc(date).getUTCDay() === 6;
       lines.push({
         date,
-        // 카드 기록 없이 연차·공가·결근으로 처리된 날은 양식에서 조 대신 "⑤"를 쓴다
+        // 카드 기록 없이 연차·공가·병가·결근으로 처리된 날은 양식에서 조 대신 "⑤"를 쓴다
         timeLabel:
-          !cardIn && !cardOut && (leave === "연차" || leave === "공가" || notes.includes("결근")) ? "⑤" : lineShift,
+          !cardIn && !cardOut && (leave === "연차" || leave === "공가" || leave === "병가" || notes.includes("결근"))
+            ? "⑤"
+            : lineShift,
         // 출근일자 칸은 카드가 없는 날(연차·결근·카드 미업로드)에도 근무일자로 채운다 — 양식에서
         // 행의 날짜를 알려주는 유일한 칸이라 비우면 어느 날인지 알 수 없다. 시각만 카드값.
         inDate: date,
