@@ -105,14 +105,19 @@ const HOUR_FIELDS: { key: HourField; label: string }[] = [
 // 비교해 부동소수점 오차를 피한다(0.17 같은 반올림된 소수 표와 비교하던 예전 방식은
 // 1/6시간=10분을 정확히 입력해도 0.1666...≠0.17로 어긋나 저장이 거부되는 버그가 있었다,
 // 2026-09-24 발견·수정). 2:15(135분)는 잔업에서만 실제로 수기 입력하는 값이라 예외로
-// 허용한다.
+// 허용한다. 3조(야간조)는 잔업만 5분 단위로 더 세밀하게 입력한다(2026-09-28 사용자
+// 요청) — 근무조는 행마다(또는 이 팝업에서 함께 바꾸는 값으로) 다를 수 있어 team을
+// 인자로 받아 그 값 기준으로 허용 단위를 정한다.
 const EXTRA_VALID_MINUTES_BY_FIELD: Partial<Record<HourField, Set<number>>> = {
   overtime_hours: new Set([135]),
 };
-function isValidTenMinuteHours(hours: number, fieldKey: HourField): boolean {
+function hourStepMinutes(fieldKey: HourField, team: string | null): number {
+  return fieldKey === "overtime_hours" && team === "3조" ? 5 : 10;
+}
+function isValidStepHours(hours: number, fieldKey: HourField, team: string | null): boolean {
   const totalMinutes = Math.round(hours * 60);
   if (EXTRA_VALID_MINUTES_BY_FIELD[fieldKey]?.has(totalMinutes)) return true;
-  return totalMinutes % 10 === 0;
+  return totalMinutes % hourStepMinutes(fieldKey, team) === 0;
 }
 
 export default function WorkHoursPage() {
@@ -629,6 +634,12 @@ function WorkHoursEditModal({
 
   const activeKeys = MODAL_FIELDS.map((f) => f.key).filter((k) => enabled[k]);
 
+  // 잔업 입력칸의 화살표 스텝 단위(3조면 5분, 그 외 10분) 계산용 — 이 팝업에서 근무조도
+  // 같이 바꾸는 중이면 그 새 값을, 아니면(단일행 수정만 해당) 원래 근무조를 기준으로
+  // 삼는다. 일괄수정에서 근무조를 안 바꾸면 행마다 근무조가 다를 수 있어 화살표는 그냥
+  // 기본(10분)으로 두고, 실제 허용 여부는 validate()가 행별로 정확히 검증한다.
+  const overtimeStepTeam = enabled.team ? team || null : single ? single.team : null;
+
   function validate(): string | null {
     if (isBulk && activeKeys.length === 0) return "변경할 항목을 하나 이상 선택하세요.";
 
@@ -637,7 +648,19 @@ function WorkHoursEditModal({
       const v = hourValues[f.key];
       if (!Number.isFinite(v)) return `${f.label} 값이 올바르지 않습니다.`;
       if (v < 0) return `${f.label}은(는) 음수를 입력할 수 없습니다.`;
-      if (!isValidTenMinuteHours(v, f.key)) return `${f.label}은(는) 10분 단위로만 입력할 수 있습니다.`;
+      // 잔업만 근무조에 따라 허용 단위가 달라진다 — 행(사람)마다 근무조가 다를 수 있어
+      // (일괄수정에서 근무조를 함께 안 바꾸는 경우) 대상 행 각각의 근무조 기준으로
+      // 검증한다. 이 팝업에서 근무조도 같이 바꾸는 중이면 그 새 값을 기준으로 삼는다.
+      if (f.key === "overtime_hours") {
+        for (const r of rows) {
+          const effectiveTeam = enabled.team ? team || null : r.team;
+          if (!isValidStepHours(v, f.key, effectiveTeam)) {
+            return `${f.label}은(는) ${hourStepMinutes(f.key, effectiveTeam)}분 단위로만 입력할 수 있습니다.`;
+          }
+        }
+      } else if (!isValidStepHours(v, f.key, null)) {
+        return `${f.label}은(는) ${hourStepMinutes(f.key, null)}분 단위로만 입력할 수 있습니다.`;
+      }
     }
     if (enabled.support_hours) {
       if (!Number.isFinite(supportHours) || supportHours < 0) return "지원시간은 음수를 입력할 수 없습니다.";
@@ -809,6 +832,7 @@ function WorkHoursEditModal({
                     value={hourValues[f.key]}
                     onChange={(v) => setHourValue(f.key, v)}
                     disabled={isBulk && !enabled[f.key]}
+                    minuteStep={hourStepMinutes(f.key, overtimeStepTeam)}
                   />
                 ) : f.kind === "support_group" ? (
                   <select

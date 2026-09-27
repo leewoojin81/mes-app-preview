@@ -4,20 +4,24 @@ import { useEffect, useRef, useState } from "react";
 
 // 근태 수정 팝업의 시간(잔업/조출/중교/지각/조퇴/외출/지원시간) 입력칸 — 소수 시간(1.5)
 // 대신 그리드·미리보기와 같은 "시:분"(1:30) 형식으로 직접 입력한다(2026-09-24 사용자
-// 요청). 분 칸에서 위/아래 화살표를 누르면 10분 단위로 움직이고, 59분에서 +10분처럼
-// 시를 넘기면 시 칸이 자동으로 올라간다(자정 개념이 없는 순수 소요시간 합산이라 24시간을
-// 넘어도 그대로 누적, PSN-06 대사가 24시간 넘는 근무를 다루는 것과 동일). 직접 타이핑한
-// 값은 스냅하지 않고 그대로 반영한다 — 10분 단위 검증은 저장 시 validate()가 한다.
+// 요청). 분 칸에서 위/아래 화살표를 누르면 minuteStep(기본 10분) 단위로 움직이고, 59분에서
+// +10분처럼 시를 넘기면 시 칸이 자동으로 올라간다(자정 개념이 없는 순수 소요시간 합산이라
+// 24시간을 넘어도 그대로 누적, PSN-06 대사가 24시간 넘는 근무를 다루는 것과 동일). 직접
+// 타이핑한 값은 스냅하지 않고 그대로 반영한다 — 단위 검증은 저장 시 validate()가 한다.
+// 3조 잔업만 5분 단위로 더 세밀하게 입력하므로(2026-09-28 사용자 요청) 호출 쪽에서
+// minuteStep=5를 넘길 수 있다.
 export default function HourMinuteInput({
   value,
   onChange,
   disabled,
   className,
+  minuteStep = 10,
 }: {
   value: number; // 소수 시간(예: 1.5 = 1시간30분)
   onChange: (hours: number) => void;
   disabled?: boolean;
   className?: string;
+  minuteStep?: number;
 }) {
   function toParts(v: number) {
     const totalMinutes = Math.max(0, Math.round((Number.isFinite(v) ? v : 0) * 60));
@@ -47,7 +51,7 @@ export default function HourMinuteInput({
   }, [value]);
 
   function stepMinutes(dir: 1 | -1) {
-    const totalMinutes = Math.max(0, (Number(h) || 0) * 60 + (Number(m) || 0) + dir * 10);
+    const totalMinutes = Math.max(0, (Number(h) || 0) * 60 + (Number(m) || 0) + dir * minuteStep);
     const nh = String(Math.floor(totalMinutes / 60));
     const nm = String(totalMinutes % 60).padStart(2, "0");
     setH(nh);
