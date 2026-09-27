@@ -79,7 +79,7 @@ export default function SpecialWorkDayPanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      // 파일명은 서버가 정한 값(예: "2026년 09월 특근일근무.xlsx")을 그대로 쓴다.
+      // 파일명은 서버가 정한 값(예: "2026년 09월 일요일근무.xlsx")을 그대로 쓴다.
       const cd = res.headers.get("Content-Disposition") ?? "";
       const m = cd.match(/filename\*=UTF-8''([^;]+)/);
       a.download = m ? decodeURIComponent(m[1]) : `특근일_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.xlsx`;

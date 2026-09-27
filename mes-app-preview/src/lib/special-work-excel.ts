@@ -46,9 +46,12 @@ function utcDate(date: string): Date {
   return new Date(`${date}T00:00:00Z`);
 }
 
+// 파일명은 양식 원본과 같은 작명 관례를 따른다(2026-09-28 사용자 요청) — 특근일에 일요일이
+// 아닌 다른 요일(토요일 등)이 섞여도 "일요일근무"로 고정. 회사가 매달 이 이름으로 저장해온
+// 관례를 그대로 따르는 것으로, 실제 포함된 요일과는 무관하다.
 export function specialWorkFilename(dates: string[]): string {
   const first = [...dates].sort()[0] ?? "";
-  return `${first.slice(0, 4)}년 ${first.slice(5, 7)}월 특근일근무.xlsx`;
+  return `${first.slice(0, 4)}년 ${first.slice(5, 7)}월 일요일근무.xlsx`;
 }
 
 export async function buildSpecialWorkbook(
