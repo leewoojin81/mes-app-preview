@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import HourMinuteInput from "@/components/HourMinuteInput";
 import { useTabState } from "@/lib/use-tab-state";
-import { LEAVE_TYPE_OPTIONS, computeAttendanceHours } from "@/lib/work-hours-leave";
+import { LEAVE_TYPE_OPTIONS, computeAttendanceHours, computeTotalHours } from "@/lib/work-hours-leave";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
 import { formatHoursClock } from "@/lib/format-hours";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
@@ -44,7 +44,7 @@ function computeAttendance(r: {
   early_leave_hours: number;
   outing_hours: number;
   support_hours: number;
-}): { normalHours: number; overtimeHours: number } {
+}) {
   return computeAttendanceHours(r.leave_type, {
     overtimeInput: r.overtime_hours,
     lateHours: r.late_hours,
@@ -64,8 +64,11 @@ function computeTotal(r: {
   outing_hours: number;
   support_hours: number;
 }): number {
-  const { normalHours, overtimeHours } = computeAttendance(r);
-  return normalHours + overtimeHours + r.early_start_hours + r.lunch_shift_hours + r.support_hours;
+  return computeTotalHours(computeAttendance(r), {
+    earlyStartHours: r.early_start_hours,
+    lunchShiftHours: r.lunch_shift_hours,
+    supportHours: r.support_hours,
+  });
 }
 
 // 근무시간 표시용 기준값 — 12.01로 잡아서 "정확히 12"는 정상(경계값), 12를 조금이라도

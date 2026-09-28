@@ -19,6 +19,14 @@ export interface SpecialGridCell {
   out_time: string;
   base: number;
   overtime: number;
+  /** PSN-01 그날 조출/잔업/중교/지각/조퇴/외출 — 급여 확인용 표시(2026-09-28 사용자 요청).
+   *  기본/연장(총근무시간 기준)과 별개로 저장된 값을 그대로 보여준다. */
+  early_start: number;
+  work_overtime: number;
+  lunch_shift: number;
+  late: number;
+  early_leave: number;
+  outing: number;
 }
 export interface SpecialGridWorker {
   employee_no: string;
@@ -63,11 +71,23 @@ export function fetchSpecialWorkGrid(
 
   const dailyRows = db
     .prepare(
-      `SELECT employee_no, work_date, total_hours FROM work_hours_daily
+      `SELECT employee_no, work_date, total_hours, early_start_hours, overtime_hours, lunch_shift_hours,
+              late_hours, early_leave_hours, outing_hours
+       FROM work_hours_daily
        WHERE employee_no IN (${empPh}) AND work_date IN (${datePh})`
     )
-    .all(...params.employeeNos, ...dates) as unknown as { employee_no: string; work_date: string; total_hours: number }[];
-  const totalByKey = new Map(dailyRows.map((r) => [`${r.employee_no}|${r.work_date}`, r.total_hours]));
+    .all(...params.employeeNos, ...dates) as unknown as {
+    employee_no: string;
+    work_date: string;
+    total_hours: number;
+    early_start_hours: number;
+    overtime_hours: number;
+    lunch_shift_hours: number;
+    late_hours: number;
+    early_leave_hours: number;
+    outing_hours: number;
+  }[];
+  const dailyByKey = new Map(dailyRows.map((r) => [`${r.employee_no}|${r.work_date}`, r]));
 
   const cardKeys = new Set<string>();
   for (const w of workerRows) {
@@ -99,12 +119,24 @@ export function fetchSpecialWorkGrid(
     let overtimeTotal = 0;
     let nightDays = 0;
     for (const date of dates) {
-      const total = totalByKey.get(`${w.employee_no}|${date}`) ?? 0;
+      const daily = dailyByKey.get(`${w.employee_no}|${date}`);
+      const total = daily?.total_hours ?? 0;
       if (total <= 0) continue;
       const card = cardByKey.get(`${bizNo}|${date}`) ?? cardByKey.get(`${w.employee_no}|${date}`);
       const base = Math.min(total, 8);
       const overtime = Math.max(total - 8, 0);
-      cells[date] = { in_time: card?.in_time ?? "", out_time: card?.out_time ?? "", base: round2(base), overtime: round2(overtime) };
+      cells[date] = {
+        in_time: card?.in_time ?? "",
+        out_time: card?.out_time ?? "",
+        base: round2(base),
+        overtime: round2(overtime),
+        early_start: round2(daily?.early_start_hours ?? 0),
+        work_overtime: round2(daily?.overtime_hours ?? 0),
+        lunch_shift: round2(daily?.lunch_shift_hours ?? 0),
+        late: round2(daily?.late_hours ?? 0),
+        early_leave: round2(daily?.early_leave_hours ?? 0),
+        outing: round2(daily?.outing_hours ?? 0),
+      };
       baseTotal += base;
       overtimeTotal += overtime;
       if (cells[date].in_time && cells[date].in_time >= NIGHT_MEAL_FROM) nightDays++;

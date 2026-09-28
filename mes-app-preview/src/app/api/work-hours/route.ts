@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull, strVal } from "@/lib/item-fields";
-import { defaultLeaveTypeForCalendar, computeAttendanceHours } from "@/lib/work-hours-leave";
+import { defaultLeaveTypeForCalendar, computeAttendanceHours, computeTotalHours } from "@/lib/work-hours-leave";
 import type { WorkHoursRow } from "@/lib/types";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
 import { ENTITY_TYPE_WORKER, fetchFieldHistoryMap, resolveFieldAsOf } from "@/lib/master-data-history";
@@ -39,24 +39,6 @@ interface SupportDetailRow {
   employee_no: string;
   support_work_group: string;
   support_hours: number;
-}
-
-// 지각/조퇴/외출은 합계에 반영하지 않고 기록용으로만 남긴다. 지원시간은 다른 공정을
-// 지원하며 실제로 일한 시간이라 합계에 더한다(2026-09-08 사용자 요청).
-function computeTotal(fields: {
-  normal_hours: number;
-  overtime_hours: number;
-  early_start_hours: number;
-  lunch_shift_hours: number;
-  support_hours: number;
-}): number {
-  return (
-    fields.normal_hours +
-    fields.overtime_hours +
-    fields.early_start_hours +
-    fields.lunch_shift_hours +
-    fields.support_hours
-  );
 }
 
 // 인원관리(PSN-01) "일일근태입력" — 재직 중이고(use_yn='Y') 상태가 "정상"인 작업자만 기준으로
@@ -153,13 +135,14 @@ export async function GET(req: NextRequest) {
     // 한다 — overtime_hours(계산 결과)를 다시 신청값으로 넣으면 조회할 때마다 지각/조퇴/
     // 외출 차감이 중복 적용된다(2026-09-15 발견·수정).
     const overtimeInput = d ? d.overtime_input_hours : 0;
-    const { normalHours, overtimeHours } = computeAttendanceHours(leaveType, {
+    const attendance = computeAttendanceHours(leaveType, {
       overtimeInput,
       lateHours,
       earlyLeaveHours,
       outingHours,
       supportHours,
     });
+    const { normalHours, overtimeHours } = attendance;
     return {
       employee_no: w.employee_no,
       erp_code: w.erp_code,
@@ -180,12 +163,10 @@ export async function GET(req: NextRequest) {
       late_hours: lateHours,
       early_leave_hours: earlyLeaveHours,
       outing_hours: outingHours,
-      total_hours: computeTotal({
-        normal_hours: normalHours,
-        overtime_hours: overtimeHours,
-        early_start_hours: d ? d.early_start_hours : 0,
-        lunch_shift_hours: d ? d.lunch_shift_hours : 0,
-        support_hours: supportHours,
+      total_hours: computeTotalHours(attendance, {
+        earlyStartHours: d ? d.early_start_hours : 0,
+        lunchShiftHours: d ? d.lunch_shift_hours : 0,
+        supportHours,
       }),
       support_work_group: supportWorkGroup,
       support_hours: supportHours,
@@ -280,21 +261,16 @@ export async function PUT(req: NextRequest) {
     // 정상/잔업 둘 다 사람이 고칠 수 없다 — 클라이언트가 뭘 보내든(잔업 신청값 포함) 무시
     // 하고 새 계산 순서(work-hours-leave.ts의 computeAttendanceHours)로 다시 구해 저장
     // 한다(2026-09-11 사용자 요청).
-    const { normalHours, overtimeHours } = computeAttendanceHours(leaveType, {
+    const attendance = computeAttendanceHours(leaveType, {
       overtimeInput,
       lateHours,
       earlyLeaveHours,
       outingHours,
       supportHours,
     });
+    const { normalHours, overtimeHours } = attendance;
 
-    const totalHours = computeTotal({
-      normal_hours: normalHours,
-      overtime_hours: overtimeHours,
-      early_start_hours: earlyStartHours,
-      lunch_shift_hours: lunchShiftHours,
-      support_hours: supportHours,
-    });
+    const totalHours = computeTotalHours(attendance, { earlyStartHours, lunchShiftHours, supportHours });
 
     upsertDaily.run(
       date,

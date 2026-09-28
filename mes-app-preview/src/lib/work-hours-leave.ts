@@ -31,6 +31,20 @@ export interface AttendanceHoursInputs {
 export interface AttendanceHoursResult {
   normalHours: number;
   overtimeHours: number;
+  /** 지원시간 중 정상근무를 넘어 "잔업 시간"에 지원한 것으로 겹치는 시간 — 잔업 자체는 급여
+   *  때문에 그대로 두고, 근무시간 합계(computeTotalHours)에서만 이중으로 세지 않게 뺀다. */
+  supportOverlapHours: number;
+}
+
+/** 근무시간(합계) = 정상+잔업+조출+중교+지원 − 지원과 잔업이 겹친 시간(지각/조퇴/외출은 반영 안
+ *  함). 조회·저장·엑셀 업로드/다운로드·수정 팝업 미리보기가 전부 이 함수를 써야 값이 어긋나지 않는다. */
+export function computeTotalHours(
+  r: AttendanceHoursResult,
+  f: { earlyStartHours: number; lunchShiftHours: number; supportHours: number }
+): number {
+  return (
+    r.normalHours + r.overtimeHours + f.earlyStartHours + f.lunchShiftHours + f.supportHours - r.supportOverlapHours
+  );
 }
 
 // "정상"/"잔업" — 둘 다 사람이 직접 고칠 수 없는 계산값이다(개별 입력·일괄수정 모두에서
@@ -45,9 +59,16 @@ export interface AttendanceHoursResult {
 //      남는 버그가 있었음, 김은미·최지은 사례). 지원시간은 다른 공정을 지원하며 실제로
 //      일한 시간이라 총 근무시간 합계(computeTotal)에서 그대로 다시 더해지므로, 정상에서
 //      뺀 만큼 총합에서 상쇄되어 총 근무시간 자체는 지원시간의 영향을 받지 않는다.
+//      지원시간이 정상근무(8시간, 지각 등 초과 차감 후)를 넘으면 그 넘는 만큼은 잔업 시간에
+//      지원한 것이다. 잔업 값 자체는 급여 계산 때문에 그대로 두고(2026-09-28 사용자 확인 —
+//      PSN-05 급여용 값은 잔업 2:20·지원 12:20·근무시간 12:20이어야 함), 그 겹친 시간
+//      (supportOverlapHours)만 근무시간 합계(computeTotalHours)에서 뺀다. 이전에는 정상 0 +
+//      잔업 2:20 + 지원 12:20 = 14:40으로 잔업이 이중으로 합계에 잡혔다.
 //   예) 잔업 2.34, 지각+조퇴+외출 합계 2, 지원 0 → 잔업 0.34, 정상 8(그대로)
 //       잔업 2.34, 합계 3, 지원 0 → 잔업 0, 초과분 0.66 → 정상 8-0.66=7.34
 //       잔업 0, 합계 0, 지원 8(하루 종일 다른 공정 지원) → 정상 8-8=0
+//       잔업 2.34, 합계 0, 지원 12.34 → 정상 0, 잔업 2.34(그대로), 겹침 2.34 → 총 12.34(=지원시간)
+//       잔업 6, 합계 0, 지원 12.34 → 정상 0, 잔업 6(그대로), 겹침 4.34 → 총 14(=8+6, 그대로)
 // 연차/전반/후반/공가/병가/휴무는 기존 방식을 그대로 유지한다 — 휴가구분별 기준시간(연차 0,
 // 전반/후반 4, 공가 0, 병가 0, 휴무 0)에서 지각·조퇴·외출·지원시간을 그대로 빼서 정상을 구하고,
 // 잔업은 신청값을 건드리지 않는다(반차 등으로 절반만 근무해도 잔업은 그날 실제로 더
@@ -61,12 +82,22 @@ export function computeAttendanceHours(
     const deduction = inputs.lateHours + inputs.earlyLeaveHours + inputs.outingHours;
     const overtimeHours = Math.max(0, inputs.overtimeInput - deduction);
     const excess = Math.max(0, deduction - inputs.overtimeInput);
-    return { normalHours: Math.max(0, 8 - excess - inputs.supportHours), overtimeHours };
+    const normalAvailable = 8 - excess;
+    const supportOverflow = Math.max(0, inputs.supportHours - normalAvailable);
+    return {
+      normalHours: Math.max(0, normalAvailable - inputs.supportHours),
+      overtimeHours,
+      supportOverlapHours: Math.min(overtimeHours, supportOverflow),
+    };
   }
   const base = BASE_HOURS_BY_LEAVE[leaveType] ?? 8;
   const extraDeduction =
     inputs.lateHours + inputs.earlyLeaveHours + inputs.outingHours + inputs.supportHours;
-  return { normalHours: Math.max(0, base - extraDeduction), overtimeHours: inputs.overtimeInput };
+  return {
+    normalHours: Math.max(0, base - extraDeduction),
+    overtimeHours: inputs.overtimeInput,
+    supportOverlapHours: 0,
+  };
 }
 
 // 새로 조회하는(아직 저장 안 된) 근태 행의 "휴가" 드롭다운 기본값(2026-09-08 사용자

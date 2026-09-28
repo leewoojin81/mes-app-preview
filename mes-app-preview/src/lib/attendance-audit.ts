@@ -257,6 +257,7 @@ interface DailyRow {
   late_hours: number;
   early_leave_hours: number;
   outing_hours: number;
+  total_hours: number;
 }
 
 interface SupportRow {
@@ -331,7 +332,7 @@ export function fetchAttendanceAudit(
   const dailyRows = db
     .prepare(
       `SELECT employee_no, work_date, leave_type, normal_hours, overtime_hours, early_start_hours, lunch_shift_hours,
-              late_hours, early_leave_hours, outing_hours
+              late_hours, early_leave_hours, outing_hours, total_hours
        FROM work_hours_daily WHERE employee_no IN (${placeholders}) AND work_date BETWEEN ? AND ?`
     )
     .all(...employeeNos, params.dateFrom, params.dateTo) as unknown as DailyRow[];
@@ -398,9 +399,12 @@ export function fetchAttendanceAudit(
     const earlyLeaveHours = daily?.early_leave_hours ?? 0;
     const outingHours = daily?.outing_hours ?? 0;
     const supportHours = supportByKey.get(`${w.employee_no}|${workDate}`) ?? 0;
-    // 근로시간(PSN-01 "근무시간") = 정상+잔업+조출+중교+지원(api/work-hours/route.ts의
-    // computeTotal과 동일한 공식) — 지각/조퇴/외출은 합계에 반영하지 않는다.
-    const totalHours = normalHours + overtimeHours + earlyStartHours + lunchShiftHours + supportHours;
+    // 근로시간(PSN-01 "근무시간")은 PSN-01이 저장한 합계(total_hours)를 그대로 쓴다 — 지원이
+    // 정상+잔업과 겹치는 경우의 이중 계산 보정(computeTotalHours)까지 그쪽에서 이미 반영돼 있다.
+    // 저장분이 없는 날만 정상+잔업+조출+중교+지원으로 계산한다.
+    const totalHours = daily
+      ? daily.total_hours
+      : normalHours + overtimeHours + earlyStartHours + lunchShiftHours + supportHours;
 
     const card = cardByKey.get(`${w.employee_no}|${workDate}`);
 

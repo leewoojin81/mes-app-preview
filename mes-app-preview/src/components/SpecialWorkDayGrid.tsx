@@ -30,6 +30,16 @@ function fmtHours(v: number): string {
 
 const CELL = "border border-slate-300 px-2 py-1 text-center align-middle";
 
+type ExtraKey = "early_start" | "work_overtime" | "lunch_shift" | "late" | "early_leave" | "outing";
+const EXTRA_ROWS: { label: string; key: ExtraKey }[] = [
+  { label: "조출", key: "early_start" },
+  { label: "잔업", key: "work_overtime" },
+  { label: "중교", key: "lunch_shift" },
+  { label: "지각", key: "late" },
+  { label: "조퇴", key: "early_leave" },
+  { label: "외출", key: "outing" },
+];
+
 export default function SpecialWorkDayGrid({
   workGroup,
   employeeNo,
@@ -122,7 +132,7 @@ export default function SpecialWorkDayGrid({
             {enabled && dates.length === 0 && (
               <tr>
                 <td colSpan={6} className="text-center py-10 text-slate-400">
-                  위 달력에서 특근일을 선택하면 작업자별 출근/퇴근/기본근무/연장근무가 여기에 표시됩니다.
+                  위 달력에서 특근일을 선택하면 작업자별 출근/퇴근/기본근무/연장근무와 조출/잔업/중교/지각/조퇴/외출이 여기에 표시됩니다.
                 </td>
               </tr>
             )}
@@ -142,11 +152,16 @@ export default function SpecialWorkDayGrid({
             )}
             {!loading &&
               data?.workers.map((w) => {
-                const rows: { label: string; key: "in" | "out" | "base" | "ot" }[] = [
+                // 양식의 4행(출근/퇴근/기본근무 계/연장근무 계) 아래에 조출/잔업/중교/지각/조퇴/외출
+                // 6행을 더 둔다(2026-09-28 사용자 요청 — 특근일에도 이 항목이 보여야 함). 새 6행은
+                // PSN-01 저장값 그대로이고, "계" 칸은 선택한 특근일 합계, TTL 계산에는 안 들어간다.
+                type RowKey = "in" | "out" | "base" | "ot" | ExtraKey;
+                const rows: { label: string; key: RowKey }[] = [
                   { label: "출근시간", key: "in" },
                   { label: "퇴근시간", key: "out" },
                   { label: "기본근무 계", key: "base" },
                   { label: "연장근무 계", key: "ot" },
+                  ...EXTRA_ROWS,
                 ];
                 return rows.map((row, i) => {
                   const strong = row.key === "base" || row.key === "ot";
@@ -154,13 +169,13 @@ export default function SpecialWorkDayGrid({
                     <tr key={`${w.employee_no}-${row.key}`} className={i === 0 ? "border-t-2 border-slate-500" : ""}>
                       {i === 0 && (
                         <>
-                          <td rowSpan={4} className={`${CELL} font-bold`}>
+                          <td rowSpan={rows.length} className={`${CELL} font-bold`}>
                             생산
                           </td>
-                          <td rowSpan={4} className={`${CELL} font-bold`}>
+                          <td rowSpan={rows.length} className={`${CELL} font-bold`}>
                             {w.process || "-"}
                           </td>
-                          <td rowSpan={4} className={`${CELL} font-bold`}>
+                          <td rowSpan={rows.length} className={`${CELL} font-bold`}>
                             {w.name}
                           </td>
                         </>
@@ -176,7 +191,9 @@ export default function SpecialWorkDayGrid({
                               ? c.out_time
                               : row.key === "base"
                                 ? fmtHours(c.base)
-                                : fmtHours(c.overtime);
+                                : row.key === "ot"
+                                  ? fmtHours(c.overtime)
+                                  : fmtHours(c[row.key]);
                         return (
                           <td key={d} className={`${CELL} font-mono font-bold ${strong ? "bg-slate-50" : ""}`}>
                             {v}
@@ -184,10 +201,16 @@ export default function SpecialWorkDayGrid({
                         );
                       })}
                       <td className={`${CELL} font-mono font-bold ${strong ? "bg-slate-50" : ""}`}>
-                        {row.key === "base" ? fmtHours(w.base_total) : row.key === "ot" ? fmtHours(w.overtime_total) : ""}
+                        {row.key === "base"
+                          ? fmtHours(w.base_total)
+                          : row.key === "ot"
+                            ? fmtHours(w.overtime_total)
+                            : row.key === "in" || row.key === "out"
+                              ? ""
+                              : fmtHours(cols.reduce((sum, d) => sum + (w.cells[d]?.[row.key as ExtraKey] ?? 0), 0))}
                       </td>
                       {i === 0 && (
-                        <td rowSpan={4} className={`${CELL} font-mono font-bold`}>
+                        <td rowSpan={rows.length} className={`${CELL} font-mono font-bold`}>
                           {fmtHours(Math.round((w.base_total + w.overtime_total) * 100) / 100)}
                         </td>
                       )}

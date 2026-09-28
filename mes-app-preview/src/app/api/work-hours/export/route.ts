@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import * as XLSX from "xlsx";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
-import { defaultLeaveTypeForCalendar, computeAttendanceHours } from "@/lib/work-hours-leave";
+import { defaultLeaveTypeForCalendar, computeAttendanceHours, computeTotalHours } from "@/lib/work-hours-leave";
 
 export const runtime = "nodejs";
 
@@ -93,17 +93,22 @@ export async function GET(req: NextRequest) {
     const leaveType = d ? d.leave_type : defaultLeaveType;
     // 정상/잔업 둘 다 사람이 고칠 수 없다 — 저장분이 있어도 무시하고 새 계산 순서
     // (work-hours-leave.ts의 computeAttendanceHours)로 다시 구해 내려준다.
-    const { normalHours: normal, overtimeHours: overtimeFinal } = computeAttendanceHours(leaveType, {
+    const attendance = computeAttendanceHours(leaveType, {
       overtimeInput,
       lateHours: late,
       earlyLeaveHours: earlyLeave,
       outingHours: outing,
       supportHours,
     });
+    const { normalHours: normal, overtimeHours: overtimeFinal } = attendance;
     // 지원시간은 다른 공정을 지원하며 일한 시간이라 합계에 더한다(2026-09-08 사용자 요청,
     // api/work-hours/route.ts의 computeTotal과 동일한 공식). 지각/조퇴/외출은 합계에
     // 반영하지 않는다.
-    const total = normal + overtimeFinal + earlyStart + lunchShift + supportHours;
+    const total = computeTotalHours(attendance, {
+      earlyStartHours: earlyStart,
+      lunchShiftHours: lunchShift,
+      supportHours,
+    });
     return {
       No: idx + 1,
       사번: w.employee_no,

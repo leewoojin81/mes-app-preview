@@ -480,7 +480,7 @@ export default function WorkHoursLookupPage() {
           <table className="text-sm whitespace-nowrap">
             <thead className="bg-[#D9E1F2] text-slate-500 text-xs">
               <tr>
-                {["No.", "사번", "부서", "성명", "일자", "조출", "중교", "잔업", "비고"].map((label) => (
+                {["No.", "사번", "부서", "성명", "일자", "조출", "중교", "잔업", "지각", "조퇴", "외출", "비고"].map((label) => (
                   <th
                     key={label}
                     className="text-center px-3 py-3 font-semibold sticky top-0 z-10 bg-[#D9E1F2] shadow-[inset_0_-1px_0_#e2e8f0]"
@@ -493,21 +493,21 @@ export default function WorkHoursLookupPage() {
             <tbody className="divide-y divide-slate-100">
               {!canQuery && (
                 <tr>
-                  <td colSpan={9} className="text-center py-10 text-slate-400">
+                  <td colSpan={12} className="text-center py-10 text-slate-400">
                     사용자 정보를 불러오는 중...
                   </td>
                 </tr>
               )}
               {canQuery && loading && (
                 <tr>
-                  <td colSpan={9} className="text-center py-10 text-slate-400">
+                  <td colSpan={12} className="text-center py-10 text-slate-400">
                     불러오는 중...
                   </td>
                 </tr>
               )}
               {canQuery && !loading && result && result.workers.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center py-10 text-slate-400">
+                  <td colSpan={12} className="text-center py-10 text-slate-400">
                     조건에 맞는 작업자가 없습니다.
                   </td>
                 </tr>
@@ -518,7 +518,7 @@ export default function WorkHoursLookupPage() {
                 result.workers.length > 0 &&
                 overtimeVisibleWorkerBlocks.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="text-center py-10 text-slate-400">
+                    <td colSpan={12} className="text-center py-10 text-slate-400">
                       {onlyExcess ? "초과(조출·중교·잔업)가 있는 일자가 없습니다." : "조건에 맞는 일자가 없습니다."}
                     </td>
                   </tr>
@@ -544,6 +544,9 @@ export default function WorkHoursLookupPage() {
                       <td className="px-3 py-2 text-right font-mono text-slate-600">
                         {fmtHM(overtimeExcessHours(r.overtime_hours))}
                       </td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-600">{fmtHM(r.late_hours)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-600">{fmtHM(r.early_leave_hours)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-600">{fmtHM(r.outing_hours)}</td>
                       <td className="px-3 py-2 text-slate-300">-</td>
                     </tr>
                   ));

@@ -1,31 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull } from "@/lib/item-fields";
-import { computeAttendanceHours } from "@/lib/work-hours-leave";
+import { computeAttendanceHours, computeTotalHours } from "@/lib/work-hours-leave";
 import * as XLSX from "xlsx";
 
 export const runtime = "nodejs";
 
 const SUB_LABELS = ["정상", "잔업", "조출", "중교", "지각", "조퇴", "외출", "지원공정", "지원시간"];
-
-// 지원시간은 실제로 다른 공정을 지원하며 일한 시간이라 합계에 더한다(2026-09-08 사용자
-// 요청, api/work-hours/route.ts의 computeTotal과 동일한 공식). 지각/조퇴/외출은 합계에
-// 반영하지 않고 기록용으로만 남긴다.
-function computeTotal(fields: {
-  normal_hours: number;
-  overtime_hours: number;
-  early_start_hours: number;
-  lunch_shift_hours: number;
-  support_hours: number;
-}): number {
-  return (
-    fields.normal_hours +
-    fields.overtime_hours +
-    fields.early_start_hours +
-    fields.lunch_shift_hours +
-    fields.support_hours
-  );
-}
 
 // 일일근태입력(PSN-01) 엑셀 업로드 — "일일근태입력.xlsx" 원본의 2행 병합헤더(1행=그룹명
 // "자공정"/"지원공정", 2행=정상/잔업/조출/중교/지각/조퇴/외출/지원공정/지원시간)와, "엑셀
@@ -152,21 +133,16 @@ export async function POST(req: NextRequest) {
       // 정상/잔업 둘 다 사람이 고칠 수 없다 — 업로드 파일의 "정상"/"잔업" 값이 있어도
       // 무시하고 새 계산 순서(work-hours-leave.ts의 computeAttendanceHours)로 다시 구해
       // 저장한다(2026-09-11 사용자 요청).
-      const { normalHours, overtimeHours } = computeAttendanceHours(leaveType, {
+      const attendance = computeAttendanceHours(leaveType, {
         overtimeInput,
         lateHours,
         earlyLeaveHours,
         outingHours,
         supportHours,
       });
+      const { normalHours, overtimeHours } = attendance;
 
-      const totalHours = computeTotal({
-        normal_hours: normalHours,
-        overtime_hours: overtimeHours,
-        early_start_hours: earlyStartHours,
-        lunch_shift_hours: lunchShiftHours,
-        support_hours: supportHours,
-      });
+      const totalHours = computeTotalHours(attendance, { earlyStartHours, lunchShiftHours, supportHours });
 
       upsertDaily.run(
         date,
