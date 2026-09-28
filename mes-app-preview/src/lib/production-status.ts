@@ -322,8 +322,12 @@ function dayLabelOf(dateStr: string): string {
   return `${Number(dateStr.slice(5, 7))}/${Number(dateStr.slice(8, 10))}`;
 }
 
-// MGMT-05 표 하단 그래프 — 선택한 라인의 올해 1월~전월은 월별 합계, 이번달은 1일~전일까지
-// 일별 실적을 이어 붙인 추이(그래프.JPG 참고: 월별 추이 뒤에 이번달 일별 실적이 붙는 형태).
+// MGMT-05 표 하단 그래프 — 선택한 라인의 올해 1월~전월은 월별 합계, 이번달(asOfDate가 속한 달)은
+// 1일~말일 전체를 일별로 이어 붙인 추이(그래프.JPG 참고: 월별 추이 뒤에 이번달 일별 실적이 붙는
+// 형태). 예전엔 "전일까지"만 그렸는데, 실적 입력이 기준일(asOfDate)보다 앞서 들어와 있는 날도
+// 있어(공정마다 업로드 시점이 달라 기준일 이후 날짜에도 이미 데이터가 있을 수 있음) 2026-09-29
+// 사용자 요청으로 달 전체를 그리도록 바꿨다 — 데이터가 없는 날(미래/미입력)은 pushPoint가
+// 그냥 건너뛴다.
 export function computeProductionTrend(
   db: DatabaseSync,
   lineKey: string,
@@ -336,6 +340,7 @@ export function computeProductionTrend(
   const yesterday = addDays(today, -1);
   const yearStart = `${today.slice(0, 4)}-01-01`;
   const monthStart = monthStartOf(today);
+  const monthEnd = monthEndOf(today);
 
   // 생산성(UPH) 분모 = PSN-01 실제 근무시간 합계(표 상단 요약의 yesterdayUph·mtdUph와 같은
   // 기준: 라인의 단일 workProcessCode, 사출_하는 사출_상과 같은 P100). 월별 점은 그 달,
@@ -359,7 +364,7 @@ export function computeProductionTrend(
           `SELECT work_date d, SUM(total_hours) s FROM work_hours_daily
            WHERE process_code = ? AND work_date BETWEEN ? AND ? GROUP BY d`
         )
-        .all(line.workProcessCode, monthStart, yesterday) as { d: string; s: number | null }[]
+        .all(line.workProcessCode, monthStart, monthEnd) as { d: string; s: number | null }[]
     ).map((r) => [r.d, r.s ?? 0])
   );
 
@@ -384,19 +389,17 @@ export function computeProductionTrend(
       pushPoint(monthLabelOf(r.ym), r.s ?? 0, hoursByYm.get(r.ym));
     }
 
-    if (yesterday >= monthStart) {
-      const dayRows = db
-        .prepare(
-          `SELECT receipt_date d, SUM(CAST(json_extract(detail, '$."입고량"') AS REAL)) s
-           FROM mold_receipt_status
-           WHERE json_extract(detail, '$."품목군"') = ? AND receipt_date BETWEEN ? AND ?
-           GROUP BY d ORDER BY d`
-        )
-        .all(group, monthStart, yesterday) as { d: string; s: number | null }[];
-      const byDate = new Map(dayRows.map((r) => [r.d, r.s ?? 0]));
-      for (let d = monthStart; d <= yesterday; d = addDays(d, 1)) {
-        pushPoint(dayLabelOf(d), byDate.get(d) ?? 0, hoursByDate.get(d));
-      }
+    const dayRows = db
+      .prepare(
+        `SELECT receipt_date d, SUM(CAST(json_extract(detail, '$."입고량"') AS REAL)) s
+         FROM mold_receipt_status
+         WHERE json_extract(detail, '$."품목군"') = ? AND receipt_date BETWEEN ? AND ?
+         GROUP BY d ORDER BY d`
+      )
+      .all(group, monthStart, monthEnd) as { d: string; s: number | null }[];
+    const byDate = new Map(dayRows.map((r) => [r.d, r.s ?? 0]));
+    for (let d = monthStart; d <= monthEnd; d = addDays(d, 1)) {
+      pushPoint(dayLabelOf(d), byDate.get(d) ?? 0, hoursByDate.get(d));
     }
   } else if (line.processCode) {
     const processCode = line.processCode;
@@ -412,19 +415,17 @@ export function computeProductionTrend(
       pushPoint(monthLabelOf(r.ym), r.s ?? 0, hoursByYm.get(r.ym));
     }
 
-    if (yesterday >= monthStart) {
-      const dayRows = db
-        .prepare(
-          `SELECT work_date d, SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) s
-           FROM daily_work_status
-           WHERE process_code = ? AND work_date BETWEEN ? AND ?
-           GROUP BY d ORDER BY d`
-        )
-        .all(processCode, monthStart, yesterday) as { d: string; s: number | null }[];
-      const byDate = new Map(dayRows.map((r) => [r.d, r.s ?? 0]));
-      for (let d = monthStart; d <= yesterday; d = addDays(d, 1)) {
-        pushPoint(dayLabelOf(d), byDate.get(d) ?? 0, hoursByDate.get(d));
-      }
+    const dayRows = db
+      .prepare(
+        `SELECT work_date d, SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) s
+         FROM daily_work_status
+         WHERE process_code = ? AND work_date BETWEEN ? AND ?
+         GROUP BY d ORDER BY d`
+      )
+      .all(processCode, monthStart, monthEnd) as { d: string; s: number | null }[];
+    const byDate = new Map(dayRows.map((r) => [r.d, r.s ?? 0]));
+    for (let d = monthStart; d <= monthEnd; d = addDays(d, 1)) {
+      pushPoint(dayLabelOf(d), byDate.get(d) ?? 0, hoursByDate.get(d));
     }
   }
 

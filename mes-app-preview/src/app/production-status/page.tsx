@@ -42,7 +42,9 @@ function fmtSignedPct(n: number | null | undefined, digits = 1): string {
 }
 function fmtUph(n: number | null | undefined): string {
   if (n == null) return "-";
-  return n.toFixed(1);
+  // 표의 생산성(UPH) 전일/이번달 누적/전월 세 칸 — 천단위 콤마 포함(2026-09-29 사용자 요청,
+  // 그래프 데이터 레이블(fmtUphChart)과 같은 포맷으로 통일).
+  return n.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 // 그래프 데이터 레이블·Y축·툴팁용 — 천단위 콤마 포함(1,344.5)
 function fmtUphChart(n: number): string {
@@ -313,7 +315,11 @@ function niceRange(min: number, max: number): [number, number] {
 // 다시 조회한다. 값은 생산수량이 아니라 생산성(UPH, 표 상단 요약의 yesterdayUph·mtdUph와
 // 같은 산식) — 2026-09-28 사용자 요청.
 function ProductionTrendSection({ rows, date }: { rows: ProductionStatusRow[]; date: string }) {
-  const [lineKey, setLineKey] = useState(rows[0]?.key ?? "");
+  // 기본 선택 공정은 착색인쇄(2026-09-29 사용자 요청) — 목록에 없으면(공정 필터로 걸렀거나
+  // 데이터가 아예 없는 경우) 첫 번째 라인으로 대체한다.
+  const [lineKey, setLineKey] = useState(
+    rows.find((r) => r.key === "coloring")?.key ?? rows[0]?.key ?? ""
+  );
   const [trend, setTrend] = useState<ProductionTrendResult | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -409,6 +415,13 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
     return { x, y: yPos(r.uph) };
   });
   const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+  // 선 아래 그라데이션 채움(참고 이미지 "공정별 생산현황.png" 스타일) — 선 경로를 그대로
+  // 따라가다 마지막 점에서 축 바닥으로 내려간 뒤 첫 점 바닥까지 닫는다.
+  const baselineY = PAD_T + plotH;
+  const areaPath =
+    points.length > 0
+      ? `${linePath} L${points[points.length - 1].x},${baselineY} L${points[0].x},${baselineY} Z`
+      : "";
   const avgY = yPos(trend.average);
   const targetY = target != null ? yPos(target) : null;
 
@@ -420,6 +433,12 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
         role="img"
         aria-label={`${trend.label} 생산성 추이`}
       >
+        <defs>
+          <linearGradient id="productionTrendArea" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.32} />
+            <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
+          </linearGradient>
+        </defs>
         {[0, 0.25, 0.5, 0.75, 1].map((f) => {
           const y = PAD_T + plotH - f * plotH;
           return <line key={f} x1={PAD_L} x2={W - PAD_R} y1={y} y2={y} stroke="#eef0f4" strokeWidth={1} />;
@@ -436,6 +455,7 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
             {axisLabels[k]}
           </text>
         ))}
+        {areaPath && <path d={areaPath} fill="url(#productionTrendArea)" stroke="none" />}
         <line
           x1={PAD_L}
           x2={W - PAD_R}
@@ -508,7 +528,7 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
           <p className="font-mono">{fmtUphChart(rows[hover].uph)} UPH</p>
         </div>
       )}
-      <div className="mt-1 flex items-center gap-4 text-[11px] text-slate-400">
+      <div className="mt-1 flex items-center justify-center gap-4 text-[11px] text-slate-400">
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-[2px] bg-amber-500 rounded-full" /> {trend.label}
         </span>
