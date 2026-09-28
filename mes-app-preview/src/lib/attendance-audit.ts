@@ -183,10 +183,18 @@ function buildLunchShiftItem(psn01: number): AttendanceAuditItem {
 // 디자인 공정에 지원 8시간만 했는데 정상 0/세콤 8로 항상 불일치가 떴었다. 정상 0 +
 // 지원 8 = 세콤 8이므로 일치가 맞다). 지원이 0인 평소 날은 그대로 정상만 비교하는
 // 것과 결과가 같다(supportHours=0이면 합이 psn01 그대로이므로).
+// 출근일 정상근무 기준시간 — work-hours-leave.ts computeAttendanceHours의 8과 같다.
+const NORMAL_BASE_HOURS = 8;
+
 function buildNormalItem(psn01: number, derivedPsn02: number | null, supportHours: number): AttendanceAuditItem {
   const item = buildItem(psn01, derivedPsn02);
   if (derivedPsn02 == null) return item;
-  const diff = psn01 + supportHours - derivedPsn02;
+  // 지원시간은 PSN-01에서 정상근무(8시간)부터 차감하므로(work-hours-leave.ts) 정상 비교에는 그
+  // 중 "정상에서 빠진 부분"(최대 8시간)만 되돌려 더한다. 정상8+잔업2:20을 전부 지원해 지원이
+  // 10:20이면 정상 0 + 8 = 8이 세콤 정상 8:00과 맞아야 하는데, 지원 전체(10:20)를 더하면 잔업
+  // 2:20이 정상에 이중으로 얹혀 잔업을 정상적으로 입력해도 항상 불일치가 났다(2026-09-28,
+  // 최지은·김은미 디자인 지원 사례).
+  const diff = psn01 + Math.min(supportHours, NORMAL_BASE_HOURS) - derivedPsn02;
   return { ...item, mismatch: Math.abs(diff) >= MISMATCH_THRESHOLD_HOURS };
 }
 
