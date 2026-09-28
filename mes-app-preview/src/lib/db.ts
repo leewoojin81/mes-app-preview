@@ -782,6 +782,19 @@ CREATE TABLE IF NOT EXISTS line_capa_plan (
   PRIMARY KEY (year_month, line_key)
 );
 
+-- 기준정보 공정정보(BASE-04) "공정별 목표 UPH" — MGMT-05 추이 그래프 목표선용 고정 목표.
+-- (적용연도, 라인)별 1년에 한 번 정도만 바뀌는 값이라 월별 계획(PLAN-02)이 아닌 기준정보에
+-- 둔다(2026-09-28 사용자 확인). 해당 연도 값이 없으면 직전 연도 값을 이어받는다
+-- (src/lib/process-uph-target.ts).
+CREATE TABLE IF NOT EXISTS process_uph_target (
+  target_year INTEGER NOT NULL,
+  line_key TEXT NOT NULL,
+  target_uph REAL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  updated_by TEXT,
+  PRIMARY KEY (target_year, line_key)
+);
+
 `;
 
 function migrate(db: DatabaseSync) {

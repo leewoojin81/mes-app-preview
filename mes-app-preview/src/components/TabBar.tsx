@@ -7,8 +7,17 @@ export default function TabBar() {
 
   if (activePath === "/login" || tabs.length === 0) return null;
 
+  // 공정별생산현황(MGMT-05)은 상단 요약을 고정한 화면이라 최근 열어본 페이지 탭바도 같이
+  // 상단에 고정한다(2026-09-28 사용자 요청). 탭바 높이(34px)는 그 화면 고정
+  // 영역의 sticky top 오프셋(production-status/page.tsx)과 맞아야 한다.
+  const stuck = activePath === "/production-status";
+
   return (
-    <div className="flex items-stretch border-b border-slate-200 bg-slate-100 overflow-x-auto print:hidden">
+    <div
+      className={`flex items-stretch border-b border-slate-200 bg-slate-100 overflow-x-auto print:hidden ${
+        stuck ? "sticky top-0 z-30" : ""
+      }`}
+    >
       {tabs.map((tab) => {
         const active = tab.path === activePath;
         return (

@@ -64,12 +64,20 @@ const TABLE_LABELS: Record<string, string> = {
 };
 
 export default function ProductionStatusPage() {
-  const [tab, setTab] = useState<"dashboard" | "table">("dashboard");
-  const [date, setDate] = useState(today);
+  // 기준일 기본값은 서버가 계산한다 — 모든 공정에 실적이 있는 마지막 날의 다음날(예: 9/23까지
+  // 실적이 있으면 9/24). 계산이 끝나기 전에는 빈 값이라 조회하지 않는다.
+  const [date, setDate] = useState("");
+  useEffect(() => {
+    fetch("/api/production-status/default-date", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { date: string }) => setDate(data.date))
+      .catch(() => setDate(today()));
+  }, []);
   const [result, setResult] = useState<ProductionStatusResult | null>(null);
   const [loading, setLoading] = useState(true);
 
   function load() {
+    if (!date) return;
     setLoading(true);
     fetch(`/api/production-status?date=${date}`, { cache: "no-store" })
       .then((res) => res.json())
@@ -82,11 +90,12 @@ export default function ProductionStatusPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [date]);
 
-  const shortageRows = result?.rows.filter((r) => r.shortage != null && r.shortage < 0) ?? [];
-  const sortedShortageRows = [...shortageRows].sort((a, b) => (a.shortage ?? 0) - (b.shortage ?? 0));
-
   return (
     <div className="w-full px-4 sm:px-6 py-8 space-y-8">
+      {/* 제목·탭·상단 요약 카드(총 작업가능일/작업일수/잔여일수/진도율)는 스크롤해도 상단에 고정 —
+          -mt-8/pt-8은 루트 위 여백까지 배경으로 덮어, 고정됐을 때 아래 내용이 비쳐 보이지 않게 한다.
+          top-[34px]은 이 화면에서 같이 고정되는 최근 열어본 페이지 탭바(TabBar.tsx)의 높이. */}
+      <div className="sticky top-[34px] z-20 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 -mt-8 pt-8 pb-4 space-y-4 shadow-[0_6px_8px_-6px_rgba(15,23,42,0.15)]">
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-navy">공정별생산현황</h1>
@@ -103,17 +112,17 @@ export default function ProductionStatusPage() {
             ‹
           </button>
           <span className="text-sm font-semibold text-navy w-32 text-center">
-            {fmtDateLabel(date)}
+            {date ? fmtDateLabel(date) : ""}
           </span>
           <button
             onClick={() => setDate((d) => addDays(d, 1))}
-            disabled={date >= today()}
+            disabled={!date || date >= today()}
             className="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"
             aria-label="다음날"
           >
             ›
           </button>
-          {date !== today() && (
+          {date !== "" && date !== today() && (
             <button
               onClick={() => setDate(today())}
               className="ml-1 text-xs font-medium text-navy hover:underline"
@@ -124,90 +133,20 @@ export default function ProductionStatusPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1 border-b border-slate-200">
-        <button
-          onClick={() => setTab("dashboard")}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
-            tab === "dashboard" ? "border-navy text-navy" : "border-transparent text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          요약 대시보드
-        </button>
-        <button
-          onClick={() => setTab("table")}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
-            tab === "table" ? "border-navy text-navy" : "border-transparent text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          생산실적현황
-        </button>
+      {result && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <SummaryCard label="총 작업가능일" value={result.totalWorkDays.toLocaleString()} unit="일" />
+          <SummaryCard label="작업일수" value={result.doneWorkDays.toLocaleString()} unit="일" />
+          <SummaryCard label="잔여일수" value={result.remainingWorkDays.toLocaleString()} unit="일" />
+          <SummaryCard label="진도율" value={fmtPct(result.overallProgressRate)} unit="" emphasis />
+        </div>
+      )}
       </div>
 
       {loading && !result && <div className="text-center py-20 text-slate-400">불러오는 중...</div>}
 
-      {result && tab === "dashboard" && (
+      {result && (
         <>
-          {/* 상단 요약 */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <SummaryCard label="총 작업가능일" value={result.totalWorkDays.toLocaleString()} unit="일" />
-            <SummaryCard label="작업일수" value={result.doneWorkDays.toLocaleString()} unit="일" />
-            <SummaryCard label="잔여일수" value={result.remainingWorkDays.toLocaleString()} unit="일" />
-            <SummaryCard
-              label="진도율"
-              value={fmtPct(result.overallProgressRate)}
-              unit=""
-              emphasis
-            />
-          </div>
-
-          {/* 부족 공정 우선 표시 */}
-          {sortedShortageRows.length > 0 && (
-            <div className="bg-red-50 border-2 border-red-300 rounded-xl p-5 space-y-3">
-              <h2 className="text-base font-bold text-red-700 flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
-                부족 공정 ({sortedShortageRows.length}개) — 전일 목표 미달
-              </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {sortedShortageRows.map((r) => (
-                  <div
-                    key={r.key}
-                    className="bg-white border border-red-200 rounded-lg px-4 py-3"
-                  >
-                    <p className="text-sm font-semibold text-slate-700">{r.label}</p>
-                    <p className="mt-1 text-2xl font-black font-mono text-red-600">
-                      {fmtQty(r.shortage)}
-                    </p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      달성율 {fmtPct(r.achievementRate)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 공정별 카드 */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-            {result.rows.map((r) => (
-              <ProcessCard key={r.key} row={r} />
-            ))}
-          </div>
-        </>
-      )}
-
-      {result && tab === "table" && (
-        <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <SummaryCard label="총 작업가능일" value={result.totalWorkDays.toLocaleString()} unit="일" />
-            <SummaryCard label="작업일수" value={result.doneWorkDays.toLocaleString()} unit="일" />
-            <SummaryCard label="잔여일수" value={result.remainingWorkDays.toLocaleString()} unit="일" />
-            <SummaryCard
-              label="진도율"
-              value={fmtPct(result.overallProgressRate)}
-              unit=""
-              emphasis
-            />
-          </div>
           <ProductionStatusTable result={result} />
           <ProductionTrendSection rows={result.rows} date={date} />
         </>
@@ -238,72 +177,6 @@ function SummaryCard({
         {value}
         {unit && <span className="text-sm font-sans font-medium text-slate-400 ml-1">{unit}</span>}
       </p>
-    </div>
-  );
-}
-
-function ProcessCard({ row }: { row: ProductionStatusRow }) {
-  const rate = row.achievementRate;
-  const toneClass =
-    rate == null
-      ? "bg-white border-slate-200"
-      : rate >= 1
-        ? "bg-emerald-50 border-emerald-300"
-        : "bg-red-50 border-red-300";
-  const badgeClass =
-    rate == null
-      ? "bg-slate-100 text-slate-500"
-      : rate >= 1
-        ? "bg-emerald-600 text-white"
-        : "bg-red-600 text-white";
-  const shortageClass =
-    row.shortage == null
-      ? "text-slate-400"
-      : row.shortage >= 0
-        ? "text-emerald-700"
-        : "text-red-600";
-
-  return (
-    <div className={`rounded-xl border-2 p-5 shadow-sm ${toneClass}`}>
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-bold text-navy">{row.label}</h3>
-        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${badgeClass}`}>
-          달성율 {fmtPct(rate)}
-        </span>
-      </div>
-
-      <div className="mt-3 flex items-baseline gap-2">
-        <span className="text-4xl font-black font-mono text-navy">{fmtQty(row.yesterdayQty)}</span>
-        <span className="text-sm text-slate-400">전일생산량</span>
-      </div>
-      <p className={`mt-1 text-sm font-semibold ${shortageClass}`}>
-        {row.shortage == null
-          ? "과부족 -"
-          : `${row.shortage >= 0 ? "+" : ""}${fmtQty(row.shortage)} 과부족`}
-      </p>
-
-      <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2.5 text-sm border-t border-slate-200/70 pt-3.5">
-        <div>
-          <p className="text-xs text-slate-400">일 목표생산량</p>
-          <p className="font-mono font-semibold text-slate-700">{fmtQty(row.dailyTarget)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-400">월 목표생산량</p>
-          <p className="font-mono font-semibold text-slate-700">{fmtQty(row.monthlyTarget)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-400">진도율</p>
-          <p className="font-mono font-semibold text-slate-700">{fmtPct(row.progressRate)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-400">재공품</p>
-          <p className="font-mono font-semibold text-slate-700">{fmtQty(row.wip)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-400">인원</p>
-          <p className="font-mono font-semibold text-slate-700">{row.headcount.toLocaleString()} 명</p>
-        </div>
-      </div>
     </div>
   );
 }
@@ -422,10 +295,17 @@ function useContainerWidth(defaultWidth: number) {
   }, []);
   return [ref, width] as const;
 }
-function niceCeil(v: number): number {
-  if (v <= 0) return 100;
-  const magnitude = Math.pow(10, Math.floor(Math.log10(v)));
-  return Math.ceil(v / magnitude) * magnitude;
+// 데이터 최소~최대에 15% 여백을 붙인 뒤 눈금이 깔끔하도록 내림/올림한 축 범위. 최소가 0
+// 아래로 내려가지 않게 하고, 값이 하나뿐이거나 전부 같으면 최대값의 10%를 여백으로 쓴다.
+function niceRange(min: number, max: number): [number, number] {
+  const range = max - min;
+  const pad = range > 0 ? range * 0.15 : Math.max(max * 0.1, 1);
+  const lo = Math.max(0, min - pad);
+  const hi = max + pad;
+  const unit = Math.pow(10, Math.floor(Math.log10(hi - lo))) / 2;
+  const nLo = Math.floor(lo / unit) * unit;
+  const nHi = Math.ceil(hi / unit) * unit;
+  return [nLo, nHi > nLo ? nHi : nLo + unit];
 }
 
 // MGMT-05 표 하단 그래프 — 공정필터(드롭다운) 선택에 따라 해당 공정의 올해 추이를
@@ -469,11 +349,11 @@ function ProductionTrendSection({ rows, date }: { rows: ProductionStatusRow[]; d
       </div>
       <div className="mt-3">
         {loading || !trend ? (
-          <div className="h-[260px] flex items-center justify-center text-slate-400 text-sm">
+          <div className="h-[340px] flex items-center justify-center text-slate-400 text-sm">
             불러오는 중...
           </div>
         ) : trend.points.length === 0 ? (
-          <div className="h-[260px] flex items-center justify-center text-slate-400 text-sm">
+          <div className="h-[340px] flex items-center justify-center text-slate-400 text-sm">
             표시할 데이터가 없습니다.
           </div>
         ) : (
@@ -487,27 +367,50 @@ function ProductionTrendSection({ rows, date }: { rows: ProductionStatusRow[]; d
 function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
   const [hover, setHover] = useState<number | null>(null);
   const [wrapRef, W] = useContainerWidth(900);
-  const H = 260;
-  const PAD_L = 46;
-  const PAD_R = 10;
-  const PAD_B = 24;
-  const PAD_T = 28;
-  const plotW = W - PAD_L - PAD_R;
-  const plotH = H - PAD_T - PAD_B;
-
+  // 그래프 안 글씨는 전부 12pt(=16px) — SVG viewBox 폭이 컨테이너 폭과 1:1이라 px가 그대로 화면 px.
+  const FS = 16;
+  const CHAR_W = FS * 0.56;
+  const LABEL_ROW_H = FS + 6;
   const rows = trend.points;
   const vals = rows.map((r) => r.uph);
-  const maxVal = Math.max(1, ...vals);
-  const yMax = niceCeil(maxVal * 1.15);
+
+  // 좌측 축 범위는 0~최대가 아니라 실제 데이터의 최소~최대(위아래 15% 여백, 눈금은 보기 좋은
+  // 값으로 내림/올림)로 자동 지정 — 값들이 몰려 있어도 추이 변화가 잘 보이게 한다.
+  // 목표 UPH(기준정보 BASE-04)가 있으면 목표선이 항상 축 안에 들어오도록 범위에 함께 포함한다.
+  const target = trend.targetUph;
+  const rangeVals = target != null ? [...vals, target] : vals;
+  const [yMin, yMax] = niceRange(Math.min(...rangeVals), Math.max(...rangeVals));
+  const yRange = yMax - yMin;
+
+  const axisLabels = [0, 0.5, 1].map((f) => fmtUphChart(yMin + yRange * f));
+  const PAD_L = Math.max(...axisLabels.map((t) => t.length)) * CHAR_W + 14;
+  // 마지막 점의 데이터 레이블·X축 라벨은 점 중앙 기준이라 오른쪽 경계에서 잘리지 않게
+  // 그 폭의 절반만큼 오른쪽 여백을 둔다.
+  const labels = rows.map((r) => fmtUphChart(r.uph));
+  const labelW = Math.max(...labels.map((t) => t.length)) * CHAR_W + 6;
+  const xLabelW = Math.max(...rows.map((r) => r.label.length)) * CHAR_W + 6;
+  const PAD_R = Math.max(labelW, xLabelW) / 2 + 4;
+  const plotW = W - PAD_L - PAD_R;
   const slot = plotW / Math.max(1, rows.length - 1 || 1);
+
+  // 글씨가 커서 이웃한 데이터 레이블·X축 라벨이 겹치므로, 겹치는 폭만큼 레이블을 위로 여러 줄
+  // (i % 줄수)로 엇갈려 배치하고 X축 라벨은 k개마다 하나씩만 보여준다(마우스 올린 점은 항상 표시).
+  const labelRows = Math.min(3, Math.max(1, Math.ceil(labelW / Math.max(slot, 1))));
+  const xSkip = Math.max(1, Math.ceil(xLabelW / Math.max(slot, 1)));
+
+  const PAD_T = 14 + LABEL_ROW_H * labelRows;
+  const PAD_B = FS + 16;
+  const H = 300 + LABEL_ROW_H * (labelRows - 1);
+  const plotH = H - PAD_T - PAD_B;
+  const yPos = (v: number): number => PAD_T + plotH - ((v - yMin) / yRange) * plotH;
 
   const points = rows.map((r, i) => {
     const x = rows.length === 1 ? PAD_L + plotW / 2 : PAD_L + slot * i;
-    const y = PAD_T + plotH - (r.uph / yMax) * plotH;
-    return { x, y };
+    return { x, y: yPos(r.uph) };
   });
   const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
-  const avgY = PAD_T + plotH - (trend.average / yMax) * plotH;
+  const avgY = yPos(trend.average);
+  const targetY = target != null ? yPos(target) : null;
 
   return (
     <div ref={wrapRef} className="relative">
@@ -521,16 +424,16 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
           const y = PAD_T + plotH - f * plotH;
           return <line key={f} x1={PAD_L} x2={W - PAD_R} y1={y} y2={y} stroke="#eef0f4" strokeWidth={1} />;
         })}
-        {[0, 0.5, 1].map((f) => (
+        {[0, 0.5, 1].map((f, k) => (
           <text
             key={f}
             x={PAD_L - 6}
-            y={PAD_T + plotH - f * plotH + 3}
+            y={PAD_T + plotH - f * plotH + FS * 0.35}
             textAnchor="end"
-            fontSize={9}
+            fontSize={FS}
             fill="#94a3b8"
           >
-            {fmtUphChart(yMax * f)}
+            {axisLabels[k]}
           </text>
         ))}
         <line
@@ -542,28 +445,53 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
           strokeWidth={1.5}
           strokeDasharray="5,4"
         />
+        {targetY != null && (
+          <line
+            x1={PAD_L}
+            x2={W - PAD_R}
+            y1={targetY}
+            y2={targetY}
+            stroke="#15803d"
+            strokeWidth={2}
+            strokeDasharray="8,4"
+          />
+        )}
         <path d={linePath} fill="none" stroke="#f59e0b" strokeWidth={2} />
         {points.map((p, i) => {
-          const label = fmtUphChart(rows[i].uph);
-          const labelW = label.length * 5.4 + 4;
+          const label = labels[i];
+          const w = label.length * CHAR_W + 6;
+          // 줄 번호만큼 위로 올리고, 올린 레이블은 점과 이어지는 가는 선으로 어느 점 값인지 표시
+          const lift = (i % labelRows) * LABEL_ROW_H;
+          const textY = p.y - 9 - lift;
           return (
             <g key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
               <rect x={p.x - slot / 2} y={PAD_T} width={slot} height={plotH} fill="transparent" />
-              <rect x={p.x - labelW / 2} y={p.y - 17} width={labelW} height={11} rx={2} fill="#fff" />
+              {lift > 0 && (
+                <line x1={p.x} x2={p.x} y1={textY + 3} y2={p.y} stroke="#f59e0b" strokeWidth={1} opacity={0.4} />
+              )}
+              <rect x={p.x - w / 2} y={textY - FS + 2} width={w} height={FS + 2} rx={2} fill="#fff" />
               <text
                 x={p.x}
-                y={p.y - 9}
+                y={textY}
                 textAnchor="middle"
-                fontSize={9}
+                fontSize={FS}
                 fontWeight={600}
                 fill={hover === i ? "#0b0b0b" : "#c2790a"}
               >
                 {label}
               </text>
               <circle cx={p.x} cy={p.y} r={hover === i ? 4 : 2.5} fill="#fff" stroke="#f59e0b" strokeWidth={2} />
-              <text x={p.x} y={H - 6} textAnchor="middle" fontSize={8} fill={hover === i ? "#0b0b0b" : "#94a3b8"}>
-                {rows[i].label}
-              </text>
+              {(i % xSkip === 0 || hover === i) && (
+                <text
+                  x={p.x}
+                  y={H - 8}
+                  textAnchor="middle"
+                  fontSize={FS}
+                  fill={hover === i ? "#0b0b0b" : "#94a3b8"}
+                >
+                  {rows[i].label}
+                </text>
+              )}
             </g>
           );
         })}
@@ -588,6 +516,12 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
           <span className="inline-block w-3" style={{ borderTop: "1.5px dashed #3a62c4" }} />
           평균
         </span>
+        {target != null && (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3" style={{ borderTop: "2px dashed #15803d" }} />
+            목표 {fmtUphChart(target)} UPH
+          </span>
+        )}
       </div>
     </div>
   );

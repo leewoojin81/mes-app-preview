@@ -301,6 +301,8 @@ export interface ProductionTrendResult {
   label: string;
   points: ProductionTrendPoint[];
   average: number;
+  /** 기준정보(BASE-04) 공정별 목표 UPH(기준일 연도, 없으면 직전 연도 값). 미등록이면 null */
+  targetUph: number | null;
 }
 
 // 인원관리(PSN-04) "공정별근무현황" — 조회기간 내 공정(BASE-04 process_name)별 연인원(person-day) 집계 1행.

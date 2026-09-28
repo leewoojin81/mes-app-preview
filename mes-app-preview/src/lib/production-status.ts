@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ensureLineCapaPlanTable } from "./production-plan-lines";
+import { getProcessUphTarget } from "./process-uph-target";
 
 // 경영정보 "공정별생산현황(MGMT-05, 매일 아침 회의용)" — PLAN-02와 같은 9개 라인
 // (간접직 제외)을 쓰되, 사출_상/사출_하는 몰드 자체의 생산 실적이라 별도 실적 리포트가
@@ -310,6 +311,8 @@ export interface ProductionTrendResult {
   label: string;
   points: ProductionTrendPoint[];
   average: number;
+  /** 기준정보(BASE-04) 공정별 목표 UPH — 기준일 연도의 값(없으면 직전 연도 값), 미등록이면 null */
+  targetUph: number | null;
 }
 
 function monthLabelOf(ym: string): string {
@@ -337,7 +340,8 @@ export function computeProductionTrend(
   // 생산성(UPH) 분모 = PSN-01 실제 근무시간 합계(표 상단 요약의 yesterdayUph·mtdUph와 같은
   // 기준: 라인의 단일 workProcessCode, 사출_하는 사출_상과 같은 P100). 월별 점은 그 달,
   // 일별 점은 그 날의 합계로 나눈다. 근무시간 기록이 없는 달/날은 UPH를 만들 근거가
-  // 없어 0으로 그리지 않고 점 자체를 건너뛴다(PSN-01 데이터가 시작되기 전 달 등).
+  // 없어 0으로 그리지 않고 점 자체를 건너뛴다(PSN-01 데이터가 시작되기 전 달 등). 생산량이
+  // 0이라 UPH가 0인 점도 같은 이유로 제외한다(2026-09-28 사용자 요청) — 평균도 나머지 점 기준.
   const hoursByYm = new Map(
     (
       db
@@ -361,7 +365,9 @@ export function computeProductionTrend(
 
   const points: ProductionTrendPoint[] = [];
   const pushPoint = (label: string, qty: number, hours: number | undefined): void => {
-    if (hours != null && hours > 0) points.push({ label, uph: qty / hours });
+    if (hours == null || hours <= 0) return;
+    const uph = qty / hours;
+    if (uph > 0) points.push({ label, uph });
   };
 
   if (line.isMold && line.moldGroup) {
@@ -425,5 +431,39 @@ export function computeProductionTrend(
   const vals = points.map((p) => p.uph);
   const average = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
 
-  return { lineKey: line.key, label: line.label, points, average };
+  const targetUph = getProcessUphTarget(db, line.key, Number(today.slice(0, 4)))?.targetUph ?? null;
+
+  return { lineKey: line.key, label: line.label, points, average, targetUph };
+}
+
+// MGMT-05 기준일 기본값 — 공정(라인)별로 "실적이 있는 마지막 날짜" 중 가장 이른 날짜(= 모든
+// 공정에 실적이 들어와 있는 마지막 날)의 다음날. 화면은 "전일 실적"을 보여주므로 기준일을 그
+// 다음날로 두면 전일이 곧 그 날짜가 된다(2026-09-28 사용자 요청: 9/23까지 실적이 있으면 기본
+// 9/24). 일부 공정에만 특근 실적이 더 있어도(예: 일요일 착색/마킹) 나머지 공정이 0으로 뜨는
+// 화면이 기본값이 되지 않게 최소값을 쓴다. 실적이 하나도 없으면 오늘, 미래로는 넘기지 않는다.
+export function computeDefaultAsOfDate(db: DatabaseSync): string {
+  const latestDates: string[] = [];
+  for (const line of PRODUCTION_STATUS_LINES) {
+    let row: { d: string | null };
+    if (line.isMold && line.moldGroup) {
+      row = db
+        .prepare(
+          `SELECT MAX(receipt_date) d FROM mold_receipt_status
+           WHERE json_extract(detail, '$."품목군"') = ? AND CAST(json_extract(detail, '$."입고량"') AS REAL) > 0`
+        )
+        .get(line.moldGroup) as { d: string | null };
+    } else if (line.processCode) {
+      row = db
+        .prepare(
+          `SELECT MAX(work_date) d FROM daily_work_status
+           WHERE process_code = ? AND CAST(json_extract(detail, '$."양품수량"') AS REAL) > 0`
+        )
+        .get(line.processCode) as { d: string | null };
+    } else continue;
+    if (row.d) latestDates.push(row.d);
+  }
+  const todayStr = toDateStr(new Date());
+  if (latestDates.length === 0) return todayStr;
+  const next = addDays(latestDates.reduce((a, b) => (a < b ? a : b)), 1);
+  return next < todayStr ? next : todayStr;
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { Process } from "@/lib/types";
+import ProcessUphTargetSection from "./uph-target-section";
 
 const USE_TABS = [
   { label: "전체", value: "" },
@@ -273,6 +274,8 @@ export default function ProcessMasterPage() {
           전체 {rows.length.toLocaleString()}건 중 {visibleRows.length.toLocaleString()}건 표시
         </div>
       </div>
+
+      <ProcessUphTargetSection />
 
       {showForm && (
         <ProcessFormModal
