@@ -44,6 +44,10 @@ function fmtUph(n: number | null | undefined): string {
   if (n == null) return "-";
   return n.toFixed(1);
 }
+// 그래프 데이터 레이블·Y축·툴팁용 — 천단위 콤마 포함(1,344.5)
+function fmtUphChart(n: number): string {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
 
 // "생산실적현황" 탭 전용 라인 라벨 — 요약 대시보드 탭의 라벨(사출상몰드 등)보다 짧게
 // 표에 맞춰 줄인다(2026-09-13 사용자 요청). 실제 값(key)은 동일한 라인을 그대로 가리킨다.
@@ -526,7 +530,7 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
             fontSize={9}
             fill="#94a3b8"
           >
-            {fmtUph(yMax * f)}
+            {fmtUphChart(yMax * f)}
           </text>
         ))}
         <line
@@ -540,7 +544,7 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
         />
         <path d={linePath} fill="none" stroke="#f59e0b" strokeWidth={2} />
         {points.map((p, i) => {
-          const label = fmtUph(rows[i].uph);
+          const label = fmtUphChart(rows[i].uph);
           const labelW = label.length * 5.4 + 4;
           return (
             <g key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
@@ -573,7 +577,7 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
           }}
         >
           <p className="font-semibold text-slate-700">{rows[hover].label}</p>
-          <p className="font-mono">{fmtUph(rows[hover].uph)} UPH</p>
+          <p className="font-mono">{fmtUphChart(rows[hover].uph)} UPH</p>
         </div>
       )}
       <div className="mt-1 flex items-center gap-4 text-[11px] text-slate-400">

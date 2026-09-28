@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { PRODUCTION_LINES, HOURS_PER_DAY, ensureLineCapaPlanTable } from "./production-plan-lines";
+import { ensureLineCapaPlanTable } from "./production-plan-lines";
 
 // 경영정보 "공정별생산현황(MGMT-05, 매일 아침 회의용)" — PLAN-02와 같은 9개 라인
 // (간접직 제외)을 쓰되, 사출_상/사출_하는 몰드 자체의 생산 실적이라 별도 실적 리포트가
@@ -11,9 +11,12 @@ import { PRODUCTION_LINES, HOURS_PER_DAY, ensureLineCapaPlanTable } from "./prod
 // 공정코드 하나만 가져온다(2026-09-13 사용자 확인 — 착색=착색 인쇄, 조립=조립,
 // 분리=분리3, 외관=외관검사, 실링=실링, 마킹=마킹, 포장=출하포장. PLAN-02의 라인 정의는
 // 같은 라인 안의 여러 세부공정을 CAPA/인원 집계용으로 묶어둔 것이라 그대로 쓰면 실제
-// 생산량 집계 지점과 안 맞는 공정까지 더해진다 — 인원은 여전히 PLAN-02 묶음 기준을
-// 쓰고, 실적만 이 단일 공정코드를 쓴다). 재공품(공정재공현황 INV-03, process_wip_status)
-// 은 원래부터 같은 이름의 컬럼 하나만 쓰고 있어 그대로 둔다.
+// 생산량 집계 지점과 안 맞는 공정까지 더해진다). 2026-09-28 사용자 요청으로 인원·근무시간
+// (생산성 UPH의 분모)도 같은 단일 공정코드(workProcessCode)로 통일했다 — 사출=P100,
+// 인쇄=P220, 조립=P300, 분리=P340(오타 확인), 외관=P360, 실링=P370, 마킹=P400, 포장=P410.
+// 근무시간은 고정 8hr 가정 대신 PSN-01(work_hours_daily)에 기록된 실제 근무시간 합계를
+// 쓴다. 재공품(공정재공현황 INV-03, process_wip_status)은 원래부터 같은 이름의 컬럼
+// 하나만 쓰고 있어 그대로 둔다.
 export interface ProductionStatusLineDef {
   key: string;
   label: string;
@@ -23,20 +26,23 @@ export interface ProductionStatusLineDef {
    *  process_wip_status의 재공수량 컬럼 키(원본 헤더명, 아래 wipColumnKey)와 같은
    *  공정을 가리킨다. */
   processCode?: string;
+  /** 인원(workers.process_code)·근무시간(work_hours_daily.process_code) 집계에 쓸 단일
+   *  공정코드. 사출_상/사출_하는 같은 사출(P100) 인원이 담당해 둘 다 P100. */
+  workProcessCode: string;
   /** isMold=false일 때 process_wip_status detail JSON의 재공수량 컬럼 키(원본 헤더명) */
   wipColumnKey?: string;
 }
 
 export const PRODUCTION_STATUS_LINES: ProductionStatusLineDef[] = [
-  { key: "injection_upper", label: "사출상몰드", isMold: true, moldGroup: "상몰드" },
-  { key: "injection_lower", label: "사출하몰드", isMold: true, moldGroup: "하몰드" },
-  { key: "coloring", label: "착색인쇄", isMold: false, processCode: "P220", wipColumnKey: "착색 인쇄" },
-  { key: "assembly", label: "조립", isMold: false, processCode: "P300", wipColumnKey: "조립" },
-  { key: "separation", label: "분리3", isMold: false, processCode: "P340", wipColumnKey: "분리3" },
-  { key: "appearance", label: "외관검사", isMold: false, processCode: "P360", wipColumnKey: "외관검사" },
-  { key: "sealing", label: "실링", isMold: false, processCode: "P370", wipColumnKey: "실링" },
-  { key: "marking", label: "마킹", isMold: false, processCode: "P400", wipColumnKey: "마킹" },
-  { key: "shipping", label: "출하포장", isMold: false, processCode: "P410", wipColumnKey: "출하포장" },
+  { key: "injection_upper", label: "사출상몰드", isMold: true, moldGroup: "상몰드", workProcessCode: "P100" },
+  { key: "injection_lower", label: "사출하몰드", isMold: true, moldGroup: "하몰드", workProcessCode: "P100" },
+  { key: "coloring", label: "착색인쇄", isMold: false, processCode: "P220", workProcessCode: "P220", wipColumnKey: "착색 인쇄" },
+  { key: "assembly", label: "조립", isMold: false, processCode: "P300", workProcessCode: "P300", wipColumnKey: "조립" },
+  { key: "separation", label: "분리3", isMold: false, processCode: "P340", workProcessCode: "P340", wipColumnKey: "분리3" },
+  { key: "appearance", label: "외관검사", isMold: false, processCode: "P360", workProcessCode: "P360", wipColumnKey: "외관검사" },
+  { key: "sealing", label: "실링", isMold: false, processCode: "P370", workProcessCode: "P370", wipColumnKey: "실링" },
+  { key: "marking", label: "마킹", isMold: false, processCode: "P400", workProcessCode: "P400", wipColumnKey: "마킹" },
+  { key: "shipping", label: "출하포장", isMold: false, processCode: "P410", workProcessCode: "P410", wipColumnKey: "출하포장" },
 ];
 
 export interface ProductionStatusRow {
@@ -61,11 +67,11 @@ export interface ProductionStatusRow {
   progressGap: number | null;
   /** 누적과부족(당월) = 누적생산량 - 월목표생산량×진도율(전체) — 달력 진행 속도대로면 있어야 할 수량과의 차이 */
   cumulativeShortage: number | null;
-  /** 전일 UPH = 전일생산량 / (인원 × 8hr) */
+  /** 전일 UPH = 전일생산량 / 전일 근무시간 합계(PSN-01, 기록 없으면 null) */
   yesterdayUph: number | null;
-  /** 이번달 누적 UPH = 누적생산량 / (인원 × 8hr × 작업일수) */
+  /** 이번달 누적 UPH = 누적생산량 / 이번달 1일~전일 근무시간 합계 */
   mtdUph: number | null;
-  /** 전월 UPH = 전월 생산량 / (인원 × 8hr × 전월 근무일수) */
+  /** 전월 UPH = 전월 생산량 / 전월 근무시간 합계 */
   prevMonthUph: number | null;
 }
 
@@ -143,6 +149,28 @@ function processSum(
   return row.s ?? 0;
 }
 
+// PSN-01 근무시간입력의 실제 근무시간 합계(total_hours) — 라인의 단일 공정코드
+// (work_hours_daily.process_code, 그날 작업자 본공정 스냅샷) 기준.
+function workHoursSum(db: DatabaseSync, processCode: string, dateFrom: string, dateTo: string): number {
+  const row = db
+    .prepare(
+      `SELECT SUM(total_hours) s FROM work_hours_daily
+       WHERE process_code = ? AND work_date BETWEEN ? AND ?`
+    )
+    .get(processCode, dateFrom, dateTo) as { s: number | null };
+  return row.s ?? 0;
+}
+
+function headcountOf(db: DatabaseSync, processCode: string): number {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) c FROM workers WHERE use_yn = 'Y' AND status = '정상' AND process_code = ?`
+      )
+      .get(processCode) as { c: number }
+  ).c;
+}
+
 function processWip(db: DatabaseSync, wipColumnKey: string): number {
   const row = db
     .prepare(`SELECT SUM(json_extract(detail, '$."${wipColumnKey}"')) s FROM process_wip_status`)
@@ -182,23 +210,6 @@ export function computeProductionStatus(db: DatabaseSync, asOfDate?: string): Pr
   const remainingWorkDays = Math.max(0, totalWorkDays - doneWorkDays);
   const overallProgressRate = totalWorkDays > 0 ? doneWorkDays / totalWorkDays : null;
 
-  const prevMonthWorkDays = (
-    db
-      .prepare(
-        `SELECT COUNT(*) c FROM production_calendar WHERE cal_date BETWEEN ? AND ? AND work_yn = 'Y'`
-      )
-      .get(prevMonthStart, prevMonthEnd) as { c: number }
-  ).c;
-
-  const headcountRows = db
-    .prepare(
-      `SELECT process_code, COUNT(*) c FROM workers
-       WHERE use_yn = 'Y' AND status = '정상' AND process_code IS NOT NULL
-       GROUP BY process_code`
-    )
-    .all() as { process_code: string; c: number }[];
-  const headcountByProcess = new Map(headcountRows.map((r) => [r.process_code, r.c]));
-
   // 월/일 목표생산량은 계획정보(PLAN-02)에서 이미 입력해둔 라인별 일CAPA를 그대로
   // 가져온다(같은 값을 이 화면에 따로 입력하지 않는다) — line_capa_plan은 새로 추가된
   // 테이블이라 이미 떠 있는 서버 프로세스가 모를 수 있어 PLAN-02와 같은 방식으로 매
@@ -209,17 +220,10 @@ export function computeProductionStatus(db: DatabaseSync, asOfDate?: string): Pr
     .all(yearMonth) as { line_key: string; daily_capa: number | null }[];
   const dailyCapaByLine = new Map(dailyCapaRows.map((r) => [r.line_key, r.daily_capa]));
 
-  const processCodesByKey = new Map(PRODUCTION_LINES.map((l) => [l.key, l.processCodes]));
-
   const rows: ProductionStatusRow[] = PRODUCTION_STATUS_LINES.map((line) => {
     // 사출_상/사출_하는 실제로는 같은 사출(P100) 인원이 담당하는 한 라인이라(PLAN-02와
-    // 동일 근거) 인원은 사출_상 쪽 값을 그대로 같이 쓴다.
-    const headcountKey = line.key === "injection_lower" ? "injection_upper" : line.key;
-    const headcountProcessCodes = processCodesByKey.get(headcountKey) ?? [];
-    const headcount = headcountProcessCodes.reduce(
-      (sum, code) => sum + (headcountByProcess.get(code) ?? 0),
-      0
-    );
+    // 동일 근거) 둘 다 workProcessCode=P100의 인원·근무시간을 같이 쓴다.
+    const headcount = headcountOf(db, line.workProcessCode);
 
     let yesterdayQty: number;
     let mtdQty: number;
@@ -253,13 +257,13 @@ export function computeProductionStatus(db: DatabaseSync, asOfDate?: string): Pr
         ? mtdQty - monthlyTarget * overallProgressRate
         : null;
 
-    const availableHours = headcount * HOURS_PER_DAY;
-    const yesterdayUph = availableHours > 0 ? yesterdayQty / availableHours : null;
-    const mtdUph = availableHours > 0 && doneWorkDays > 0 ? mtdQty / (availableHours * doneWorkDays) : null;
-    const prevMonthUph =
-      availableHours > 0 && prevMonthWorkDays > 0
-        ? prevMonthQty / (availableHours * prevMonthWorkDays)
-        : null;
+    const code = line.workProcessCode;
+    const yesterdayHours = workHoursSum(db, code, yesterday, yesterday);
+    const mtdHours = doneWorkDays === 0 ? 0 : workHoursSum(db, code, monthStart, yesterday);
+    const prevMonthHours = workHoursSum(db, code, prevMonthStart, prevMonthEnd);
+    const yesterdayUph = yesterdayHours > 0 ? yesterdayQty / yesterdayHours : null;
+    const mtdUph = mtdHours > 0 ? mtdQty / mtdHours : null;
+    const prevMonthUph = prevMonthHours > 0 ? prevMonthQty / prevMonthHours : null;
 
     return {
       key: line.key,
@@ -297,7 +301,7 @@ export function computeProductionStatus(db: DatabaseSync, asOfDate?: string): Pr
 
 export interface ProductionTrendPoint {
   label: string;
-  /** 생산성(UPH) = 생산수량 ÷ (인원 × 8hr × 근무일수) — 2026-09-28 사용자 요청으로 그래프를
+  /** 생산성(UPH) = 생산수량 ÷ PSN-01 근무시간 합계 — 2026-09-28 사용자 요청으로 그래프를
    *  생산수량 대신 생산성으로 바꿨다. 표 상단 요약의 yesterdayUph/mtdUph와 같은 산식. */
   uph: number;
 }
@@ -330,40 +334,35 @@ export function computeProductionTrend(
   const yearStart = `${today.slice(0, 4)}-01-01`;
   const monthStart = monthStartOf(today);
 
-  // 생산성(UPH) 환산용 인원 — 표 상단 요약(computeProductionStatus)의 yesterdayUph·mtdUph와
-  // 같은 기준(사출_하는 사출_상 인원을 같이 씀)으로 이 라인 하나만 다시 센다.
-  const headcountKey = line.key === "injection_lower" ? "injection_upper" : line.key;
-  const headcountProcessCodes = PRODUCTION_LINES.find((l) => l.key === headcountKey)?.processCodes ?? [];
-  const headcount =
-    headcountProcessCodes.length === 0
-      ? 0
-      : (
-          db
-            .prepare(
-              `SELECT COUNT(*) c FROM workers WHERE use_yn = 'Y' AND status = '정상' AND process_code IN (${headcountProcessCodes
-                .map(() => "?")
-                .join(",")})`
-            )
-            .get(...headcountProcessCodes) as { c: number }
-        ).c;
-  const availableHours = headcount * HOURS_PER_DAY;
-
-  // 올해 1월~전월 각 달의 근무일수(production_calendar work_yn='Y') — 월별 점은 그 달
-  // 근무일수로, 이번달 일별 점은 하루(1일)로 나눠 UPH를 만든다.
-  const workDaysByYm = new Map(
+  // 생산성(UPH) 분모 = PSN-01 실제 근무시간 합계(표 상단 요약의 yesterdayUph·mtdUph와 같은
+  // 기준: 라인의 단일 workProcessCode, 사출_하는 사출_상과 같은 P100). 월별 점은 그 달,
+  // 일별 점은 그 날의 합계로 나눈다. 근무시간 기록이 없는 달/날은 UPH를 만들 근거가
+  // 없어 0으로 그리지 않고 점 자체를 건너뛴다(PSN-01 데이터가 시작되기 전 달 등).
+  const hoursByYm = new Map(
     (
       db
         .prepare(
-          `SELECT substr(cal_date, 1, 7) ym, COUNT(*) c FROM production_calendar
-           WHERE cal_date >= ? AND cal_date < ? AND work_yn = 'Y' GROUP BY ym`
+          `SELECT substr(work_date, 1, 7) ym, SUM(total_hours) s FROM work_hours_daily
+           WHERE process_code = ? AND work_date >= ? AND work_date < ? GROUP BY ym`
         )
-        .all(yearStart, monthStart) as { ym: string; c: number }[]
-    ).map((r) => [r.ym, r.c])
+        .all(line.workProcessCode, yearStart, monthStart) as { ym: string; s: number | null }[]
+    ).map((r) => [r.ym, r.s ?? 0])
   );
-  const toUph = (qty: number, workDays: number): number =>
-    availableHours > 0 && workDays > 0 ? qty / (availableHours * workDays) : 0;
+  const hoursByDate = new Map(
+    (
+      db
+        .prepare(
+          `SELECT work_date d, SUM(total_hours) s FROM work_hours_daily
+           WHERE process_code = ? AND work_date BETWEEN ? AND ? GROUP BY d`
+        )
+        .all(line.workProcessCode, monthStart, yesterday) as { d: string; s: number | null }[]
+    ).map((r) => [r.d, r.s ?? 0])
+  );
 
   const points: ProductionTrendPoint[] = [];
+  const pushPoint = (label: string, qty: number, hours: number | undefined): void => {
+    if (hours != null && hours > 0) points.push({ label, uph: qty / hours });
+  };
 
   if (line.isMold && line.moldGroup) {
     const group = line.moldGroup;
@@ -376,7 +375,7 @@ export function computeProductionTrend(
       )
       .all(group, yearStart, monthStart) as { ym: string; s: number | null }[];
     for (const r of monthRows) {
-      points.push({ label: monthLabelOf(r.ym), uph: toUph(r.s ?? 0, workDaysByYm.get(r.ym) ?? 0) });
+      pushPoint(monthLabelOf(r.ym), r.s ?? 0, hoursByYm.get(r.ym));
     }
 
     if (yesterday >= monthStart) {
@@ -390,7 +389,7 @@ export function computeProductionTrend(
         .all(group, monthStart, yesterday) as { d: string; s: number | null }[];
       const byDate = new Map(dayRows.map((r) => [r.d, r.s ?? 0]));
       for (let d = monthStart; d <= yesterday; d = addDays(d, 1)) {
-        points.push({ label: dayLabelOf(d), uph: toUph(byDate.get(d) ?? 0, 1) });
+        pushPoint(dayLabelOf(d), byDate.get(d) ?? 0, hoursByDate.get(d));
       }
     }
   } else if (line.processCode) {
@@ -404,7 +403,7 @@ export function computeProductionTrend(
       )
       .all(processCode, yearStart, monthStart) as { ym: string; s: number | null }[];
     for (const r of monthRows) {
-      points.push({ label: monthLabelOf(r.ym), uph: toUph(r.s ?? 0, workDaysByYm.get(r.ym) ?? 0) });
+      pushPoint(monthLabelOf(r.ym), r.s ?? 0, hoursByYm.get(r.ym));
     }
 
     if (yesterday >= monthStart) {
@@ -418,7 +417,7 @@ export function computeProductionTrend(
         .all(processCode, monthStart, yesterday) as { d: string; s: number | null }[];
       const byDate = new Map(dayRows.map((r) => [r.d, r.s ?? 0]));
       for (let d = monthStart; d <= yesterday; d = addDays(d, 1)) {
-        points.push({ label: dayLabelOf(d), uph: toUph(byDate.get(d) ?? 0, 1) });
+        pushPoint(dayLabelOf(d), byDate.get(d) ?? 0, hoursByDate.get(d));
       }
     }
   }
