@@ -49,10 +49,14 @@ interface ProcessStat {
 }
 
 // 공정별 일치율 = 일치건수 / 대사건수 × 100. "대사건수"는 실제로 세콤 카드와 비교가
-// 가능했던(matchStatus === "matched") 행만 센다 — 카드없음/매칭오류는 애초에 일치·
-// 불일치를 판정할 수 없는 "데이터 문제"라 분모에 넣으면(둘 다 사실상 "대사 실패"인데)
-// 일치율이 실제보다 낮아 보이게 왜곡된다(2026-09-11 사용자 요청, PSN-06 필터 아래
-// "공정별 일치율" 시각화). 대상 행이 하나도 없는 공정은 목록에서 아예 뺀다(0%가 아니라
+// 가능했던(matchStatus === "matched") 행 + "카드누락 의심"으로 status가 "불일치"로 올라간
+// 행(matchStatus는 여전히 "no_card"지만 attendance-audit.ts가 근무일·비휴가·카드광범위
+// 업로드 조건으로 실제 문제일 가능성이 높다고 판단한 것)을 센다. 순수 "카드없음"(대조 자체가
+// 불가능한 정상 상황 — 오늘처럼 업로드 전이거나 휴일이라 원래 카드가 없음)과 "매칭오류"만
+// "일치·불일치를 판정할 수 없는 데이터 문제"로 분모에서 뺀다(2026-09-11 사용자 요청).
+// 이렇게 해야 상단 "조회기간 불일치 건수"(status==="불일치" 전체 카운트)와 이 표의 불일치
+// 합계가 서로 어긋나지 않는다(2026-09-29 사용자 지적 — 카드누락 의심 도입 후 두 숫자가
+// 안 맞았던 문제). 대상 행이 하나도 없는 공정은 목록에서 아예 뺀다(0%가 아니라
 // "판단 불가"이므로).
 function computeProcessStats(rows: AttendanceAuditRow[]): ProcessStat[] {
   const buckets = new Map<
@@ -60,7 +64,7 @@ function computeProcessStats(rows: AttendanceAuditRow[]): ProcessStat[] {
     { total: number; ok: number; mismatch: number; itemMismatch: Partial<Record<keyof AttendanceAuditRow["items"], number>> }
   >();
   for (const r of rows) {
-    if (r.matchStatus !== "matched") continue;
+    if (r.matchStatus !== "matched" && r.status !== "불일치") continue;
     const key = r.work_group ?? "미지정";
     let b = buckets.get(key);
     if (!b) {

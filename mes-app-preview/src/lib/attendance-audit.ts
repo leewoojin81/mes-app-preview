@@ -3,6 +3,7 @@ import { BIZ_NAME_PREFIXES, convertBizEmployeeNo } from "@/lib/biz-import";
 import { FIXED_OVERTIME_APPLICATION_HOURS } from "@/lib/overtime-application";
 import { dateRange } from "@/lib/work-hours-lookup";
 import { ENTITY_TYPE_WORKER, fetchFieldHistoryMap, resolveFieldAsOf } from "@/lib/master-data-history";
+import { isFullDayOff } from "@/lib/work-hours-leave";
 import {
   deriveEarlyLeaveHours,
   deriveEarlyStartHours,
@@ -49,6 +50,16 @@ import {
 // 입력이 아니라서 세콤 실측과 비교하면 의미 없는 차이만 만든다).
 
 const MISMATCH_THRESHOLD_HOURS = 0.5; // 30분
+
+// "카드누락 의심" 판정 기준 — 그 날짜의 세콤 카드 데이터가 전체 재직인원(use_yn='Y' AND
+// status='정상') 대비 이 비율 이상 들어와 있으면 "그날 카드 데이터는 폭넓게 업로드됐다"고
+// 본다(2026-09-29 사용자 요청, 제이시스템 녹떠이 9/11 카드 누락 사례 — 세콤 원본 자체에
+// 그 사람만 빠져 있었음). 이 기준을 넘는 날에, 근무일(생산캘린더 work_yn='Y')이고 하루
+// 종일 쉬는 휴가(연차/공가/병가/휴무)도 아닌데 카드가 없으면 데이터 오류일 가능성이 높아
+// "카드없음"(정상 상황 — 오늘처럼 아직 업로드 전이거나 휴일이라 카드가 원래 없는 경우)이
+// 아니라 "불일치"로 올려 찾을 수 있게 한다. 낮은 비율(휴일이라 소수만 특근했거나, 그날
+// 업로드 자체가 통째로 안 된 경우)은 개인별 누락과 구분할 수 없으니 그대로 "카드없음"으로 둔다.
+const CARD_COVERAGE_RATIO = 0.5;
 
 // 세콤 원본 시간 필드는 "HH:MM"(기간 길이, 시각이 아님) 문자열로 저장돼 있다
 // (예: "정상근무시간": "09:00" = 9시간) — 실 데이터로 확인(2026-09-09).
@@ -252,6 +263,11 @@ interface WorkerRow {
   contractor: string | null;
   work_group: string | null;
   team: string | null;
+  /** null이면 이 작업자는 세콤 카드와 매칭할 사번 자체가 없어(PSN-02 연동 미설정) 카드가
+   *  영원히 안 잡힌다 — 카드누락 의심 판정(suspiciousMissingCard)에서 이런 사람은 매일
+   *  걸릴 수밖에 없으므로 아예 대상에서 뺀다(작업자등록 BASE-09에서 비즈사번을 등록해야
+   *  해결되는 별개의 설정 문제). */
+  biz_employee_no: string | null;
 }
 
 interface DailyRow {
@@ -308,7 +324,7 @@ export function fetchAttendanceAudit(
   }
   const workers = db
     .prepare(
-      `SELECT employee_no, worker_name, contractor, work_group, team FROM workers
+      `SELECT employee_no, worker_name, contractor, work_group, team, biz_employee_no FROM workers
        WHERE ${workerConditions.join(" AND ")} ORDER BY seq, employee_no`
     )
     .all(...workerArgs) as unknown as WorkerRow[];
@@ -379,6 +395,28 @@ export function fetchAttendanceAudit(
       });
     }
   }
+
+  // "카드누락 의심" 판정용 — 지금 조회 대상(workGroup 필터)이 아니라 사업장 전체 기준으로
+  // 그 날짜에 카드 데이터가 얼마나 들어와 있는지 봐야 한다(필터링된 소수 인원만 보면
+  // 우연히 그 그룹 전원이 빠진 날과 실제 누락을 구분할 수 없다).
+  const calendarRows = db
+    .prepare(`SELECT cal_date, work_yn FROM production_calendar WHERE cal_date BETWEEN ? AND ?`)
+    .all(params.dateFrom, params.dateTo) as { cal_date: string; work_yn: string }[];
+  const calendarByDate = new Map(calendarRows.map((r) => [r.cal_date, r.work_yn]));
+
+  const cardCoverageRows = db
+    .prepare(
+      `SELECT work_date, COUNT(DISTINCT employee_no) c FROM attendance_card_status
+       WHERE work_date BETWEEN ? AND ? GROUP BY work_date`
+    )
+    .all(params.dateFrom, params.dateTo) as { work_date: string; c: number }[];
+  const cardCoverageByDate = new Map(cardCoverageRows.map((r) => [r.work_date, r.c]));
+
+  const totalActiveWorkforce = (
+    db.prepare(`SELECT COUNT(*) c FROM workers WHERE use_yn = 'Y' AND status = '정상'`).get() as { c: number }
+  ).c;
+  const isCardBroadlyUploaded = (workDate: string): boolean =>
+    (cardCoverageByDate.get(workDate) ?? 0) >= totalActiveWorkforce * CARD_COVERAGE_RATIO;
 
   // 한 (작업자, 날짜) 쌍의 대사 결과를 계산한다 — 화면에 보이는 그리드와, 조회기간과
   // 무관한 "오늘" 요약 집계 양쪽에서 공유해서 쓴다.
@@ -539,11 +577,33 @@ export function fetchAttendanceAudit(
       };
     }
 
+    // 카드가 아예 없는데(no_card) 근무일이고, 하루 종일 쉬는 휴가도 아니고, 그 날짜 카드
+    // 데이터 자체는 폭넓게 들어와 있다면(다른 사람들은 카드가 있는데 이 사람만 없음) 세콤
+    // 원본 누락일 가능성이 높다 — "카드없음"(오늘처럼 업로드 전이거나 진짜 휴일이라 원래
+    // 카드가 없는 정상 상황)과 구분해 "불일치"로 올려 찾을 수 있게 한다. matchStatus는
+    // "no_card"로 그대로 둬 공정별 일치율 분모에서는 계속 제외된다(값 대조 자체는
+    // 여전히 불가능하므로).
+    // hasRecord(그 날짜 PSN-01 저장분이 실제로 있음)와 biz_employee_no(카드 매칭용 사번이
+    // 등록돼 있음) 둘 다 반드시 확인해야 한다 — 아니면 입사 전 날짜(저장분 자체가 없어
+    // 전부 0으로 채워짐)나 비즈사번 미등록자(구조적으로 절대 카드가 안 잡히는 사람)가
+    // 매 근무일마다 "불일치"로 잡혀 노이즈가 된다(2026-09-29 발견 — 신규입사자 이준영·
+    // 이기훈·이규환의 입사 전 날짜, 비즈사번 미등록 "알바카드13"이 실제로 이렇게 걸렸음).
+    const suspiciousMissingCard =
+      matchStatus === "no_card" &&
+      hasRecord &&
+      !!w.biz_employee_no &&
+      calendarByDate.get(workDate) === "Y" &&
+      !isFullDayOff(daily?.leave_type ?? null) &&
+      isCardBroadlyUploaded(workDate);
+    if (suspiciousMissingCard) {
+      items = { ...items, total: { ...items.total, mismatch: true } };
+    }
+
     const anyMismatch = COMPARABLE_ITEM_KEYS.some((key) => items[key].mismatch);
     const status: AttendanceAuditRowStatus =
       matchStatus === "name_mismatch"
         ? "매칭오류"
-        : matchStatus === "no_card"
+        : matchStatus === "no_card" && !suspiciousMissingCard
           ? "카드없음"
           : anyMismatch
             ? "불일치"
