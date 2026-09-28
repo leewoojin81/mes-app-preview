@@ -18,6 +18,18 @@ const BASE_HOURS_BY_LEAVE: Record<string, number> = {
   휴무: 0,
 };
 
+/** 하루 종일 쉬는 휴가구분(연차/공가/병가/휴무 — 정상 기준시간 0)인가. */
+export function isFullDayOff(leaveType: string | null | undefined): boolean {
+  return !!leaveType && BASE_HOURS_BY_LEAVE[leaveType] === 0;
+}
+
+/** 하루 종일 쉬는 날은 다른 공정을 지원했을 수 없으므로 지원시간을 0으로 본다(2026-09-28
+ *  사용자 확인 — 디자인 직무 자동 채움(지원 8h)이 휴무/연차 행에도 저장돼 휴일에 근무시간 8:00이
+ *  잡히던 문제). 조회·저장·엑셀 업로드/다운로드·수정 팝업 미리보기 모두 이 함수를 거친다. */
+export function effectiveSupportHours(leaveType: string | null | undefined, supportHours: number): number {
+  return isFullDayOff(leaveType) ? 0 : supportHours;
+}
+
 export interface AttendanceHoursInputs {
   /** 잔업 입력칸에 실제로 타이핑된(또는 마지막 저장분) 신청값 — 출근인 날은 이 값 자체가
    *  최종 저장값이 아니라 아래 계산의 출발점일 뿐이다. */

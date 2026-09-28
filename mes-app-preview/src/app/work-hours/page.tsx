@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import HourMinuteInput from "@/components/HourMinuteInput";
 import { useTabState } from "@/lib/use-tab-state";
-import { LEAVE_TYPE_OPTIONS, computeAttendanceHours, computeTotalHours } from "@/lib/work-hours-leave";
+import {
+  LEAVE_TYPE_OPTIONS,
+  computeAttendanceHours,
+  computeTotalHours,
+  effectiveSupportHours,
+} from "@/lib/work-hours-leave";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
 import { formatHoursClock } from "@/lib/format-hours";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
@@ -50,7 +55,7 @@ function computeAttendance(r: {
     lateHours: r.late_hours,
     earlyLeaveHours: r.early_leave_hours,
     outingHours: r.outing_hours,
-    supportHours: r.support_hours,
+    supportHours: effectiveSupportHours(r.leave_type, r.support_hours),
   });
 }
 
@@ -67,7 +72,7 @@ function computeTotal(r: {
   return computeTotalHours(computeAttendance(r), {
     earlyStartHours: r.early_start_hours,
     lunchShiftHours: r.lunch_shift_hours,
-    supportHours: r.support_hours,
+    supportHours: effectiveSupportHours(r.leave_type, r.support_hours),
   });
 }
 

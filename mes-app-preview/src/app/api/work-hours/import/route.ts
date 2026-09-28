@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull } from "@/lib/item-fields";
-import { computeAttendanceHours, computeTotalHours } from "@/lib/work-hours-leave";
+import { computeAttendanceHours, computeTotalHours, effectiveSupportHours } from "@/lib/work-hours-leave";
 import * as XLSX from "xlsx";
 
 export const runtime = "nodejs";
@@ -128,7 +128,10 @@ export async function POST(req: NextRequest) {
       const earlyLeaveHours = iEarlyLeave === -1 ? 0 : numOrNull(r[iEarlyLeave]) ?? 0;
       const outingHours = iOuting === -1 ? 0 : numOrNull(r[iOuting]) ?? 0;
       const supportWorkGroup = iSupportGroup === -1 ? null : strOrNull(r[iSupportGroup]);
-      const supportHours = supportWorkGroup && iSupportHours !== -1 ? numOrNull(r[iSupportHours]) ?? 0 : 0;
+      const supportHours = effectiveSupportHours(
+        leaveType,
+        supportWorkGroup && iSupportHours !== -1 ? numOrNull(r[iSupportHours]) ?? 0 : 0
+      );
 
       // 정상/잔업 둘 다 사람이 고칠 수 없다 — 업로드 파일의 "정상"/"잔업" 값이 있어도
       // 무시하고 새 계산 순서(work-hours-leave.ts의 computeAttendanceHours)로 다시 구해

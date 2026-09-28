@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull, strVal } from "@/lib/item-fields";
-import { defaultLeaveTypeForCalendar, computeAttendanceHours, computeTotalHours } from "@/lib/work-hours-leave";
+import {
+  defaultLeaveTypeForCalendar,
+  computeAttendanceHours,
+  computeTotalHours,
+  effectiveSupportHours,
+} from "@/lib/work-hours-leave";
 import type { WorkHoursRow } from "@/lib/types";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
 import { ENTITY_TYPE_WORKER, fetchFieldHistoryMap, resolveFieldAsOf } from "@/lib/master-data-history";
@@ -124,8 +129,9 @@ export async function GET(req: NextRequest) {
     // 손으로 입력하지 않도록). 이미 저장된 분이 있으면(그 값이 무엇이든) 그대로 존중한다.
     const isDesignDuty = w.duty === "디자인";
     const supportWorkGroup = support ? support.support_work_group : isDesignDuty ? "디자인" : null;
-    const supportHours = support ? support.support_hours : isDesignDuty ? 8 : 0;
     const leaveType = d ? d.leave_type : defaultLeaveType;
+    // 하루 종일 쉬는 휴가구분(연차/공가/병가/휴무)인 날은 자동 채움·저장분과 무관하게 지원시간 0.
+    const supportHours = effectiveSupportHours(leaveType, support ? support.support_hours : isDesignDuty ? 8 : 0);
     const lateHours = d ? d.late_hours : 0;
     const earlyLeaveHours = d ? d.early_leave_hours : 0;
     const outingHours = d ? d.outing_hours : 0;
@@ -257,7 +263,7 @@ export async function PUT(req: NextRequest) {
     const earlyLeaveHours = numOrNull(r.early_leave_hours) ?? 0;
     const outingHours = numOrNull(r.outing_hours) ?? 0;
     const supportWorkGroup = strOrNull(r.support_work_group);
-    const supportHours = supportWorkGroup ? numOrNull(r.support_hours) ?? 0 : 0;
+    const supportHours = effectiveSupportHours(leaveType, supportWorkGroup ? numOrNull(r.support_hours) ?? 0 : 0);
     // 정상/잔업 둘 다 사람이 고칠 수 없다 — 클라이언트가 뭘 보내든(잔업 신청값 포함) 무시
     // 하고 새 계산 순서(work-hours-leave.ts의 computeAttendanceHours)로 다시 구해 저장
     // 한다(2026-09-11 사용자 요청).

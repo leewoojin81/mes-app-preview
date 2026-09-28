@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import * as XLSX from "xlsx";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
-import { defaultLeaveTypeForCalendar, computeAttendanceHours, computeTotalHours } from "@/lib/work-hours-leave";
+import {
+  defaultLeaveTypeForCalendar,
+  computeAttendanceHours,
+  computeTotalHours,
+  effectiveSupportHours,
+} from "@/lib/work-hours-leave";
 
 export const runtime = "nodejs";
 
@@ -89,8 +94,8 @@ export async function GET(req: NextRequest) {
     const late = d?.late_hours ?? 0;
     const earlyLeave = d?.early_leave_hours ?? 0;
     const outing = d?.outing_hours ?? 0;
-    const supportHours = support?.support_hours ?? 0;
     const leaveType = d ? d.leave_type : defaultLeaveType;
+    const supportHours = effectiveSupportHours(leaveType, support?.support_hours ?? 0);
     // 정상/잔업 둘 다 사람이 고칠 수 없다 — 저장분이 있어도 무시하고 새 계산 순서
     // (work-hours-leave.ts의 computeAttendanceHours)로 다시 구해 내려준다.
     const attendance = computeAttendanceHours(leaveType, {
