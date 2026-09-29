@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import MasterMetaBadge from "@/components/MasterMetaBadge";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { Warehouse } from "@/lib/types";
@@ -69,6 +70,7 @@ export default function WarehouseMasterPage() {
           <h1 className="text-xl font-bold text-navy">창고정보</h1>
           <p className="text-sm text-slate-500 mt-1">
             BASE-07 · 창고코드등록.xlsx 기준 사업장·조달구분별 창고 기준정보 관리
+            <MasterMetaBadge screen="warehouses" refreshKey={rows} />
           </p>
         </div>
         <button
@@ -119,6 +121,7 @@ export default function WarehouseMasterPage() {
                 <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
                   사용여부
                 </th>
+                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">수정일자</th>
                 <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
                   관리
                 </th>
@@ -127,14 +130,14 @@ export default function WarehouseMasterPage() {
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={COLUMNS.length + 3} className="text-center py-10 text-slate-400">
+                  <td colSpan={COLUMNS.length + 4} className="text-center py-10 text-slate-400">
                     불러오는 중...
                   </td>
                 </tr>
               )}
               {!loading && visibleRows.length === 0 && (
                 <tr>
-                  <td colSpan={COLUMNS.length + 3} className="text-center py-10 text-slate-400">
+                  <td colSpan={COLUMNS.length + 4} className="text-center py-10 text-slate-400">
                     등록된 창고가 없습니다.
                   </td>
                 </tr>
@@ -173,6 +176,7 @@ export default function WarehouseMasterPage() {
                         {r.use_yn === "Y" ? "사용" : "중단"}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.updated_at ? r.updated_at.slice(0, 16) : "-"}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button

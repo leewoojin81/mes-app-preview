@@ -1,6 +1,7 @@
 export type ItemCategory = "완제품" | "반제품" | "원자재";
 
 export interface Item {
+  updated_at?: string | null; // 마지막 수정 시각(DB 트리거가 기록, 페이지네이션 조회만 내려줌)
   item_code: string;
   item_name: string;
   category: ItemCategory;
@@ -32,6 +33,7 @@ export interface Item {
 }
 
 export interface Equipment {
+  updated_at?: string | null; // 마지막 수정 시각(DB 트리거가 기록)
   equipment_id: string;
   equipment_name: string;
   workplace: string | null;
@@ -55,6 +57,7 @@ export interface Equipment {
 // 인원관리(PSN-01) "작업자등록" — 인사관리(급여·평가 등)가 아니라 생산현장 실적 로그에
 // 이름이 찍히는 작업자의 최소 운영 정보(소속 라인·담당 공정·직책·연락처 등)만 관리한다.
 export interface Worker {
+  updated_at?: string | null; // 마지막 수정 시각(DB 트리거가 기록)
   employee_no: string;
   erp_code: string | null;
   employee_qr: string | null;
@@ -330,6 +333,7 @@ export interface WorkHoursSummaryResponse {
 }
 
 export interface Process {
+  updated_at?: string | null; // 마지막 수정 시각(DB 트리거가 기록)
   process_code: string;
   process_name: string;
   seq: number;
@@ -381,6 +385,7 @@ export interface ItemProcessRoutingRow {
 }
 
 export interface Customer {
+  updated_at?: string | null; // 마지막 수정 시각(DB 트리거가 기록)
   customer_code: string;
   customer_name: string;
   customer_type: string | null;
@@ -414,6 +419,7 @@ export interface Customer {
 }
 
 export interface Warehouse {
+  updated_at?: string | null; // 마지막 수정 시각(DB 트리거가 기록)
   warehouse_code: string;
   warehouse_name: string;
   workplace: string | null;

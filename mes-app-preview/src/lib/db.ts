@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { hashPassword } from "./auth";
 import { computeShiftMinutes } from "./shift-time";
+import { migrateMasterTimestamps } from "./master-meta";
 
 const DB_DIR = path.join(process.cwd(), "data");
 // MES_DB_FILE로 다른 DB 파일을 가리킬 수 있다 — 같은 코드/node_modules를 공유하는
@@ -798,6 +799,7 @@ CREATE TABLE IF NOT EXISTS process_uph_target (
 `;
 
 function migrate(db: DatabaseSync) {
+  migrateMasterTimestamps(db);
   const cols = db.prepare("PRAGMA table_info(items)").all() as { name: string }[];
   const colNames = new Set(cols.map((c) => c.name));
   if (!colNames.has("warehouse")) {
@@ -1127,6 +1129,7 @@ function migrate(db: DatabaseSync) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_daily_work_status_work_date ON daily_work_status(work_date DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_daily_work_status_item_code ON daily_work_status(item_code);
+    CREATE INDEX IF NOT EXISTS idx_daily_work_status_uploaded_at ON daily_work_status(uploaded_at);
     CREATE INDEX IF NOT EXISTS idx_daily_work_status_line ON daily_work_status(json_extract(detail, '$."라인"'));
     CREATE INDEX IF NOT EXISTS idx_daily_work_status_process_name ON daily_work_status(json_extract(detail, '$."공정명"'));
     CREATE INDEX IF NOT EXISTS idx_daily_work_status_model ON daily_work_status(json_extract(detail, '$."형명"'));
@@ -1378,6 +1381,11 @@ export function getDb(): DatabaseSync {
   if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
   const db = new DatabaseSync(DB_PATH);
   db.exec("PRAGMA foreign_keys = ON;");
+  // 대용량 DB(약 2GB) 조회 속도용: 페이지 캐시 256MB, 메모리맵 2GB, 임시 정렬/집계는 메모리.
+  // (journal_mode는 WAL로 바꾸지 않는다 — 파일 복사 백업/동기화 시 -wal 누락 위험)
+  db.exec("PRAGMA cache_size = -262144;");
+  db.exec("PRAGMA mmap_size = 2147483648;");
+  db.exec("PRAGMA temp_store = MEMORY;");
   db.exec(SCHEMA_SQL);
   migrate(db);
   globalForDb.__mesDb = db;

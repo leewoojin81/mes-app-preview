@@ -6,13 +6,13 @@ function Test-PortInUse($port) {
     return [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
 }
 
-function Start-DevServer($path, $port, $dbFile) {
+function Start-DevServer($path, $port, $dbFile, $script = "dev") {
     if (Test-PortInUse $port) {
         Write-Host "[$port] 이미 실행 중 - 건너뜀 ($path)"
         return
     }
     $envPrefix = if ($dbFile) { "set MES_DB_FILE=$dbFile && " } else { "" }
-    $cmd = "cd /d `"$path`" && ${envPrefix}npm run dev -- -p $port >> `".dev-server.out.log`" 2>&1"
+    $cmd = "cd /d `"$path`" && ${envPrefix}npm run $script -- -p $port >> `".dev-server.out.log`" 2>&1"
     Start-Process -FilePath "cmd.exe" -ArgumentList "/c $cmd" -WindowStyle Hidden
     Write-Host "[$port] 시작함 ($path)$(if ($dbFile) { " [MES_DB_FILE=$dbFile]" })"
 }
@@ -22,4 +22,6 @@ Start-DevServer "C:\Users\Administrator\Desktop\mes-system\mes-app" 3000
 Start-Sleep -Seconds 3
 # mes-app-preview(오픈서버): 반드시 mes-preview.db를 가리켜야 한다 — 안 그러면
 # 빈 mes.db가 새로 생성되어 로그인이 전부 실패한다(2026-09-06 실제 발생·확인).
-Start-DevServer "C:\Users\Administrator\Desktop\mes-system\mes-app-preview" 3001 "mes-preview.db"
+# 오픈서버는 프로덕션 모드(next start)로 띄운다 — dev 모드는 첫 접속마다 페이지를 컴파일해 느리다.
+# 코드 수정 후에는 mes-app-preview에서 `npx next build --webpack` 후 3001을 재시작해야 반영된다.
+Start-DevServer "C:\Users\Administrator\Desktop\mes-system\mes-app-preview" 3001 "mes-preview.db" "start"

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { cachedQuery } from "@/lib/query-cache";
 import { DAILY_WORK_STATUS_SUM_KEYS } from "@/lib/daily-work-status-columns";
 import { DAILY_WORK_STATUS_JOIN, buildDailyWorkStatusWhere } from "@/lib/daily-work-status-filters";
 
@@ -20,11 +21,27 @@ export async function GET(req: NextRequest) {
 
   const { where, args } = buildDailyWorkStatusWhere(params);
 
-  const total = (
-    db
-      .prepare(`SELECT COUNT(*) as c ${DAILY_WORK_STATUS_JOIN} ${where}`)
-      .get(...args) as { c: number }
-  ).c;
+  // 업로드 시각(인덱스 조회, 빠름)을 데이터 버전으로 삼아, 전체 스캔이 필요한
+  // 총건수/합계는 같은 필터·같은 데이터면 캐시를 재사용한다.
+  const uploadedAt = (
+    db.prepare("SELECT MAX(uploaded_at) as t FROM daily_work_status").get() as {
+      t: string | null;
+    }
+  ).t;
+  const version = uploadedAt ?? "";
+  const cacheKey = JSON.stringify([where, args]);
+
+  const total = cachedQuery(
+    "dws-total",
+    version,
+    cacheKey,
+    () =>
+      (
+        db
+          .prepare(`SELECT COUNT(*) as c ${DAILY_WORK_STATUS_JOIN} ${where}`)
+          .get(...args) as { c: number }
+      ).c
+  );
   const offset = (page - 1) * pageSize;
   const rows = (
     db
@@ -34,19 +51,19 @@ export async function GET(req: NextRequest) {
       .all(...args, pageSize, offset) as { detail: string | null }[]
   ).map(parseDetail);
 
-  const uploadedAt = (
-    db.prepare("SELECT MAX(uploaded_at) as t FROM daily_work_status").get() as {
-      t: string | null;
-    }
-  ).t;
-
   // 하단 합계 행 — 현재 페이지가 아니라 검색 필터가 적용된 전체 건 기준으로 계산한다.
   const sumSelect = DAILY_WORK_STATUS_SUM_KEYS.map(
     (key) => `SUM(json_extract(d.detail, '$."${key}"')) as "${key}"`
   ).join(", ");
-  const totalsRow = db
-    .prepare(`SELECT ${sumSelect} ${DAILY_WORK_STATUS_JOIN} ${where}`)
-    .get(...args) as Record<string, number | null>;
+  const totalsRow = cachedQuery(
+    "dws-totals",
+    version,
+    cacheKey,
+    () =>
+      db
+        .prepare(`SELECT ${sumSelect} ${DAILY_WORK_STATUS_JOIN} ${where}`)
+        .get(...args) as Record<string, number | null>
+  );
   const totals = Object.fromEntries(
     DAILY_WORK_STATUS_SUM_KEYS.map((key) => [key, totalsRow[key] ?? 0])
   );

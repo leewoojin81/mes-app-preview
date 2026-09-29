@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { recordUpload } from "@/lib/master-meta";
 import { numOrNull, strOrNull, strVal } from "@/lib/item-fields";
 import * as XLSX from "xlsx";
 
@@ -213,5 +214,6 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
+  recordUpload(db, "workers");
   return NextResponse.json({ inserted, updated, skippedNoKey });
 }

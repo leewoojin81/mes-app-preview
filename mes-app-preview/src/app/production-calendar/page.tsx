@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import MasterMetaBadge from "@/components/MasterMetaBadge";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { CalendarDayType, Process, ProcessCalendarDay } from "@/lib/types";
@@ -230,6 +231,7 @@ export default function ProductionCalendarPage() {
           <p className="text-sm text-slate-500 mt-1">
             BASE-08 · 공정을 선택해 그 공정의 월별 근무 캘린더를 확인·수정합니다. 회사
             공통 휴일/근무구분은 모든 공정에 함께 적용됩니다.
+            <MasterMetaBadge screen="production-calendar" refreshKey={rows} />
           </p>
         </div>
         <div className="flex items-center gap-2">

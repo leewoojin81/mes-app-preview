@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import MasterMetaBadge from "@/components/MasterMetaBadge";
 import type { Item, ItemCategory, ItemListResponse } from "@/lib/types";
 import { useTabState } from "@/lib/use-tab-state";
 
@@ -340,6 +341,7 @@ export default function ItemMasterView({
         <h1 className="text-xl font-bold text-navy">{title}</h1>
         <p className="text-sm text-slate-500 mt-1">
           {code} · {categories.join("/")} 기준정보 조회 · 원본 엑셀 전체 컬럼 표시
+          <MasterMetaBadge screen="items" refreshKey={rows} />
         </p>
       </div>
 
@@ -470,13 +472,16 @@ export default function ItemMasterView({
                     {col}
                   </th>
                 ))}
+                <th className="text-center px-3 py-3 font-semibold sticky top-0 z-20 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
+                  수정일자
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
                   <td
-                    colSpan={detailCols.length + 1}
+                    colSpan={detailCols.length + 2}
                     className="text-center py-10 text-slate-400"
                   >
                     불러오는 중...
@@ -486,7 +491,7 @@ export default function ItemMasterView({
               {!loading && rows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={detailCols.length + 1}
+                    colSpan={detailCols.length + 2}
                     className="text-center py-10 text-slate-400"
                   >
                     조회된 품목이 없습니다.
@@ -544,6 +549,7 @@ export default function ItemMasterView({
                         </td>
                       );
                     })}
+                    <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">{r.updated_at ? r.updated_at.slice(0, 16) : "-"}</td>
                   </tr>
                   );
                 })}

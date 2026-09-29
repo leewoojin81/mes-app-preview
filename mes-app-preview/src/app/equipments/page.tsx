@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import MasterMetaBadge from "@/components/MasterMetaBadge";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { Equipment } from "@/lib/types";
@@ -99,6 +100,7 @@ export default function EquipmentMasterPage() {
           <h1 className="text-xl font-bold text-navy">설비정보</h1>
           <p className="text-sm text-slate-500 mt-1">
             BASE-05 · 설비등록.xlsx 기준 작업장·설비군·라인 기준정보 관리
+            <MasterMetaBadge screen="equipments" refreshKey={rows} />
           </p>
         </div>
         <button
@@ -150,6 +152,7 @@ export default function EquipmentMasterPage() {
                 <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
                   사용여부
                 </th>
+                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">수정일자</th>
                 <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
                   관리
                 </th>
@@ -158,14 +161,14 @@ export default function EquipmentMasterPage() {
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={COLUMNS.length + 3} className="text-center py-10 text-slate-400">
+                  <td colSpan={COLUMNS.length + 4} className="text-center py-10 text-slate-400">
                     불러오는 중...
                   </td>
                 </tr>
               )}
               {!loading && visibleRows.length === 0 && (
                 <tr>
-                  <td colSpan={COLUMNS.length + 3} className="text-center py-10 text-slate-400">
+                  <td colSpan={COLUMNS.length + 4} className="text-center py-10 text-slate-400">
                     등록된 설비가 없습니다.
                   </td>
                 </tr>
@@ -204,6 +207,7 @@ export default function EquipmentMasterPage() {
                         {r.use_yn === "Y" ? "사용" : "중단"}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.updated_at ? r.updated_at.slice(0, 16) : "-"}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button

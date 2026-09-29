@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<style>
+  :root {
+    --bg-color: #F8FAFC;
+    --card-bg: #FFFFFF;
+    --text-primary: #0F172A;
+    --text-secondary: #64748B;
+    --primary: #2563EB;
+    --success: #10B981;
+    --danger: #EF4444;
+    --border: #E2E8F0;
+  }
+
+  body {
+    font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    padding: 24px;
+    margin: 0;
+  }
+
+  /* Header */
+  .dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .title-group h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px 0; }
+  .title-group p { font-size: 13px; color: var(--text-secondary); margin: 0; }
+
+  /* KPI Summary Cards */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .kpi-card {
+    background: var(--card-bg);
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .kpi-title { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+  .kpi-value { font-size: 28px; font-weight: 700; margin-top: 8px; color: var(--text-primary); }
+
+  /* Table Style */
+  .table-container {
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #F1F5F9; color: #334155; font-weight: 600; padding: 12px 16px; text-align: right; }
+  th:first-child, td:first-child { text-align: center; }
+  td { padding: 14px 16px; border-bottom: 1px solid var(--border); text-align: right; font-variant-numeric: tabular-nums; }
+  tr:hover { background-color: #F8FAFC; }
+
+  /* Badges */
+  .badge {
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 12px;
+    display: inline-block;
+  }
+  .badge-success { background: #DCFCE7; color: #166534; }
+  .badge-danger { background: #FEE2E2; color: #991B1B; }
+</style>
+</head>
+<body>
+
+  <!-- 상단 헤더 -->
+  <div class="dashboard-header">
+    <div class="title-group">
+      <h1>공정별 생산현황</h1> <!--[cite: 1] -->
+      <p>MGMT-05 · 매일 아침 회의용 · 전일 실적 기준 · 목표는 계획정보(PLAN-02)에서 자동 연동</p> <!--[cite: 1] -->
+    </div>
+  </div>
+
+  <!-- KPI 요약 카드 -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-title">총 작업가능일</div> <!--[cite: 1] -->
+      <div class="kpi-value">20 <span style="font-size: 16px;">일</span></div> <!--[cite: 1] -->
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">작업일수</div> <!--[cite: 1] -->
+      <div class="kpi-value">17 <span style="font-size: 16px;">일</span></div> <!--[cite: 1] -->
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">잔여일수</div> <!--[cite: 1] -->
+      <div class="kpi-value" style="color: var(--primary);">3 <span style="font-size: 16px;">일</span></div> <!--[cite: 1] -->
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">진도율</div> <!--[cite: 1] -->
+      <div class="kpi-value" style="color: var(--primary);">85%</div> <!--[cite: 1] -->
+    </div>
+  </div>
+
+  <!-- 공정 데이터 테이블 구조 예시 -->
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>공정</th> <!--[cite: 1] -->
+          <th>월간목표</th> <!--[cite: 1] -->
+          <th>누적실적</th> <!--[cite: 1] -->
+          <th>누적과부족수량</th> <!--[cite: 1] -->
+          <th>진도율</th> <!--[cite: 1] -->
+          <th>일목표</th> <!--[cite: 1] -->
+          <th>전일실적</th> <!--[cite: 1] -->
+          <th>달성률</th> <!--[cite: 1] -->
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>사출(상)</td> <!--[cite: 1] -->
+          <td>3,850,740</td> <!--[cite: 1] -->
+          <td>2,414,140</td> <!--[cite: 1] -->
+          <td style="color: var(--danger);">-858,989</td> <!--[cite: 1] -->
+          <td>63%</td> <!--[cite: 1] -->
+          <td>192,537</td> <!--[cite: 1] -->
+          <td>250,410</td> <!--[cite: 1] -->
+          <td><span class="badge badge-success">130%</span></td> <!--[cite: 1] -->
+        </tr>
+        <tr>
+          <td>사출(하)</td> <!--[cite: 1] -->
+          <td>3,805,140</td> <!--[cite: 1] -->
+          <td>2,381,660</td> <!--[cite: 1] -->
+          <td style="color: var(--danger);">-852,709</td> <!--[cite: 1] -->
+          <td>63%</td> <!--[cite: 1] -->
+          <td>190,257</td> <!--[cite: 1] -->
+          <td>113,080</td> <!--[cite: 1] -->
+          <td><span class="badge badge-danger">59%</span></td> <!--[cite: 1] -->
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</body>
+</html>

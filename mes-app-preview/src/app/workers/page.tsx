@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import MasterMetaBadge from "@/components/MasterMetaBadge";
 import QRCode from "qrcode";
 import { useTabState } from "@/lib/use-tab-state";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
@@ -221,6 +222,7 @@ export default function WorkerMasterPage() {
           <p className="text-sm text-slate-500 mt-1">
             BASE-09 · 생산현장 작업자(현장직 약 120명) 기준정보 관리 — 급여·인사평가 등은
             다루지 않는 순수 운영 기록입니다.
+            <MasterMetaBadge screen="workers" refreshKey={rows} />
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -416,19 +418,20 @@ export default function WorkerMasterPage() {
                 <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
                   사용여부
                 </th>
+                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">수정일자</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={COLUMNS.length + 4 + (showBizColumns ? 3 : 0)} className="text-center py-10 text-slate-400">
+                  <td colSpan={COLUMNS.length + 5 + (showBizColumns ? 3 : 0)} className="text-center py-10 text-slate-400">
                     불러오는 중...
                   </td>
                 </tr>
               )}
               {!loading && visibleRows.length === 0 && (
                 <tr>
-                  <td colSpan={COLUMNS.length + 4 + (showBizColumns ? 3 : 0)} className="text-center py-10 text-slate-400">
+                  <td colSpan={COLUMNS.length + 5 + (showBizColumns ? 3 : 0)} className="text-center py-10 text-slate-400">
                     등록된 작업자가 없습니다.
                   </td>
                 </tr>
@@ -534,6 +537,7 @@ export default function WorkerMasterPage() {
                         {r.use_yn === "Y" ? "사용" : "중단"}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.updated_at ? r.updated_at.slice(0, 16) : "-"}</td>
                   </tr>
                 ))}
             </tbody>

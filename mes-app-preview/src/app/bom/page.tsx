@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import MasterMetaBadge from "@/components/MasterMetaBadge";
 import ItemSearchSelect from "@/components/ItemSearchSelect";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
@@ -167,6 +168,7 @@ export default function BomPage() {
           <h1 className="text-xl font-bold text-navy">BOM정보</h1>
           <p className="text-sm text-slate-500 mt-1">
             BASE-03 · 완제품코드로 다단계 BOM 구조(반제품·원자재)·소요량 조회
+            <MasterMetaBadge screen="bom" refreshKey={rows} />
           </p>
         </div>
         <div className="flex items-center gap-2">

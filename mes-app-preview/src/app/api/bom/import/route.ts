@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { recordUpload } from "@/lib/master-meta";
 import * as XLSX from "xlsx";
 
 export const runtime = "nodejs";
@@ -144,5 +145,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  recordUpload(db, "bom");
   return NextResponse.json({ inserted, updated, registeredItems, skipped });
 }
