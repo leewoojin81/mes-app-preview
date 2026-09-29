@@ -150,16 +150,47 @@ export function processSum(
   return row.s ?? 0;
 }
 
-// PSN-01 근무시간입력의 실제 근무시간 합계(total_hours) — 라인의 단일 공정코드
-// (work_hours_daily.process_code, 그날 작업자 본공정 스냅샷) 기준.
-function workHoursSum(db: DatabaseSync, processCode: string, dateFrom: string, dateTo: string): number {
-  const row = db
+// 생산성(UPH) 분모 = 그 공정에 실제로 투입된 근무시간(2026-09-29 사용자 요청) —
+// PSN-01 근무시간입력의 total_hours(그날 작업자 본공정 스냅샷 process_code 기준)에서
+//  (1) 다른 공정을 지원한 시간(work_support_detail.support_hours)은 빼고,
+//  (2) 이 공정을 지원하러 온 시간(support_work_group이 이 공정명과 같은 지원 기록)은 더한다.
+// 지원공정(PSN-01)은 BASE-04 공정명으로 저장되므로("출하포장", "조립" 등) 라인의 단일
+// 공정코드의 processes.process_name과 같으면 그 라인으로 합산한다. 공정명이 라인에 없는
+// 지원(디자인·OEM창고 등)은 어느 라인에도 더하지 않고 본공정에서 빼기만 한다. 지원시간은
+// 그날 근무시간(total_hours)을 넘지 않게 자른다(하루 종일 쉬는 휴가로 근무시간이 0인 날 방어).
+// keyLen: 결과를 묶을 work_date 앞자리 수(7=월, 10=일, 0=기간 전체 하나로).
+function hoursByKey(
+  db: DatabaseSync,
+  processCode: string,
+  dateFrom: string,
+  dateTo: string,
+  keyLen: number
+): Map<string, number> {
+  const home = db
     .prepare(
-      `SELECT SUM(total_hours) s FROM work_hours_daily
-       WHERE process_code = ? AND work_date BETWEEN ? AND ?`
+      `SELECT substr(h.work_date, 1, ?) k,
+              SUM(h.total_hours - MIN(COALESCE(s.support_hours, 0), h.total_hours)) v
+       FROM work_hours_daily h
+       LEFT JOIN work_support_detail s ON s.employee_no = h.employee_no AND s.work_date = h.work_date
+       WHERE h.process_code = ? AND h.work_date BETWEEN ? AND ? GROUP BY k`
     )
-    .get(processCode, dateFrom, dateTo) as { s: number | null };
-  return row.s ?? 0;
+    .all(keyLen, processCode, dateFrom, dateTo) as { k: string; v: number | null }[];
+  const supportedIn = db
+    .prepare(
+      `SELECT substr(s.work_date, 1, ?) k, SUM(MIN(s.support_hours, h.total_hours)) v
+       FROM work_support_detail s
+       JOIN work_hours_daily h ON h.employee_no = s.employee_no AND h.work_date = s.work_date
+       WHERE s.support_work_group = (SELECT process_name FROM processes WHERE process_code = ?)
+         AND s.work_date BETWEEN ? AND ? GROUP BY k`
+    )
+    .all(keyLen, processCode, dateFrom, dateTo) as { k: string; v: number | null }[];
+  const map = new Map<string, number>();
+  for (const r of [...home, ...supportedIn]) map.set(r.k, (map.get(r.k) ?? 0) + (r.v ?? 0));
+  return map;
+}
+
+function workHoursSum(db: DatabaseSync, processCode: string, dateFrom: string, dateTo: string): number {
+  return hoursByKey(db, processCode, dateFrom, dateTo, 0).get("") ?? 0;
 }
 
 function headcountOf(db: DatabaseSync, processCode: string): number {
@@ -347,26 +378,8 @@ export function computeProductionTrend(
   // 일별 점은 그 날의 합계로 나눈다. 근무시간 기록이 없는 달/날은 UPH를 만들 근거가
   // 없어 0으로 그리지 않고 점 자체를 건너뛴다(PSN-01 데이터가 시작되기 전 달 등). 생산량이
   // 0이라 UPH가 0인 점도 같은 이유로 제외한다(2026-09-28 사용자 요청) — 평균도 나머지 점 기준.
-  const hoursByYm = new Map(
-    (
-      db
-        .prepare(
-          `SELECT substr(work_date, 1, 7) ym, SUM(total_hours) s FROM work_hours_daily
-           WHERE process_code = ? AND work_date >= ? AND work_date < ? GROUP BY ym`
-        )
-        .all(line.workProcessCode, yearStart, monthStart) as { ym: string; s: number | null }[]
-    ).map((r) => [r.ym, r.s ?? 0])
-  );
-  const hoursByDate = new Map(
-    (
-      db
-        .prepare(
-          `SELECT work_date d, SUM(total_hours) s FROM work_hours_daily
-           WHERE process_code = ? AND work_date BETWEEN ? AND ? GROUP BY d`
-        )
-        .all(line.workProcessCode, monthStart, monthEnd) as { d: string; s: number | null }[]
-    ).map((r) => [r.d, r.s ?? 0])
-  );
+  const hoursByYm = hoursByKey(db, line.workProcessCode, yearStart, addDays(monthStart, -1), 7);
+  const hoursByDate = hoursByKey(db, line.workProcessCode, monthStart, monthEnd, 10);
 
   const points: ProductionTrendPoint[] = [];
   const pushPoint = (label: string, qty: number, hours: number | undefined): void => {
