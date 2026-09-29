@@ -28,9 +28,9 @@ export * from "./weekly-report-shared";
 //   공정 자체가 없음) 비워 두고, TTL은 렌즈 공정만의 곱(서식의 "사출제외")으로 계산한다.
 // - 인쇄공정 표는 계획 대비가 아니라 수동/자동 인쇄기별 가동대수·생산수량이다(computePrinting).
 // - 계획(월) 표는 PLAN-02 라인별 일CAPA × 그 주차의 생산캘린더 근무일수, 실적은 MGMT-05와 같은
-//   집계(사출=MOLD입고량, 인쇄=착색인쇄 P220, 출하=출하포장 P410)를 쓴다. 월을 걸치는 주차는
-//   그 달에 속한 날짜만 잘라 계산한다(서식의 36 W 행은 8월 날짜까지 합쳤지만 월 합계가 겹쳐
-//   이중 집계되므로 이 화면은 달 경계로 자른다).
+//   집계(사출=MOLD입고량, 인쇄=착색인쇄 P220, 출하=출하포장 P410)를 쓴다. 주차 행은 월을 걸쳐도
+//   금~목 전체 구간의 계획·실적을 보여주고(서식의 36 W = 08/28~09/03), 월 합계 행만 그 달 1일~말일
+//   날짜로 자른다(2026-09-29 사용자 요청).
 
 // 비고 후보 — 위 두 표에 없는 불량유형 전부(가장 큰 것 하나를 "유형 0.00%"로 표기).
 const NOTE_CANDIDATE_KEYS = [
@@ -218,34 +218,48 @@ function buildPlanBlock(
   const monthEnd = monthEndOf(yearMonth);
   const capas = spec.lineKeys.map((k) => dailyCapaByLine.get(k) ?? null);
   const capaMissing = capas.some((c) => c == null);
-  const cols = spec.lineKeys.length;
   const totalWorkDays = workDaysBetween(db, monthStart, monthEnd);
   const elapsedTo = weekEnd < monthEnd ? weekEnd : monthEnd;
   const elapsedWorkDays = workDaysBetween(db, monthStart, elapsedTo);
 
+  // 주차 행은 월 경계로 자르지 않고 금~목 전체 구간(예: 08/28~09/03)의 계획·실적을 보여준다
+  // (2026-09-29 사용자 요청). 계획은 날짜가 속한 달의 일CAPA로 계산한다(그 달 CAPA가 등록돼
+  // 있지 않으면 이 표의 기준 월 CAPA로 대신한다). 아래 월 합계 행만 이 달(1일~말일) 날짜로 자른다.
+  const capaCache = new Map<string, number | null>();
+  const capaOf = (ym: string, i: number): number | null => {
+    const key = `${ym}|${i}`;
+    if (!capaCache.has(key)) {
+      const row = db
+        .prepare(`SELECT daily_capa FROM line_capa_plan WHERE year_month = ? AND line_key = ?`)
+        .get(ym, spec.lineKeys[i]) as { daily_capa: number | null } | undefined;
+      capaCache.set(key, row?.daily_capa ?? capas[i]);
+    }
+    return capaCache.get(key) ?? null;
+  };
+  // from~to 구간 계획 = 월별로 나눠 (그 달 일CAPA × 그 구간의 근무일수) 합산
+  const planBetween = (from: string, to: string): number[] =>
+    capas.map((_c, i) => {
+      let sum = 0;
+      for (let seg = from; seg <= to; ) {
+        const segEnd = monthEndOf(seg.slice(0, 7)) < to ? monthEndOf(seg.slice(0, 7)) : to;
+        sum += (capaOf(seg.slice(0, 7), i) ?? 0) * workDaysBetween(db, seg, segEnd);
+        seg = addDays(segEnd, 1);
+      }
+      return sum;
+    });
+
   const weeks: WeeklyPlanRow[] = [];
-  const sumActual = new Array<number>(cols).fill(0);
-  const sumDiff = new Array<number>(cols).fill(0);
   // 월의 첫 날이 속한 금~목 주차부터 월말이 속한 주차까지
   for (let ws = weekStartOf(monthStart); ws <= monthEnd; ws = addDays(ws, 7)) {
-    const from = ws < monthStart ? monthStart : ws;
-    const to = addDays(ws, 6) > monthEnd ? monthEnd : addDays(ws, 6);
-    const days = workDaysBetween(db, from, to);
+    const we = addDays(ws, 6);
     const started = ws <= weekEnd;
-    const plan = capas.map((c) => (c ?? 0) * days);
-    const actual = capas.map((_c, i) => (started ? spec.actual(db, i, from, to < weekEnd ? to : weekEnd) : null));
+    const plan = planBetween(ws, we);
+    const actual = capas.map((_c, i) => (started ? spec.actual(db, i, ws, we < weekEnd ? we : weekEnd) : null));
     const diff = actual.map((a, i) => (a == null ? null : a - plan[i]));
     const rate = actual.map((a, i) => (a == null || plan[i] <= 0 ? null : a / plan[i]));
-    actual.forEach((a, i) => {
-      if (a != null) sumActual[i] += a;
-    });
-    diff.forEach((d, i) => {
-      if (d != null) sumDiff[i] += d;
-    });
     weeks.push({
       weekLabel: `${weekNoOf(ws)} W`,
-      // 표시는 주차 전체 구간(예: 40 W = 09/25~10/01) — 계획/실적 계산만 월 경계로 자른다.
-      rangeLabel: `${mmdd(ws)}~${mmdd(addDays(ws, 6))}`,
+      rangeLabel: `${mmdd(ws)}~${mmdd(we)}`,
       plan,
       actual,
       diff,
@@ -253,7 +267,12 @@ function buildPlanBlock(
     });
   }
 
+  // 월 합계 행 — 이 달 1일~말일 날짜만: 계획 = 이 달 일CAPA × 총 근무일수, 실적 = 1일~보고 주차 종료일
+  // 누계, 계획대비 = 실적 − 같은 기간(1일~보고 주차 종료일)까지의 계획, 달성률 = 실적 ÷ 월 계획.
   const monthPlan = capas.map((c) => (c ?? 0) * totalWorkDays);
+  const sumActual = capas.map((_c, i) => spec.actual(db, i, monthStart, elapsedTo));
+  const planToDate = capas.map((c) => (c ?? 0) * elapsedWorkDays);
+  const sumDiff = sumActual.map((a, i) => a - planToDate[i]);
   const monthRate = sumActual.map((a, i) => (monthPlan[i] > 0 ? a / monthPlan[i] : null));
   const totalPlan = monthPlan.reduce((s, v) => s + v, 0);
   const totalActual = sumActual.reduce((s, v) => s + v, 0);
