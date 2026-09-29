@@ -236,7 +236,11 @@ function ProductionStatusTable({ result }: { result: ProductionStatusResult }) {
                     ? "bg-emerald-50 text-emerald-700 font-bold"
                     : "bg-red-50 text-red-600 font-bold";
               const gapClass =
-                r.progressGap == null ? "text-slate-400" : r.progressGap >= 0 ? "text-emerald-700" : "text-red-600";
+                r.progressGap == null
+                  ? "text-slate-400"
+                  : r.progressGap >= 0
+                    ? "bg-emerald-50 text-emerald-700 font-bold"
+                    : "bg-red-50 text-red-600 font-bold";
               const cumClass =
                 r.cumulativeShortage == null
                   ? "text-slate-400"
@@ -336,7 +340,7 @@ function ProductionTrendSection({ rows, date }: { rows: ProductionStatusRow[]; d
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center justify-center flex-wrap gap-3">
         <h3 className="font-semibold text-sm text-navy">
           공정별 생산성 추이{" "}
           <span className="font-normal text-xs text-slate-400">(올해 월별 · 이번달 일별, UPH)</span>
@@ -534,7 +538,7 @@ function ProductionTrendLineChart({ trend }: { trend: ProductionTrendResult }) {
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-3" style={{ borderTop: "1.5px dashed #3a62c4" }} />
-          평균
+          평균 {fmtUphChart(trend.average)} UPH
         </span>
         {target != null && (
           <span className="flex items-center gap-1.5">

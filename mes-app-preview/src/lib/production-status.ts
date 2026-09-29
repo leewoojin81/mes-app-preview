@@ -113,7 +113,7 @@ function prevYearMonthOf(yearMonth: string): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 }
 
-function moldSum(db: DatabaseSync, group: string, dateFrom: string, dateTo: string): number {
+export function moldSum(db: DatabaseSync, group: string, dateFrom: string, dateTo: string): number {
   const row = db
     .prepare(
       `SELECT SUM(CAST(json_extract(detail, '$."입고량"') AS REAL)) s FROM mold_receipt_status
@@ -133,7 +133,7 @@ function moldWip(db: DatabaseSync, group: string): number {
   return row.s ?? 0;
 }
 
-function processSum(
+export function processSum(
   db: DatabaseSync,
   processCodes: string[],
   dateFrom: string,

@@ -167,10 +167,23 @@ export function resolveRawPunchOutMinutes(
   return punchOutMinutes < punchInMinutes ? punchOutMinutes + 1440 : punchOutMinutes;
 }
 
-// 지각(시간) = max(0, 출근시각 - 지각기준시각). 출근시간이 없으면(결근/미기록) null.
+// 지각(시간) = max(0, 출근시각 - 지각기준시각 - 그 사이에 걸친 휴식/식사시간). 지각기준시각~출근시각
+// 구간에 식사·휴식 구간이 겹치면 그 겹친 만큼은 근무시간이 아니므로 지각에서 뺀다(2026-09-29
+// 사용자 확인, 제이시스템 녹떠이 9/28 사례 — 2조 15:50 기준, 19:00 출근이면 그 사이의 식사2(18:30
+// ~19:15) 중 실제로 지난 18:30~19:00 30분을 빼 3시간10분 → 2시간40분, 조장 입력 2.67h와 일치).
+// 출근시각이 식사 구간 중간이면 겹친 만큼만, 식사가 끝난 뒤(예: 19:15 이후)면 45분 전체가 빠진다.
+// 출근시간이 없으면(결근/미기록) null.
 export function deriveLateHours(punchInMinutes: number | null, ref: ShiftReference): number | null {
   if (punchInMinutes == null) return null;
-  return Math.max(0, punchInMinutes - ref.lateCutoffMinutes) / 60;
+  const from = ref.lateCutoffMinutes;
+  const raw = punchInMinutes - from;
+  if (raw <= 0) return 0;
+  let breakOverlap = 0;
+  for (const w of ref.breakWindows) {
+    const overlap = Math.min(punchInMinutes, w.endMinutes) - Math.max(from, w.startMinutes);
+    if (overlap > 0) breakOverlap += overlap;
+  }
+  return Math.max(0, raw - breakOverlap) / 60;
 }
 
 // 조출(시간) = max(0, 지각기준시각 - 출근시각), 조출 구간 길이만큼 상한(2026-09-09
