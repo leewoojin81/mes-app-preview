@@ -16,6 +16,10 @@ const PAGE_SIZE_OPTIONS = [50, 100, 200];
 // (한 행만 고치는 것이라 충돌 걱정이 없어) 그대로 편집 가능하다.
 const BULK_EXCLUDED_KEYS = new Set(["사원번호", "근무일자"]);
 
+// 카드 신규 등록·수정·일괄변경 모두 "수정 사유"가 필수다(2026-09-30 사용자 요청). 수정 팝업은
+// 이전에 적은 사유를 미리 채우지 않고 이번 수정의 사유를 새로 받는다(일괄변경도 항상 포함).
+const REASON_KEY = "수정 사유";
+
 // "수동 수정시간"/"수동 수정자"는 세콤 자체 시스템에서 원본 카드값을 고쳤을 때 세콤이
 // 남기는 이력 필드라, 우리 쪽에서 새로 만드는 행(신규 등록)에는 애초에 해당 사항이 없다
 // (2026-09-24 사용자 요청으로 신규 등록 팝업에서만 제외 — 목록 그리드나 기존 행 수정/
@@ -560,11 +564,14 @@ function AttendanceCardEditModal({
   );
 
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(fields.map((f) => [f.key, !isBulk]))
+    Object.fromEntries(fields.map((f) => [f.key, !isBulk || f.key === REASON_KEY]))
   );
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
-      fields.map((f) => [f.key, !isBulk && !isNew ? String(rows[0].detail?.[f.key] ?? "") : ""])
+      fields.map((f) => [
+        f.key,
+        !isBulk && !isNew && f.key !== REASON_KEY ? String(rows[0].detail?.[f.key] ?? "") : "",
+      ])
     )
   );
   const [saving, setSaving] = useState(false);
@@ -583,6 +590,7 @@ function AttendanceCardEditModal({
   }, [isNew]);
 
   function toggleField(key: string) {
+    if (key === REASON_KEY) return;
     setEnabled((prev) => ({ ...prev, [key]: !prev[key] }));
   }
   // 출근/퇴근시간을 고치면 총근무시간(원본 태깅 리포트 기준 "퇴근시간 - 출근시간" 순수
@@ -618,7 +626,7 @@ function AttendanceCardEditModal({
       setError("사원번호·근무일자는 필수입니다.");
       return;
     }
-    if (isNew && !values["수정 사유"]?.trim()) {
+    if (!values[REASON_KEY]?.trim()) {
       setError("수정 사유는 필수입니다.");
       return;
     }
@@ -719,12 +727,13 @@ function AttendanceCardEditModal({
                     type="checkbox"
                     checked={enabled[f.key]}
                     onChange={() => toggleField(f.key)}
+                    disabled={f.key === REASON_KEY}
                     aria-label={`${f.title} 변경`}
                   />
                 )}
                 <label className="text-xs text-slate-500 w-24 shrink-0">
                   {f.title}
-                  {isNew && f.key === "수정 사유" && <span className="text-rose-500">*</span>}
+                  {f.key === REASON_KEY && <span className="text-rose-500">*</span>}
                 </label>
                 {isNew && f.key === "이름" ? (
                   <WorkerNameAutocomplete
@@ -768,6 +777,11 @@ function AttendanceCardEditModal({
                     value={values[f.key]}
                     onChange={(e) => setValue(f.key, e.target.value)}
                     disabled={isBulk && !enabled[f.key]}
+                    placeholder={
+                      f.key === REASON_KEY && !isNew && !isBulk && rows[0].detail?.[REASON_KEY]
+                        ? `이전 사유: ${rows[0].detail[REASON_KEY]}`
+                        : undefined
+                    }
                     className={inputCls}
                   />
                 )}

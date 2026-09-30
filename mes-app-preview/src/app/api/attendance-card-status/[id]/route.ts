@@ -28,6 +28,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
 
+  // 수정은 사유가 필수다(2026-09-30 사용자 요청) — 화면이 항상 "수정 사유"를 patch에 담아 보낸다.
+  if (!String((body.detail as Record<string, unknown>)["수정 사유"] ?? "").trim()) {
+    return NextResponse.json({ error: "수정 사유는 필수입니다." }, { status: 400 });
+  }
+
   const db = getDb();
   const existing = db
     .prepare("SELECT detail, edited_fields FROM attendance_card_status WHERE id = ?")
