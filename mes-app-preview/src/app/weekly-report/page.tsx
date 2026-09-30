@@ -291,7 +291,7 @@ function YieldSection({ result: r }: { result: WeeklyReportResult }) {
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr>
-              <th className={thCls} rowSpan={2} />
+              <th className={thCls} rowSpan={2}>공정</th>
               <th className={thCls}>몰드</th>
               <th className={thCls} colSpan={WEEKLY_YIELD_PROCESSES.length}>렌즈</th>
               <th className={thCls} rowSpan={2}>TTL</th>
@@ -334,7 +334,7 @@ function DefectSection({ result: r }: { result: WeeklyReportResult }) {
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr>
-              <th className={thCls} rowSpan={2} />
+              <th className={thCls} rowSpan={2}>공정</th>
               <th className={thCls} rowSpan={2}>작업량(K천대)</th>
               <th className={thCls} rowSpan={2}>양품수(K천대)</th>
               <th className={thCls} rowSpan={2}>불량수(K천대)</th>
@@ -361,7 +361,7 @@ function DefectSection({ result: r }: { result: WeeklyReportResult }) {
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr>
-              <th className={thCls} rowSpan={2} />
+              <th className={thCls} rowSpan={2}>공정</th>
               {t2Groups.map((g) => <th key={g.group} className={thCls} colSpan={g.count}>{g.group}</th>)}
               <th className={thCls} rowSpan={2}>비고(%)</th>
             </tr>

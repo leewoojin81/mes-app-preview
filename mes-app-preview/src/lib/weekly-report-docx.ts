@@ -209,7 +209,7 @@ function yieldTable(r: WeeklyReportResult): string {
   const procs = WEEKLY_YIELD_PROCESSES;
   const grid = [700, 800, ...new Array<number>(procs.length).fill(760), 800];
   const rows: Cell[][] = [
-    [head("", { vm: "r" }), head("몰드"), head("렌즈", { span: procs.length }), head("TTL", { vm: "r" })],
+    [head("공정", { vm: "r" }), head("몰드"), head("렌즈", { span: procs.length }), head("TTL", { vm: "r" })],
     [head("", { vm: "c" }), head("사출"), ...procs.map((p) => head(p)), head("", { vm: "c" })],
   ];
   for (const y of [r.yield.previous, r.yield.current]) {
@@ -251,7 +251,7 @@ function defectTables(r: WeeklyReportResult): string[] {
   const grid1 = [900, 1000, 1000, 1000, 800, ...new Array<number>(t1.length).fill(900)];
   const rows1: Cell[][] = [
     [
-      head("", { vm: "r" }),
+      head("공정", { vm: "r" }),
       head("작업량(K천대)", { vm: "r" }),
       head("양품수(K천대)", { vm: "r" }),
       head("불량수(K천대)", { vm: "r" }),
@@ -282,7 +282,7 @@ function defectTables(r: WeeklyReportResult): string[] {
     i = j;
   }
   const rows2: Cell[][] = [
-    [head("", { vm: "r" }), ...groupCells, head("비고(%)", { vm: "r" })],
+    [head("공정", { vm: "r" }), ...groupCells, head("비고(%)", { vm: "r" })],
     [head("", { vm: "c" }), ...t2.map((c) => head(c.title)), head("", { vm: "c" })],
   ];
   for (const d of r.defect) {
