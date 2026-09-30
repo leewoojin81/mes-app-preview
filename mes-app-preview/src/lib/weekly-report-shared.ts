@@ -89,6 +89,8 @@ export interface WeeklyPrintingBlock {
 
 export interface WeeklyYieldRow {
   weekLabel: string; // "37 W"
+  /** 사출(몰드) 수율 = (MOLD입고 − 사출→불량창고 이동) ÷ MOLD입고, 입고 없으면 null */
+  injection: number | null;
   /** WEEKLY_YIELD_PROCESSES 순서, 데이터 없으면 null */
   yields: (number | null)[];
   /** 렌즈 공정 수율의 곱(사출 제외) */

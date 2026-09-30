@@ -215,7 +215,7 @@ function yieldTable(r: WeeklyReportResult): string {
   for (const y of [r.yield.previous, r.yield.current]) {
     rows.push([
       { t: y.weekLabel, bold: true },
-      { t: "-" },
+      { t: y.injection == null ? "-" : pct(y.injection, 1) },
       ...y.yields.map((v) => ({ t: v == null ? "-" : pct(v, 1) })),
       { t: pct(y.total, 1), bold: true },
     ]);

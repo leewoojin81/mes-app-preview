@@ -304,7 +304,7 @@ function YieldSection({ result: r }: { result: WeeklyReportResult }) {
             {[r.yield.previous, r.yield.current].map((y) => (
               <tr key={y.weekLabel}>
                 <td className={`${tdCls} font-bold`}>{y.weekLabel}</td>
-                <td className={tdCls}>-</td>
+                <td className={tdCls}>{y.injection == null ? "-" : fmtPct(y.injection, 1)}</td>
                 {y.yields.map((v, i) => <td key={i} className={tdCls}>{v == null ? "-" : fmtPct(v, 1)}</td>)}
                 <td className={`${tdCls} font-bold`}>{fmtPct(y.total, 1)}</td>
               </tr>
@@ -313,7 +313,7 @@ function YieldSection({ result: r }: { result: WeeklyReportResult }) {
         </table>
       </div>
       <p className="text-xs text-slate-400">
-        사출(몰드) 수율은 MES에 근거 데이터가 없어 비워 둡니다 · TTL = 렌즈 공정 수율의 곱
+        사출 수율 = (MOLD입고 − 사출창고→불량창고 이동) ÷ MOLD입고 · TTL = 렌즈 공정 수율의 곱(사출 제외)
       </p>
     </>
   );

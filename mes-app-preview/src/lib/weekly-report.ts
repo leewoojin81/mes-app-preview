@@ -327,6 +327,21 @@ function aggregateDefects(db: DatabaseSync, process: string, from: string, to: s
   return { good: row.good ?? 0, bad: row.bad ?? 0, types };
 }
 
+// 사출(몰드) 수율 — 사출 실적이 MES에 없어 MOLD입고현황의 입고량(상·하몰드 전체)을 생산량으로,
+// 창고이동현황에서 사출창고→불량창고로 옮긴 출고수량을 불량으로 본다(2026-09-30 사용자 지정).
+// 불량도 먼저 입고로 잡힌 뒤 불량창고로 옮겨지므로 수율 = (입고 − 불량) ÷ 입고. 이 값은 TTL에 넣지 않는다.
+function injectionYield(db: DatabaseSync, from: string, to: string): number | null {
+  const received = moldSum(db, "상몰드", from, to) + moldSum(db, "하몰드", from, to);
+  if (received <= 0) return null;
+  const row = db
+    .prepare(
+      `SELECT SUM(CAST(json_extract(detail, '$."출고수량"') AS REAL)) s FROM warehouse_transfer_status
+       WHERE from_warehouse = '사출창고' AND to_warehouse = '불량창고' AND transfer_date BETWEEN ? AND ?`
+    )
+    .get(from, to) as { s: number | null };
+  return Math.max(0, (received - (row.s ?? 0)) / received);
+}
+
 function yieldRow(db: DatabaseSync, weekStart: string): WeeklyYieldRow {
   const from = weekStart;
   const to = addDays(weekStart, 6);
@@ -337,6 +352,7 @@ function yieldRow(db: DatabaseSync, weekStart: string): WeeklyYieldRow {
   const present = yields.filter((y): y is number => y != null);
   return {
     weekLabel: `${weekNoOf(weekStart)} W`,
+    injection: injectionYield(db, from, to),
     yields,
     total: present.length > 0 ? present.reduce((p, y) => p * y, 1) : null,
   };
