@@ -36,6 +36,12 @@ export const ATTENDANCE_CARD_COLS = [
 export function normalizeCardDate(v: string | number | null): string | null {
   if (v == null) return null;
   const s = String(v).trim();
+  // 근무일자 칸이 텍스트가 아니라 날짜 서식 셀이면 엑셀 일련번호(예: 46295 = 2026-09-30)로 읽힌다
+  // — 그대로 저장하면 날짜 조회에 안 잡혀 "업로드했는데 저장이 안 된다"로 보인다(2026-09-30).
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(s)) * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
   const m = s.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
   if (!m) return s || null;
   const [, y, mo, d] = m;
