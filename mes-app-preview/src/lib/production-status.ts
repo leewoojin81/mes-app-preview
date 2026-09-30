@@ -197,7 +197,7 @@ function headcountOf(db: DatabaseSync, processCode: string): number {
   return (
     db
       .prepare(
-        `SELECT COUNT(*) c FROM workers WHERE use_yn = 'Y' AND status = '정상' AND process_code = ?`
+        `SELECT COUNT(*) c FROM workers WHERE use_yn = 'Y' AND status IN ('정상', '단축') AND process_code = ?`
       )
       .get(processCode) as { c: number }
   ).c;

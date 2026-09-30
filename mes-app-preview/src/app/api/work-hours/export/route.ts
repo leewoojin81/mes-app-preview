@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
     work_group: string | null;
     duty: string | null;
     team: string | null;
+    status: string;
   }[];
   if (session?.r === "leader") {
     const leaderWorkGroups = processCodesFromSession(session);
@@ -37,15 +38,15 @@ export async function GET(req: NextRequest) {
       const placeholders = leaderWorkGroups.map(() => "?").join(",");
       workers = db
         .prepare(
-          `SELECT employee_no, worker_name, work_group, duty, team FROM workers
-           WHERE use_yn = 'Y' AND status = '정상' AND work_group IN (${placeholders}) ORDER BY seq, employee_no`
+          `SELECT employee_no, worker_name, work_group, duty, team, status FROM workers
+           WHERE use_yn = 'Y' AND status IN ('정상', '단축') AND work_group IN (${placeholders}) ORDER BY seq, employee_no`
         )
         .all(...leaderWorkGroups) as typeof workers;
     }
   } else {
     workers = db
       .prepare(
-        "SELECT employee_no, worker_name, work_group, duty, team FROM workers WHERE use_yn = 'Y' AND status = '정상' ORDER BY seq, employee_no"
+        "SELECT employee_no, worker_name, work_group, duty, team, status FROM workers WHERE use_yn = 'Y' AND status IN ('정상', '단축') ORDER BY seq, employee_no"
       )
       .all() as typeof workers;
   }
@@ -104,6 +105,7 @@ export async function GET(req: NextRequest) {
       earlyLeaveHours: earlyLeave,
       outingHours: outing,
       supportHours,
+      shortened: w.status === "단축",
     });
     const { normalHours: normal, overtimeHours: overtimeFinal } = attendance;
     // 지원시간은 다른 공정을 지원하며 일한 시간이라 합계에 더한다(2026-09-08 사용자 요청,

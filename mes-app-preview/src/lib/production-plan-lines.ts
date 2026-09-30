@@ -136,7 +136,7 @@ export function computeLineCapaPlan(db: DatabaseSync, yearMonth: string): LineCa
   const headcountRows = db
     .prepare(
       `SELECT process_code, COUNT(*) c FROM workers
-       WHERE use_yn = 'Y' AND status = '정상' AND process_code IS NOT NULL
+       WHERE use_yn = 'Y' AND status IN ('정상', '단축') AND process_code IS NOT NULL
        GROUP BY process_code`
     )
     .all() as { process_code: string; c: number }[];

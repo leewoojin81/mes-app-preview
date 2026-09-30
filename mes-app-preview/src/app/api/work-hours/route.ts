@@ -24,6 +24,7 @@ interface WorkerRow {
   shift_group: string | null;
   duty: string | null;
   process_code: string | null;
+  status: string;
 }
 
 interface WorkHoursDailyRow {
@@ -46,9 +47,10 @@ interface SupportDetailRow {
   support_hours: number;
 }
 
-// 인원관리(PSN-01) "일일근태입력" — 재직 중이고(use_yn='Y') 상태가 "정상"인 작업자만 기준으로
-// 그 날짜의 work_hours_daily/work_support_detail 저장분을 덧씌워 내려준다(2026-09-07 사용자
-// 요청 — 퇴사/육휴/출휴/병가 상태는 실제로 출근하지 않으니 근태입력 대상에서 제외). 저장분이
+// 인원관리(PSN-01) "일일근태입력" — 재직 중이고(use_yn='Y') 상태가 "정상"/"단축"인 작업자만
+// 기준으로 그 날짜의 work_hours_daily/work_support_detail 저장분을 덧씌워 내려준다(2026-09-07
+// 사용자 요청 — 퇴사/육휴/출휴/병가 상태는 실제로 출근하지 않으니 근태입력 대상에서 제외;
+// 2026-09-30 "단축"은 출근하되 출근일 정상근무 기준이 8→6시간이라 대상에 포함). 저장분이
 // 없으면 나머지=0을 기본값으로 채운다. 정상(normal_hours)은 사람이 고칠 수 없어 저장분이
 // 있어도 항상 휴가구분 기준 계산값(A안, work-hours-leave.ts)으로 내려준다. 조장은 소속
 // (work_group) 작업자만 내려받는다. 정렬은 1순위 공정코드(workers.process_code, BASE-04
@@ -72,9 +74,9 @@ export async function GET(req: NextRequest) {
       const placeholders = leaderWorkGroups.map(() => "?").join(",");
       workers = db
         .prepare(
-          `SELECT employee_no, erp_code, employee_qr, worker_name, contractor, work_group, team, shift_group, duty, process_code
+          `SELECT employee_no, erp_code, employee_qr, worker_name, contractor, work_group, team, shift_group, duty, process_code, status
            FROM workers
-           WHERE use_yn = 'Y' AND status = '정상' AND work_group IN (${placeholders})
+           WHERE use_yn = 'Y' AND status IN ('정상', '단축') AND work_group IN (${placeholders})
            ORDER BY process_code, hire_date, employee_no`
         )
         .all(...leaderWorkGroups) as unknown as WorkerRow[];
@@ -82,8 +84,8 @@ export async function GET(req: NextRequest) {
   } else {
     workers = db
       .prepare(
-        `SELECT employee_no, erp_code, employee_qr, worker_name, contractor, work_group, team, shift_group, duty, process_code
-         FROM workers WHERE use_yn = 'Y' AND status = '정상'
+        `SELECT employee_no, erp_code, employee_qr, worker_name, contractor, work_group, team, shift_group, duty, process_code, status
+         FROM workers WHERE use_yn = 'Y' AND status IN ('정상', '단축')
          ORDER BY process_code, hire_date, employee_no`
       )
       .all() as unknown as WorkerRow[];
@@ -147,6 +149,7 @@ export async function GET(req: NextRequest) {
       earlyLeaveHours,
       outingHours,
       supportHours,
+      shortened: w.status === "단축",
     });
     const { normalHours, overtimeHours } = attendance;
     return {
@@ -159,6 +162,7 @@ export async function GET(req: NextRequest) {
       team: resolveFieldAsOf(teamHistory, w.employee_no, date, w.team),
       shift_group: w.shift_group,
       duty: w.duty,
+      worker_status: w.status,
       leave_type: leaveType,
       has_record: d != null,
       normal_hours: normalHours,
@@ -214,12 +218,13 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  const workerProcessCodes = new Map(
-    (db.prepare("SELECT employee_no, process_code FROM workers").all() as {
-      employee_no: string;
-      process_code: string | null;
-    }[]).map((w) => [w.employee_no, w.process_code])
-  );
+  const workerInfoRows = db.prepare("SELECT employee_no, process_code, status FROM workers").all() as {
+    employee_no: string;
+    process_code: string | null;
+    status: string;
+  }[];
+  const workerProcessCodes = new Map(workerInfoRows.map((w) => [w.employee_no, w.process_code]));
+  const shortenedEmployees = new Set(workerInfoRows.filter((w) => w.status === "단축").map((w) => w.employee_no));
 
   const upsertDaily = db.prepare(
     `INSERT INTO work_hours_daily
@@ -273,6 +278,7 @@ export async function PUT(req: NextRequest) {
       earlyLeaveHours,
       outingHours,
       supportHours,
+      shortened: shortenedEmployees.has(employeeNo),
     });
     const { normalHours, overtimeHours } = attendance;
 

@@ -310,8 +310,8 @@ export function fetchAttendanceAudit(
   };
   if (params.leaderWorkGroups && params.leaderWorkGroups.length === 0) return empty;
 
-  // 대상 작업자 = PSN-01(일일근태입력)과 같은 기준(use_yn='Y' AND status='정상').
-  const workerConditions = ["use_yn = 'Y'", "status = '정상'"];
+  // 대상 작업자 = PSN-01(일일근태입력)과 같은 기준(use_yn='Y' AND status IN ('정상','단축')).
+  const workerConditions = ["use_yn = 'Y'", "status IN ('정상', '단축')"];
   const workerArgs: string[] = [];
   if (params.workGroup) {
     workerConditions.push("work_group = ?");
@@ -413,7 +413,7 @@ export function fetchAttendanceAudit(
   const cardCoverageByDate = new Map(cardCoverageRows.map((r) => [r.work_date, r.c]));
 
   const totalActiveWorkforce = (
-    db.prepare(`SELECT COUNT(*) c FROM workers WHERE use_yn = 'Y' AND status = '정상'`).get() as { c: number }
+    db.prepare(`SELECT COUNT(*) c FROM workers WHERE use_yn = 'Y' AND status IN ('정상', '단축')`).get() as { c: number }
   ).c;
   const isCardBroadlyUploaded = (workDate: string): boolean =>
     (cardCoverageByDate.get(workDate) ?? 0) >= totalActiveWorkforce * CARD_COVERAGE_RATIO;

@@ -49,6 +49,7 @@ function computeAttendance(r: {
   early_leave_hours: number;
   outing_hours: number;
   support_hours: number;
+  worker_status?: string | null;
 }) {
   return computeAttendanceHours(r.leave_type, {
     overtimeInput: r.overtime_hours,
@@ -56,6 +57,7 @@ function computeAttendance(r: {
     earlyLeaveHours: r.early_leave_hours,
     outingHours: r.outing_hours,
     supportHours: effectiveSupportHours(r.leave_type, r.support_hours),
+    shortened: r.worker_status === "단축",
   });
 }
 
@@ -68,6 +70,7 @@ function computeTotal(r: {
   early_leave_hours: number;
   outing_hours: number;
   support_hours: number;
+  worker_status?: string | null;
 }): number {
   return computeTotalHours(computeAttendance(r), {
     earlyStartHours: r.early_start_hours,
@@ -635,6 +638,7 @@ function WorkHoursEditModal({
       early_leave_hours: hourValues.early_leave_hours || 0,
       outing_hours: hourValues.outing_hours || 0,
       support_hours: supportGroup ? supportHours || 0 : 0,
+      worker_status: single.worker_status,
     };
     const { normalHours } = computeAttendance(patched);
     return { normal: normalHours, total: computeTotal(patched) };

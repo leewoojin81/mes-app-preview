@@ -77,10 +77,11 @@ export async function POST(req: NextRequest) {
 
   const db = getDb();
   const workers = db
-    .prepare("SELECT employee_no, process_code FROM workers WHERE use_yn = 'Y' AND status = '정상'")
+    .prepare("SELECT employee_no, process_code, status FROM workers WHERE use_yn = 'Y' AND status IN ('정상', '단축')")
     .all() as {
     employee_no: string;
     process_code: string | null;
+    status: string;
   }[];
   const workerByEmployeeNo = new Map(workers.map((w) => [w.employee_no, w]));
 
@@ -142,6 +143,7 @@ export async function POST(req: NextRequest) {
         earlyLeaveHours,
         outingHours,
         supportHours,
+        shortened: worker.status === "단축",
       });
       const { normalHours, overtimeHours } = attendance;
 

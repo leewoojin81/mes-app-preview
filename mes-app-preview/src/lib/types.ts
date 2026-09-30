@@ -188,6 +188,9 @@ export interface WorkHoursRow {
    *  즉시 반영되며, 이 화면의 "저장" 버튼(work_hours_daily 전용)과는 무관하다. */
   shift_group: string | null;
   duty: string | null;
+  /** 작업자 상태(workers.status — 정상/단축) — "단축"이면 출근일 정상 기준이 8→6시간.
+   *  수정 팝업 미리보기가 서버와 같은 값을 계산하려고 내려받는 읽기전용 표시. */
+  worker_status: string | null;
   /** 휴가(연차/공가) — 근무시간 합계와 무관한 별도 기록용 표시(없으면 null). */
   leave_type: string | null;
   /** 이 날짜/작업자로 저장된 work_hours_daily 행이 있는지 — 화면에서 "저장됨"/"미저장"

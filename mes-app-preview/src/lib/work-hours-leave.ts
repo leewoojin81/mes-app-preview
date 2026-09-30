@@ -30,6 +30,11 @@ export function effectiveSupportHours(leaveType: string | null | undefined, supp
   return isFullDayOff(leaveType) ? 0 : supportHours;
 }
 
+/** 근무상태가 "단축"(BASE-09 workers.status)인 작업자의 하루 정상근무 단축 시간(2026-09-30
+ *  사용자 요청 — 단축근무자는 정상근무 8시간에서 2시간을 뺀 6시간이 기준). 휴가구분이 "출근"
+ *  (leaveType 없음)인 날의 기준 8시간에만 적용한다. */
+export const SHORTENED_REDUCTION_HOURS = 2;
+
 export interface AttendanceHoursInputs {
   /** 잔업 입력칸에 실제로 타이핑된(또는 마지막 저장분) 신청값 — 출근인 날은 이 값 자체가
    *  최종 저장값이 아니라 아래 계산의 출발점일 뿐이다. */
@@ -38,6 +43,8 @@ export interface AttendanceHoursInputs {
   earlyLeaveHours: number;
   outingHours: number;
   supportHours: number;
+  /** 근무상태가 "단축"인 작업자인가 — 출근인 날 정상 기준을 8에서 6으로 낮춘다. */
+  shortened?: boolean;
 }
 
 export interface AttendanceHoursResult {
@@ -94,7 +101,10 @@ export function computeAttendanceHours(
     const deduction = inputs.lateHours + inputs.earlyLeaveHours + inputs.outingHours;
     const overtimeHours = Math.max(0, inputs.overtimeInput - deduction);
     const excess = Math.max(0, deduction - inputs.overtimeInput);
-    const normalAvailable = 8 - excess;
+    // 단축근무자는 기준 8시간이 6시간이다(SHORTENED_REDUCTION_HOURS). 지각 등 초과 차감과
+    // 지원시간 차감은 이 줄어든 기준에서 똑같이 이뤄진다.
+    const normalBase = inputs.shortened ? 8 - SHORTENED_REDUCTION_HOURS : 8;
+    const normalAvailable = normalBase - excess;
     const supportOverflow = Math.max(0, inputs.supportHours - normalAvailable);
     return {
       normalHours: Math.max(0, normalAvailable - inputs.supportHours),

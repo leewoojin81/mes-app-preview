@@ -26,7 +26,7 @@ const SHIFT_GROUP_OPTIONS = ["A조", "B조", "고정"] as const;
 const CONTRACTOR_OPTIONS = ["다온", "더휴먼", "메디오스", "제이시스템", "태경", "휴먼"] as const;
 const BUS_ROUTE_OPTIONS = ["동부", "서부", "버스", "자가", "자차", "자전거"] as const;
 const UNIFORM_SIZE_OPTIONS = ["없음", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "6XL"] as const;
-const STATUS_OPTIONS = ["정상", "퇴사", "육휴", "출휴", "병가"] as const;
+const STATUS_OPTIONS = ["정상", "단축", "퇴사", "육휴", "출휴", "병가"] as const;
 
 type FormState = {
   employee_no: string;
@@ -107,6 +107,7 @@ const COLUMNS: { key: keyof Worker; label: string }[] = [
 // 화면이 깨지지 않도록 중립 회색으로 fallback한다.
 const STATUS_BADGE_CLASS: Record<string, string> = {
   정상: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  단축: "bg-sky-50 text-sky-700 border-sky-200",
   퇴사: "bg-rose-50 text-rose-700 border-rose-200",
   육휴: "bg-blue-50 text-blue-700 border-blue-200",
   출휴: "bg-violet-50 text-violet-700 border-violet-200",
