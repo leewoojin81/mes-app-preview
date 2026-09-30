@@ -329,7 +329,8 @@ function aggregateDefects(db: DatabaseSync, process: string, from: string, to: s
 
 // 사출(몰드) 수율 — 사출 실적이 MES에 없어 MOLD입고현황의 입고량(상·하몰드 전체)을 생산량으로,
 // 창고이동현황에서 사출창고→불량창고로 옮긴 출고수량을 불량으로 본다(2026-09-30 사용자 지정).
-// 불량도 먼저 입고로 잡힌 뒤 불량창고로 옮겨지므로 수율 = (입고 − 불량) ÷ 입고. 이 값은 TTL에 넣지 않는다.
+// 불량도 먼저 입고로 잡힌 뒤 불량창고로 옮겨지므로 수율 = (입고 − 불량) ÷ 입고. TTL에는 곱해 넣고,
+// "사출제외" 값(렌즈 공정 곱)은 totalExInjection으로 따로 낸다(2026-09-30 사용자 요청).
 function injectionYield(db: DatabaseSync, from: string, to: string): number | null {
   const received = moldSum(db, "상몰드", from, to) + moldSum(db, "하몰드", from, to);
   if (received <= 0) return null;
@@ -349,12 +350,15 @@ function yieldRow(db: DatabaseSync, weekStart: string): WeeklyYieldRow {
     const a = aggregateYieldOnly(db, p, from, to);
     return a.good + a.bad > 0 ? a.good / (a.good + a.bad) : null;
   });
+  const injection = injectionYield(db, from, to);
   const present = yields.filter((y): y is number => y != null);
   return {
     weekLabel: `${weekNoOf(weekStart)} W`,
-    injection: injectionYield(db, from, to),
+    injection,
     yields,
-    total: present.length > 0 ? present.reduce((p, y) => p * y, 1) : null,
+    total:
+      present.length > 0 ? present.reduce((p, y) => p * y, injection ?? 1) : null,
+    totalExInjection: present.length > 0 ? present.reduce((p, y) => p * y, 1) : null,
   };
 }
 
@@ -386,6 +390,10 @@ export function computeWeeklyReport(db: DatabaseSync, anyDate: string): WeeklyRe
   const current = yieldRow(db, weekStart);
   const previous = yieldRow(db, addDays(weekStart, -7));
   const diffPct = current.total != null && previous.total != null ? current.total - previous.total : null;
+  const diffPctExInjection =
+    current.totalExInjection != null && previous.totalExInjection != null
+      ? current.totalExInjection - previous.totalExInjection
+      : null;
 
   const defect: WeeklyDefectRow[] = WEEKLY_DEFECT_PROCESSES.map(({ process, label }) => {
     const agg = aggregateDefects(db, process, weekStart, weekEnd);
@@ -422,7 +430,7 @@ export function computeWeeklyReport(db: DatabaseSync, anyDate: string): WeeklyRe
     yearMonth,
     plan,
     printing: computePrinting(db, weekStart),
-    yield: { current, previous, diffPct },
+    yield: { current, previous, diffPct, diffPctExInjection },
     defect,
   };
 }

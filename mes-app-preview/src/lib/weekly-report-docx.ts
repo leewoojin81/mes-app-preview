@@ -223,17 +223,27 @@ function yieldTable(r: WeeklyReportResult): string {
   return table(grid, rows);
 }
 
-function yieldSummary(r: WeeklyReportResult): string {
-  const cur = r.yield.current.total;
-  const prev = r.yield.previous.total;
-  if (cur == null) return "□ 당주 : 해당 주차 수율 데이터가 없습니다.";
-  let s = `□ 당주(사출 제외) : ${pct(cur, 1)}`;
-  if (prev != null && r.yield.diffPct != null) {
-    const d = Math.abs(r.yield.diffPct * 100).toFixed(1);
-    const dir = Math.abs(r.yield.diffPct) < 0.0005 ? "동일" : r.yield.diffPct > 0 ? `${d}% 증가` : `${d}% 감소`;
+function yieldLine(label: string, cur: number | null, prev: number | null, diff: number | null): string | null {
+  if (cur == null) return null;
+  let s = `${label} : ${pct(cur, 1)}`;
+  if (prev != null && diff != null) {
+    const d = Math.abs(diff * 100).toFixed(1);
+    const dir = Math.abs(diff) < 0.0005 ? "동일" : diff > 0 ? `${d}% 증가` : `${d}% 감소`;
     s += ` (전주 : ${pct(prev, 1)} 전주 比 ${dir})`;
   }
   return s;
+}
+
+function yieldSummary(r: WeeklyReportResult): string {
+  const y = r.yield;
+  const s = yieldLine("당주", y.current.total, y.previous.total, y.diffPct);
+  return s ? `□ ${s}` : "□ 당주 : 해당 주차 수율 데이터가 없습니다.";
+}
+
+function yieldExInjectionSummary(r: WeeklyReportResult): string | null {
+  const y = r.yield;
+  const s = yieldLine("사출제외 : 당주", y.current.totalExInjection, y.previous.totalExInjection, y.diffPctExInjection);
+  return s ? `☞ ${s}` : null;
 }
 
 function defectTables(r: WeeklyReportResult): string[] {
@@ -321,6 +331,8 @@ export async function buildWeeklyReportDocx(r: WeeklyReportResult): Promise<Buff
   parts.push(para(run("2. 생산공정 수율", { size: 28, bold: true }), { before: 200 }));
   parts.push(para(run(yieldSummary(r), { size: 24 })));
   parts.push(yieldTable(r));
+  const exInjection = yieldExInjectionSummary(r);
+  if (exInjection) parts.push(para(run(exInjection, { size: 24 })));
 
   parts.push(para(run("3. 주요공정 불량률", { size: 28, bold: true }), { before: 200 }));
   for (const t of defectTables(r)) {

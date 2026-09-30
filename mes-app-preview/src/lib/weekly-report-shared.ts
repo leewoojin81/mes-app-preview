@@ -93,8 +93,10 @@ export interface WeeklyYieldRow {
   injection: number | null;
   /** WEEKLY_YIELD_PROCESSES 순서, 데이터 없으면 null */
   yields: (number | null)[];
-  /** 렌즈 공정 수율의 곱(사출 제외) */
+  /** TTL = 사출 수율 × 렌즈 공정 수율의 곱(사출 데이터가 없으면 렌즈만) */
   total: number | null;
+  /** 사출제외 TTL = 렌즈 공정 수율의 곱 */
+  totalExInjection: number | null;
 }
 
 export interface WeeklyDefectRow {
@@ -116,7 +118,7 @@ export interface WeeklyReportResult {
   yearMonth: string;
   plan: WeeklyPlanBlock[];
   printing: WeeklyPrintingBlock;
-  yield: { current: WeeklyYieldRow; previous: WeeklyYieldRow; diffPct: number | null };
+  yield: { current: WeeklyYieldRow; previous: WeeklyYieldRow; diffPct: number | null; diffPctExInjection: number | null };
   defect: WeeklyDefectRow[];
 }
 

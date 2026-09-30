@@ -272,17 +272,18 @@ function PrintingTable({ block: p }: { block: WeeklyPrintingBlock }) {
 }
 
 function YieldSection({ result: r }: { result: WeeklyReportResult }) {
-  const cur = r.yield.current.total;
-  const prev = r.yield.previous.total;
-  const diff = r.yield.diffPct;
-  let summary = "해당 주차 수율 데이터가 없습니다.";
-  if (cur != null) {
-    summary = `당주(사출 제외) : ${fmtPct(cur, 1)}`;
+  const line = (label: string, cur: number | null, prev: number | null, diff: number | null): string | null => {
+    if (cur == null) return null;
+    let s = `${label} : ${fmtPct(cur, 1)}`;
     if (prev != null && diff != null) {
       const d = Math.abs(diff * 100).toFixed(1);
-      summary += ` (전주 : ${fmtPct(prev, 1)} 전주 比 ${Math.abs(diff) < 0.0005 ? "동일" : diff > 0 ? `${d}% 증가` : `${d}% 감소`})`;
+      s += ` (전주 : ${fmtPct(prev, 1)} 전주 比 ${Math.abs(diff) < 0.0005 ? "동일" : diff > 0 ? `${d}% 증가` : `${d}% 감소`})`;
     }
-  }
+    return s;
+  };
+  const y = r.yield;
+  const summary = line("당주", y.current.total, y.previous.total, y.diffPct) ?? "해당 주차 수율 데이터가 없습니다.";
+  const exInjection = line("사출제외 : 당주", y.current.totalExInjection, y.previous.totalExInjection, y.diffPctExInjection);
   return (
     <>
       <p className="text-sm text-slate-700">□ {summary}</p>
@@ -312,8 +313,9 @@ function YieldSection({ result: r }: { result: WeeklyReportResult }) {
           </tbody>
         </table>
       </div>
+      {exInjection && <p className="text-sm text-slate-700">☞ {exInjection}</p>}
       <p className="text-xs text-slate-400">
-        사출 수율 = (MOLD입고 − 사출창고→불량창고 이동) ÷ MOLD입고 · TTL = 렌즈 공정 수율의 곱(사출 제외)
+        사출 수율 = (MOLD입고 − 사출창고→불량창고 이동) ÷ MOLD입고 · TTL = 사출 × 렌즈 공정 수율의 곱, 사출제외 = 렌즈 공정 수율의 곱
       </p>
     </>
   );
