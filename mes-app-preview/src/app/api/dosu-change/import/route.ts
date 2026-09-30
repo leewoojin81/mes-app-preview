@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     | number
     | null
   )[][];
-  const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).trim()));
+  const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).replace(/[▲▼]/g, "").trim()));
 
   // DOSU_CHANGE_COLS의 title(원본 헤더 제목) 순서대로 header에서 등장 위치를 하나씩
   // 소비한다 — "주야간"처럼 제목이 중복돼도 등장 순서대로 서로 다른 컬럼에 매칭된다.

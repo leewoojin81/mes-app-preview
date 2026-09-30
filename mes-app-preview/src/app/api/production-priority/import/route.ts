@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     | number
     | null
   )[][];
-  const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).trim()));
+  const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).replace(/[▲▼]/g, "").trim()));
   const iOrderNo = header.indexOf("수주번호");
   const iLineSeq = header.indexOf("순번");
   const iPriority = header.indexOf("작업순서");

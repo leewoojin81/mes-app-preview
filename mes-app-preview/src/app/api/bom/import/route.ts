@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     | number
     | null
   )[][];
-  const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).trim()));
+  const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).replace(/[▲▼]/g, "").trim()));
   const idx = (name: string) => header.indexOf(name);
   const iParentCode = idx("상위품목코드");
   const iParentName = idx("상위품목명");

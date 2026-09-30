@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     | number
     | null
   )[][];
-  const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).trim()));
+  const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).replace(/[▲▼]/g, "").trim()));
   const idx = (name: string) => header.indexOf(name);
 
   const iCode = idx("공정코드");
