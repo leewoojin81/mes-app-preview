@@ -21,8 +21,9 @@ import type { CalendarDayType } from "@/lib/types";
 //    시트(주/야)는 그 주에 더 많이 나온 조로 정한다. 카드 없이 연차·공가·병가·결근인 날은 "⑤"
 //  - 지각: PSN-02 지각시간(없으면 PSN-01 지각), 조퇴: PSN-01 조퇴
 //  - 조출/중교/정근: PSN-01 조출/중식교대/정상. 연장 = 잔업+조출+중교(양식 규칙 — 잔업 칸은 비워둠)
-//  - 야간: 1조는 조출시간 중 05:00~06:00분(조출시간-1시간), 2조는 22:15~01:00(2:45) —
-//    근무시간정보(PSN-07)의 조출 구간/3Q 구간 기준
+//  - 야간: 카드 출근~퇴근 시각이 야간대(22:15~다음날 06:00)와 겹치는 시간을 5분 단위(내림)로
+//    (2026-09-30 사용자 요청 — 예전엔 2조 고정 2:45/1조 조출-1h라 낮에 22분만 찍힌 날에도
+//    2:45가 들어갔다). 카드 출·퇴근 시각이 없으면 0
 //  - 토·일·공휴일(휴일 캘린더 포함)에 일한 날은 정근 대신 특근=정상, 특연(토요/휴일)=연장분이고
 //    조출·중교 칸은 비운다. 비고에 "특근"
 //  - 정근: PSN-01 저장값. PSN-01에 저장분이 없는 평일은 PSN-01 화면처럼 8시간
@@ -33,7 +34,28 @@ export const WEEKLY_TEMPLATE_PATH = path.join(process.cwd(), "templates", "weekl
 
 const DATA_START_ROW = 9;
 const MAX_COL = 24;
-const NIGHT_HOURS_SHIFT2 = 2.75;
+// 야간대 22:15~다음날 06:00 — 출근일 기준 연속 분(전날 22:15~06:00은 음수 구간, 당일 22:15~익일 06:00)
+const NIGHT_WINDOWS: [number, number][] = [
+  [-105, 360],
+  [1335, 1800],
+];
+const NIGHT_UNIT_MIN = 5;
+
+function clockToMinutes(s: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})/.exec(s);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+/** 카드 출근~퇴근(자정을 넘기면 다음날)이 야간대와 겹치는 분을 5분 단위로 내림 */
+function nightMinutes(cardIn: string, cardOut: string): number {
+  const inMin = clockToMinutes(cardIn);
+  const outRaw = clockToMinutes(cardOut);
+  if (inMin == null || outRaw == null) return 0;
+  const outMin = outRaw < inMin ? outRaw + 1440 : outRaw;
+  let overlap = 0;
+  for (const [a, b] of NIGHT_WINDOWS) overlap += Math.max(0, Math.min(outMin, b) - Math.max(inMin, a));
+  return Math.floor(overlap / NIGHT_UNIT_MIN) * NIGHT_UNIT_MIN;
+}
 
 // ── 날짜 유틸 ────────────────────────────────────────────────────────────
 function parseUtc(s: string): Date {
@@ -237,11 +259,7 @@ export function buildWeeklyBlocks(
       const extMin = ovtMin + earlyMin + lunchMin;
       const lateMin = hmToMinutes(card?.["지각시간"]) || hoursToMinutes(rec?.late_hours);
       const earlyLeaveMin = hoursToMinutes(rec?.early_leave_hours);
-      const nightMin = !worked
-        ? 0
-        : lineShift === "2조"
-          ? Math.round(NIGHT_HOURS_SHIFT2 * 60)
-          : Math.max(0, earlyMin - 60);
+      const nightMin = worked ? nightMinutes(cardIn, cardOut) : 0;
 
       let outDate = date;
       if (cardIn && cardOut && cardOut < cardIn) outDate = addDays(date, 1);
