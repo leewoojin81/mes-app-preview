@@ -29,11 +29,27 @@ function fmtQty(n: number | null): string {
 function fmtPct(n: number | null, digits: number): string {
   return n == null ? "" : `${(n * 100).toFixed(digits)}%`;
 }
+// 불량유형 칸은 0.000001% 미만(사실상 없음)이면 0.00%를 찍지 않고 빈칸으로 둔다(2026-10-01 사용자 요청).
+function fmtDefectPct(n: number | null): string {
+  return n == null || n * 100 < 0.000001 ? "" : fmtPct(n, 2);
+}
 function fmtK(n: number): string {
   return Math.round(n / 1000).toLocaleString("ko-KR");
 }
 function negClass(n: number | null): string {
   return n != null && n < 0 ? "text-red-600" : "";
+}
+
+// 열 너비를 모두 같게 고정하는 colgroup — 내용 길이에 따라 열 너비가 들쭉날쭉해지는 걸 막는다
+// (2026-10-01 사용자 요청: PROD-11 2. 생산공정 수율, 3. 주요공정 불량률 표).
+function EqualCols({ n }: { n: number }) {
+  return (
+    <colgroup>
+      {Array.from({ length: n }, (_, i) => (
+        <col key={i} style={{ width: `${100 / n}%` }} />
+      ))}
+    </colgroup>
+  );
 }
 
 const thCls = "px-2 py-1.5 text-center font-semibold text-slate-700 bg-slate-100 border border-slate-300";
@@ -288,7 +304,8 @@ function YieldSection({ result: r }: { result: WeeklyReportResult }) {
     <>
       <p className="text-sm text-slate-700">□ {summary}</p>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
+        <table className="w-full table-fixed text-xs border-collapse">
+          <EqualCols n={WEEKLY_YIELD_PROCESSES.length + 3} />
           <thead>
             <tr>
               <th className={thCls} rowSpan={2}>공정</th>
@@ -322,8 +339,19 @@ function YieldSection({ result: r }: { result: WeeklyReportResult }) {
 }
 
 function DefectSection({ result: r }: { result: WeeklyReportResult }) {
+  // 화면에서는 "이물관리"(이물 1~3) 열을 위 표의 불량 유형 옆으로 옮겨 보여준다(2026-10-01 사용자
+  // 요청). Word 서식은 기존 그대로(아래 표에 이물관리 포함)라 데이터 배열은 건드리지 않고 화면
+  // 표시 위치만 나눈다 — moved는 WEEKLY_DEFECT_TABLE2 안의 원래 인덱스.
+  const MOVED_GROUP = "이물관리";
+  const movedIdx = WEEKLY_DEFECT_TABLE2.map((c, i) => (c.group === MOVED_GROUP ? i : -1)).filter((i) => i >= 0);
+  const restIdx = WEEKLY_DEFECT_TABLE2.map((_, i) => i).filter((i) => !movedIdx.includes(i));
+  // 아래 표도 위 표와 같은 열 격자(열 너비)를 써서 열 경계가 위아래로 맞는다(2026-10-01 사용자 요청) —
+  // 공정·각 불량유형·비고 모두 1칸 폭(비고를 넓게 늘리지 않는다).
+  const topCols = 5 + WEEKLY_DEFECT_TABLE1.length + movedIdx.length;
+  const noteCols = 1;
   const t2Groups: { group: string; count: number }[] = [];
-  for (const c of WEEKLY_DEFECT_TABLE2) {
+  for (const i of restIdx) {
+    const c = WEEKLY_DEFECT_TABLE2[i];
     const last = t2Groups[t2Groups.length - 1];
     if (last && last.group === c.group) last.count++;
     else t2Groups.push({ group: c.group, count: 1 });
@@ -331,7 +359,8 @@ function DefectSection({ result: r }: { result: WeeklyReportResult }) {
   return (
     <>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
+        <table className="w-full table-fixed text-xs border-collapse">
+          <EqualCols n={topCols} />
           <thead>
             <tr>
               <th className={thCls} rowSpan={2}>공정</th>
@@ -340,8 +369,12 @@ function DefectSection({ result: r }: { result: WeeklyReportResult }) {
               <th className={thCls} rowSpan={2}>불량수(K천대)</th>
               <th className={thCls} rowSpan={2}>YLD</th>
               <th className={thCls} colSpan={WEEKLY_DEFECT_TABLE1.length}>불량 유형</th>
+              {movedIdx.length > 0 && <th className={thCls} colSpan={movedIdx.length}>{MOVED_GROUP}</th>}
             </tr>
-            <tr>{WEEKLY_DEFECT_TABLE1.map((c) => <th key={c.title} className={thCls}>{c.title}</th>)}</tr>
+            <tr>
+              {WEEKLY_DEFECT_TABLE1.map((c) => <th key={c.title} className={thCls}>{c.title}</th>)}
+              {movedIdx.map((i) => <th key={WEEKLY_DEFECT_TABLE2[i].title} className={thCls}>{WEEKLY_DEFECT_TABLE2[i].title}</th>)}
+            </tr>
           </thead>
           <tbody>
             {r.defect.map((d) => (
@@ -351,28 +384,30 @@ function DefectSection({ result: r }: { result: WeeklyReportResult }) {
                 <td className={tdCls}>{fmtK(d.goodQty)}</td>
                 <td className={tdCls}>{fmtK(d.badQty)}</td>
                 <td className={tdCls}>{fmtPct(d.yld, 1)}</td>
-                {d.table1.map((v, i) => <td key={i} className={tdCls}>{fmtPct(v, 2)}</td>)}
+                {d.table1.map((v, i) => <td key={i} className={tdCls}>{fmtDefectPct(v)}</td>)}
+                {movedIdx.map((i) => <td key={`m${i}`} className={tdCls}>{fmtDefectPct(d.table2[i])}</td>)}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
+        <table className="w-full table-fixed text-xs border-collapse">
+          <EqualCols n={topCols} />
           <thead>
             <tr>
               <th className={thCls} rowSpan={2}>공정</th>
               {t2Groups.map((g) => <th key={g.group} className={thCls} colSpan={g.count}>{g.group}</th>)}
-              <th className={thCls} rowSpan={2}>비고(%)</th>
+              <th className={thCls} rowSpan={2} colSpan={noteCols}>비고(%)</th>
             </tr>
-            <tr>{WEEKLY_DEFECT_TABLE2.map((c) => <th key={c.title} className={thCls}>{c.title}</th>)}</tr>
+            <tr>{restIdx.map((i) => <th key={WEEKLY_DEFECT_TABLE2[i].title} className={thCls}>{WEEKLY_DEFECT_TABLE2[i].title}</th>)}</tr>
           </thead>
           <tbody>
             {r.defect.map((d) => (
               <tr key={d.label}>
                 <td className={`${tdCls} font-bold`}>{d.label}</td>
-                {d.table2.map((v, i) => <td key={i} className={tdCls}>{fmtPct(v, 2)}</td>)}
-                <td className={tdCls}>{d.note}</td>
+                {restIdx.map((i) => <td key={i} className={tdCls}>{fmtDefectPct(d.table2[i])}</td>)}
+                <td className={tdCls} colSpan={noteCols}>{d.note}</td>
               </tr>
             ))}
           </tbody>

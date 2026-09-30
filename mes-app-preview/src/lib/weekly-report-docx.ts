@@ -47,6 +47,19 @@ function para(
   return `<w:p><w:pPr>${ppr}</w:pPr>${runs}</w:p>`;
 }
 
+// 표 칸 문단 — 글자가 있든 없든(빈 칸 포함) 문단 글꼴 크기와 줄간격을 같게 고정해 줄 높이가
+// 균일하게 나온다. 예전엔 빈 칸의 빈 문단이 본문 기본 글꼴 크기를 따라 빈 칸이 있는 줄만 더 높았다
+// (2026-10-01 사용자 요청 — 주요공정 불량률 줄간격 균일화).
+function cellPara(c: Cell, sz: number): string {
+  const markRpr = `<w:rPr>${FONT}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr>`;
+  const ppr =
+    `<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>` +
+    `<w:jc w:val="${c.align ?? "center"}"/>` +
+    markRpr;
+  const runs = c.t ? run(c.t, { size: sz, bold: c.bold, color: c.color }) : "";
+  return `<w:p><w:pPr>${ppr}</w:pPr>${runs}</w:p>`;
+}
+
 interface Cell {
   t: string;
   span?: number;
@@ -86,11 +99,7 @@ function table(grid: number[], rows: Cell[][], opts: { sz?: number; mar?: number
         (c.vm === "r" ? `<w:vMerge w:val="restart"/>` : c.vm === "c" ? `<w:vMerge/>` : "") +
         (c.fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${c.fill}"/>` : "") +
         `<w:vAlign w:val="center"/></w:tcPr>` +
-        para(c.t ? run(c.t, { size: sz, bold: c.bold, color: c.color }) : "", {
-          align: c.align ?? "center",
-          before: 0,
-          after: 0,
-        }) +
+        cellPara(c, sz) +
         `</w:tc>`;
     }
     xml += `</w:tr>`;
@@ -109,6 +118,10 @@ function qty(n: number | null): string {
 }
 function pct(n: number | null, digits: number): string {
   return n == null ? "" : `${(n * 100).toFixed(digits)}%`;
+}
+// 불량유형 칸은 0.000001% 미만(사실상 없음)이면 빈칸(2026-10-01 사용자 요청)
+function defectPct(n: number | null): string {
+  return n == null || n * 100 < 0.000001 ? "" : pct(n, 2);
 }
 function signedCell(n: number | null, fill?: string): Cell {
   return { t: qty(n), color: n != null && n < 0 ? "FF0000" : undefined, fill };
@@ -268,7 +281,7 @@ function defectTables(r: WeeklyReportResult): string[] {
       { t: k(d.goodQty) },
       { t: k(d.badQty) },
       { t: pct(d.yld, 1) },
-      ...d.table1.map((v) => ({ t: pct(v, 2) })),
+      ...d.table1.map((v) => ({ t: defectPct(v) })),
     ]);
   }
 
@@ -286,7 +299,7 @@ function defectTables(r: WeeklyReportResult): string[] {
     [head("", { vm: "c" }), ...t2.map((c) => head(c.title)), head("", { vm: "c" })],
   ];
   for (const d of r.defect) {
-    rows2.push([{ t: d.label, bold: true }, ...d.table2.map((v) => ({ t: pct(v, 2) })), { t: d.note }]);
+    rows2.push([{ t: d.label, bold: true }, ...d.table2.map((v) => ({ t: defectPct(v) })), { t: d.note }]);
   }
   return [table(grid1, rows1), table(grid2, rows2)];
 }
@@ -339,14 +352,6 @@ export async function buildWeeklyReportDocx(r: WeeklyReportResult): Promise<Buff
     parts.push(t);
     parts.push(para("", { after: 60 }));
   }
-  parts.push(
-    para(
-      run(`※ 집계기간 ${r.weekStart} ~ ${r.weekEnd} · 수율(YLD) = 양품수 ÷ (양품수 + 불량수) · 불량률 = 유형별 불량수 ÷ 작업량`, {
-        size: 18,
-        color: "808080",
-      })
-    )
-  );
 
   const next = xml.slice(0, bodyStart + "<w:body>".length) + parts.join("") + xml.slice(sectStart);
   zip.file("word/document.xml", next);
