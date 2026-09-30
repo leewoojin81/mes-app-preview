@@ -213,9 +213,11 @@ function processWip(db: DatabaseSync, wipColumnKey: string): number {
 export function computeProductionStatus(db: DatabaseSync, asOfDate?: string): ProductionStatusResult {
   const today = asOfDate ?? toDateStr(new Date());
   const yesterday = addDays(today, -1);
-  const yearMonth = today.slice(0, 7);
-  const monthStart = monthStartOf(today);
-  const monthEnd = monthEndOf(today);
+  // 월 기준은 기준일이 아니라 "전일"이 속한 달이다(2026-10-01 사용자 요청 — 기준일이 10/01이면
+  // 전일 실적은 9/30이므로 9월 자료가 나와야 한다). 달 중간에는 전일도 같은 달이라 그대로다.
+  const yearMonth = yesterday.slice(0, 7);
+  const monthStart = monthStartOf(yesterday);
+  const monthEnd = monthEndOf(yesterday);
   const prevYearMonth = prevYearMonthOf(yearMonth);
   const prevMonthStart = `${prevYearMonth}-01`;
   const prevMonthEnd = monthEndOf(prevMonthStart);
@@ -369,9 +371,10 @@ export function computeProductionTrend(
 
   const today = asOfDate ?? toDateStr(new Date());
   const yesterday = addDays(today, -1);
-  const yearStart = `${today.slice(0, 4)}-01-01`;
-  const monthStart = monthStartOf(today);
-  const monthEnd = monthEndOf(today);
+  // computeProductionStatus와 같이 전일이 속한 달을 기준으로 한다(기준일 10/01 → 9월).
+  const yearStart = `${yesterday.slice(0, 4)}-01-01`;
+  const monthStart = monthStartOf(yesterday);
+  const monthEnd = monthEndOf(yesterday);
 
   // 생산성(UPH) 분모 = PSN-01 실제 근무시간 합계(표 상단 요약의 yesterdayUph·mtdUph와 같은
   // 기준: 라인의 단일 workProcessCode, 사출_하는 사출_상과 같은 P100). 월별 점은 그 달,
@@ -445,7 +448,7 @@ export function computeProductionTrend(
   const vals = points.map((p) => p.uph);
   const average = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
 
-  const targetUph = getProcessUphTarget(db, line.key, Number(today.slice(0, 4)))?.targetUph ?? null;
+  const targetUph = getProcessUphTarget(db, line.key, Number(yesterday.slice(0, 4)))?.targetUph ?? null;
 
   return { lineKey: line.key, label: line.label, points, average, targetUph };
 }
