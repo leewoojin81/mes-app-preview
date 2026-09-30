@@ -33,7 +33,7 @@ export function effectiveSupportHours(leaveType: string | null | undefined, supp
 /** 근무상태가 "단축"(BASE-09 workers.status)인 작업자의 하루 정상근무 단축 시간(2026-09-30
  *  사용자 요청 — 단축근무자는 정상근무 8시간에서 2시간을 뺀 6시간이 기준). 휴가구분이 "출근"
  *  (leaveType 없음)인 날의 기준 8시간에만 적용한다. */
-export const SHORTENED_REDUCTION_HOURS = 2;
+export const SHORTENED_REDUCTION_HOURS = 0; // 2026-09-30 6시간(2)으로 냈다가 같은 날 8시간으로 원복 요청
 
 export interface AttendanceHoursInputs {
   /** 잔업 입력칸에 실제로 타이핑된(또는 마지막 저장분) 신청값 — 출근인 날은 이 값 자체가
