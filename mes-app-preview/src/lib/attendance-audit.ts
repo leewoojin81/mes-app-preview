@@ -282,6 +282,7 @@ interface DailyRow {
   early_leave_hours: number;
   outing_hours: number;
   total_hours: number;
+  overtime_input_hours: number | null;
 }
 
 interface SupportRow {
@@ -356,7 +357,7 @@ export function fetchAttendanceAudit(
   const dailyRows = db
     .prepare(
       `SELECT employee_no, work_date, leave_type, normal_hours, overtime_hours, early_start_hours, lunch_shift_hours,
-              late_hours, early_leave_hours, outing_hours, total_hours
+              late_hours, early_leave_hours, outing_hours, total_hours, overtime_input_hours
        FROM work_hours_daily WHERE employee_no IN (${placeholders}) AND work_date BETWEEN ? AND ?`
     )
     .all(...employeeNos, params.dateFrom, params.dateTo) as unknown as DailyRow[];
@@ -540,7 +541,15 @@ export function fetchAttendanceAudit(
         rawDerivedOvertime != null ? rawDerivedOvertime - outingAbsorbedByOvertime : null;
       const normalPsn02Raw =
         derivedNormal ?? parseCardDuration(card.detail["정상근무시간"] as string | number | null);
-      const normalPsn02 = Math.max(0, normalPsn02Raw - outingExcessOnNormal);
+      // 지각/조퇴는 PSN-01에서 잔업 신청분이 먼저 흡수한다(work-hours-leave.ts — 정상 8시간은
+      // 유지하고 잔업만 줄어듦). 세콤 재계산 정상은 지각/조퇴만큼 8시간보다 줄어 있는데 잔업은
+      // PSN-01 값(이미 차감된 값)을 쓰므로 그대로 비교하면 지각/조퇴가 정상과 잔업에서 두 번
+      // 빠진다(2026-09-30 전지연 9/29 — 지각 50분, 잔업 신청 2:20). PSN-01이 실제로 잔업에서
+      // 흡수한 만큼(신청값 − 잔업, 외출분 제외)을 정상 쪽에 되돌려 같은 개념으로 비교한다.
+      const absorbedByOvertime = Math.max(0, (daily?.overtime_input_hours ?? overtimeHours) - overtimeHours);
+      const normalShortfall = derivedNormal != null && !daily?.leave_type ? Math.max(0, NORMAL_BASE_HOURS - derivedNormal) : 0;
+      const absorbedNormalRestore = Math.min(normalShortfall, Math.max(0, absorbedByOvertime - outingHours));
+      const normalPsn02 = Math.max(0, normalPsn02Raw + absorbedNormalRestore - outingExcessOnNormal);
       const overtimeItem = buildOvertimeItem(overtimeHours, derivedOvertimeAfterOuting, rawPunchOut);
       const earlyStartItem = buildEarlyStartItem(earlyStartHours, derivedEarlyStart);
       // 근로시간의 조출/잔업 기여분 — 세콤 카드가 일찍 출근·늦게 퇴근을 찍어도 PSN-01에
