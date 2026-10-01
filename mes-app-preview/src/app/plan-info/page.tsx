@@ -695,7 +695,7 @@ function LineCapaPlanTab() {
                     ? (() => {
                         const combinedCapa = (r.dailyCapa ?? 0) + (injectionLowerRow?.dailyCapa ?? 0);
                         if (r.dailyCapa == null && injectionLowerRow?.dailyCapa == null) return null;
-                        return r.headcount > 0 ? combinedCapa / (r.headcount * r.hoursPerDay) : null;
+                        return r.headcountEffective > 0 ? combinedCapa / (r.headcountEffective * r.hoursPerDay) : null;
                       })()
                     : null;
                   return (

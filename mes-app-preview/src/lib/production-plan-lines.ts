@@ -1,3 +1,4 @@
+import { effectiveHeadcount } from "@/lib/plan-headcount";
 import type { DatabaseSync } from "node:sqlite";
 
 // 계획정보(PLAN-02) "공정별 월 CAPA 및 근무계획" — 첨부 생산계획 엑셀의 "라인별" 10개
@@ -58,6 +59,8 @@ export interface LineCapaRow {
   headcount: number;
   /** 직접 입력한 인원 텍스트(없으면 null — 화면/엑셀은 자동 집계 "N 명"을 보여준다) */
   headcountText: string | null;
+  /** UPH 등 계산에 쓰는 인원 — 직접 입력한 인원 텍스트의 숫자 합(없으면 자동 집계 인원). 2026-10-01 사용자 요청 */
+  headcountEffective: number;
   hoursPerDay: number;
   workDays: number;
   dailyCapa: number | null;
@@ -189,7 +192,9 @@ export function computeLineCapaPlan(db: DatabaseSync, yearMonth: string): LineCa
 
     const dailyCapa = line.isIndirect ? null : (capaByLine.get(line.key) ?? null);
     const monthlyCapa = dailyCapa != null ? dailyCapa * workDays : null;
-    const uph = dailyCapa != null && headcount > 0 ? dailyCapa / (headcount * HOURS_PER_DAY) : null;
+    const headcountText = headcountTextByLine.get(line.key) ?? null;
+    const headcountEffective = effectiveHeadcount(headcountText, headcount);
+    const uph = dailyCapa != null && headcountEffective > 0 ? dailyCapa / (headcountEffective * HOURS_PER_DAY) : null;
     const remark = remarkByLine.get(line.key) ?? null;
 
     return {
@@ -197,7 +202,8 @@ export function computeLineCapaPlan(db: DatabaseSync, yearMonth: string): LineCa
       label: line.label,
       isIndirect: !!line.isIndirect,
       headcount,
-      headcountText: headcountTextByLine.get(line.key) ?? null,
+      headcountText,
+      headcountEffective,
       hoursPerDay: HOURS_PER_DAY,
       workDays,
       dailyCapa,
@@ -213,7 +219,7 @@ export function computeLineCapaPlan(db: DatabaseSync, yearMonth: string): LineCa
   // 서로 다른 반제품 단계를 가리켜서 단순 합산이 의미가 없고, 최종 출하량만이 실제 전체
   // 생산량을 뜻한다(2026-09-13 사용자 요청). 생산성(UPH)도 그 출하 월CAPA를 전체
   // 인원×근무시간×근무일수(그 달 총 가용 근로시간)로 나눠 공장 전체 효율로 다시 계산한다.
-  const totalHeadcount = rows.reduce((sum, r) => sum + r.headcount, 0);
+  const totalHeadcount = rows.reduce((sum, r) => sum + r.headcountEffective, 0);
   const shippingRow = rows.find((r) => r.key === "shipping");
   const totalDailyCapa = shippingRow?.dailyCapa ?? null;
   const totalMonthlyCapa = shippingRow?.monthlyCapa ?? null;

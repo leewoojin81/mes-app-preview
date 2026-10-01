@@ -35,8 +35,8 @@ export async function GET(req: NextRequest) {
   const upperRow = mergeInjectionStats ? result.rows[upperIdx] : undefined;
   const lowerRow = mergeInjectionStats ? result.rows[lowerIdx] : undefined;
   const mergedInjectionUph =
-    upperRow && (upperRow.dailyCapa != null || lowerRow?.dailyCapa != null) && upperRow.headcount > 0
-      ? ((upperRow.dailyCapa ?? 0) + (lowerRow?.dailyCapa ?? 0)) / (upperRow.headcount * upperRow.hoursPerDay)
+    upperRow && (upperRow.dailyCapa != null || lowerRow?.dailyCapa != null) && upperRow.headcountEffective > 0
+      ? ((upperRow.dailyCapa ?? 0) + (lowerRow?.dailyCapa ?? 0)) / (upperRow.headcountEffective * upperRow.hoursPerDay)
       : null;
 
   const dataRows = result.rows.map((r, i) => [
