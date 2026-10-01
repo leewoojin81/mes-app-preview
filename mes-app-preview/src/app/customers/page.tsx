@@ -15,6 +15,7 @@ const USE_TABS = [
 type FormState = {
   customer_code: string;
   customer_name: string;
+  short_name: string;
   customer_type: string;
   biz_reg_no: string;
   ceo_name: string;
@@ -46,6 +47,7 @@ type FormState = {
 const EMPTY_FORM: FormState = {
   customer_code: "",
   customer_name: "",
+  short_name: "",
   customer_type: "",
   biz_reg_no: "",
   ceo_name: "",
@@ -77,6 +79,7 @@ const EMPTY_FORM: FormState = {
 const COLUMNS: { key: keyof Customer; label: string; align?: "right" }[] = [
   { key: "customer_code", label: "거래처코드" },
   { key: "customer_name", label: "거래처명" },
+  { key: "short_name", label: "약칭" },
   { key: "customer_type", label: "구분" },
   { key: "biz_reg_no", label: "사업자번호" },
   { key: "ceo_name", label: "대표자" },
@@ -126,7 +129,8 @@ export default function CustomerMasterPage() {
       const k = keyword.trim().toLowerCase();
       if (
         !r.customer_code.toLowerCase().includes(k) &&
-        !r.customer_name.toLowerCase().includes(k)
+        !r.customer_name.toLowerCase().includes(k) &&
+        !(r.short_name ?? "").toLowerCase().includes(k)
       )
         return false;
     }
@@ -198,6 +202,9 @@ export default function CustomerMasterPage() {
                 <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
                   No
                 </th>
+                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
+                  관리
+                </th>
                 {COLUMNS.map((c) => (
                   <th
                     key={c.key}
@@ -210,9 +217,6 @@ export default function CustomerMasterPage() {
                   사용여부
                 </th>
                 <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">수정일자</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
-                  관리
-                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -234,6 +238,25 @@ export default function CustomerMasterPage() {
                 visibleRows.map((r, idx) => (
                   <tr key={r.customer_code} className="hover:bg-slate-50">
                     <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => {
+                            setEditing(r);
+                            setShowForm(true);
+                          }}
+                          className="text-xs font-medium text-navy hover:underline"
+                        >
+                          수정
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(r)}
+                          className="text-xs font-medium text-rose-600 hover:underline"
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    </td>
                     {COLUMNS.map((c) => {
                       const v = r[c.key];
                       return (
@@ -267,25 +290,6 @@ export default function CustomerMasterPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.updated_at ? r.updated_at.slice(0, 16) : "-"}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            setEditing(r);
-                            setShowForm(true);
-                          }}
-                          className="text-xs font-medium text-navy hover:underline"
-                        >
-                          수정
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(r)}
-                          className="text-xs font-medium text-rose-600 hover:underline"
-                        >
-                          삭제
-                        </button>
-                      </div>
-                    </td>
                   </tr>
                 ))}
             </tbody>
@@ -373,6 +377,7 @@ function CustomerFormModal({
       ? {
           customer_code: editing.customer_code,
           customer_name: editing.customer_name,
+          short_name: editing.short_name ?? "",
           customer_type: editing.customer_type ?? "",
           biz_reg_no: editing.biz_reg_no ?? "",
           ceo_name: editing.ceo_name ?? "",
@@ -477,6 +482,15 @@ function CustomerFormModal({
                 value={form.customer_name}
                 onChange={(e) => set("customer_name", e.target.value)}
                 className={inputCls}
+              />
+            </label>
+            <label className="block text-sm col-span-3">
+              <span className="text-slate-600">약칭</span>
+              <input
+                value={form.short_name}
+                onChange={(e) => set("short_name", e.target.value)}
+                className={inputCls}
+                placeholder="계획 화면(PLAN-03 고객사 칸 등)에서 거래처명 대신 짧게 보여줄 이름 — 비우면 거래처명"
               />
             </label>
           </div>

@@ -55,15 +55,16 @@ export async function POST(req: NextRequest) {
 
   db.prepare(
     `INSERT INTO customers
-       (customer_code, customer_name, customer_type, biz_reg_no, ceo_name, zip_code, address,
+       (customer_code, customer_name, short_name, customer_type, biz_reg_no, ceo_name, zip_code, address,
         phone, fax, biz_type, biz_item, manager_name, settle_customer_code, settle_customer_name,
         trade_start_date, trade_end_date, category_large, category_mid, category_small,
         bank_name, bank_account, account_holder, website, is_purchase, is_outsourcing, is_sales,
         country, seq, use_yn)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     customerCode,
     customerName,
+    strOrNull(body.short_name),
     strOrNull(body.customer_type),
     strOrNull(body.biz_reg_no),
     strOrNull(body.ceo_name),

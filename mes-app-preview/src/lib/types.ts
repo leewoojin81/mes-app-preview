@@ -395,6 +395,8 @@ export interface Customer {
   updated_at?: string | null; // 마지막 수정 시각(DB 트리거가 기록)
   customer_code: string;
   customer_name: string;
+  /** 약칭(요약명) — 계획 화면에서 거래처명 대신 짧게 보여준다. 비어 있으면 거래처명을 쓴다. */
+  short_name: string | null;
   customer_type: string | null;
   biz_reg_no: string | null;
   ceo_name: string | null;

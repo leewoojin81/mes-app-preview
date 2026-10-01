@@ -378,6 +378,7 @@ CREATE TABLE IF NOT EXISTS item_process_routing (
 CREATE TABLE IF NOT EXISTS customers (
   customer_code TEXT PRIMARY KEY,
   customer_name TEXT NOT NULL,
+  short_name TEXT,
   customer_type TEXT,
   biz_reg_no TEXT,
   ceo_name TEXT,
@@ -1227,6 +1228,13 @@ function migrate(db: DatabaseSync) {
     for (const [workGroup, processCode] of unambiguous) {
       stmt.run(processCode, workGroup);
     }
+  }
+
+  // customers: 약칭(요약명) 컬럼 추가(2026-10-02 사용자 요청) — 거래처명이 길어 계획 화면(PLAN-03 고객사 칸 등)에서
+  // 짧게 보여주려는 이름. 비워 두면 거래처명을 그대로 쓴다. 이미 저장된 행이 있어 ALTER TABLE로 붙인다(기존 행은 NULL).
+  const customerCols = db.prepare("PRAGMA table_info(customers)").all() as { name: string }[];
+  if (!customerCols.some((c) => c.name === "short_name")) {
+    db.exec("ALTER TABLE customers ADD COLUMN short_name TEXT");
   }
 
   // workers: "비즈" 연동 원본값 컬럼 추가(2026-09-08) — 이미 저장된 행이 있어 DROP+CREATE
