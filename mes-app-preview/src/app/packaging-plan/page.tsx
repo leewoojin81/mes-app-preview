@@ -19,6 +19,21 @@ const FIELD_LABEL: Record<PackagingField, string> = {
   so_no: "수주번호",
 };
 const FIELD_ORDER = PACKAGING_FIELDS as readonly PackagingField[];
+
+// 표에 보이는 행 순서(2026-10-01 사용자 요청: 구분 → 고객사, 수주번호, 품명, 계획, 실적, 개입수, 납기일).
+// 실적·계획 팩수는 읽기 전용 행이다. 엔터 이동은 이 순서의 입력 행만 따라간다.
+type RowKind = { kind: "field"; field: PackagingField } | { kind: "actual" } | { kind: "packs" };
+const ROW_LAYOUT: RowKind[] = [
+  { kind: "field", field: "customer" },
+  { kind: "field", field: "so_no" },
+  { kind: "field", field: "product_name" },
+  { kind: "field", field: "plan_qty" },
+  { kind: "actual" },
+  { kind: "field", field: "pack_size" },
+  { kind: "field", field: "due_date" },
+  { kind: "packs" },
+];
+const INPUT_ORDER: PackagingField[] = ROW_LAYOUT.flatMap((r) => (r.kind === "field" ? [r.field] : []));
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
 function toLocalDateStr(d: Date): string {
@@ -29,6 +44,13 @@ function today(): string {
 }
 function weekdayOf(dateStr: string): number {
   return new Date(`${dateStr}T00:00:00Z`).getUTCDay();
+}
+// 주말 칸 채우기 색(2026-10-01 사용자 요청) — 토요일 #FFCCCC, 일요일 #FF9999. 평일은 채우지 않는다.
+function dayFill(dateStr: string): React.CSSProperties | undefined {
+  const wd = weekdayOf(dateStr);
+  if (wd === 6) return { backgroundColor: "#FFCCCC" };
+  if (wd === 0) return { backgroundColor: "#FF9999" };
+  return undefined;
 }
 function mmdd(dateStr: string): string {
   return `${Number(dateStr.slice(5, 7))}/${Number(dateStr.slice(8, 10))}`;
@@ -195,10 +217,10 @@ export default function PackagingPlanPage() {
   function focusBelow(line: string, date: string, field: PackagingField) {
     const lines = result?.lines ?? [];
     const li = lines.findIndex((l) => l.key === line);
-    const fi = FIELD_ORDER.indexOf(field);
+    const fi = INPUT_ORDER.indexOf(field);
     let target: string | null = null;
-    if (fi < FIELD_ORDER.length - 1) target = inputId(line, date, FIELD_ORDER[fi + 1]);
-    else if (li < lines.length - 1) target = inputId(lines[li + 1].key, date, FIELD_ORDER[0]);
+    if (fi < INPUT_ORDER.length - 1) target = inputId(line, date, INPUT_ORDER[fi + 1]);
+    else if (li < lines.length - 1) target = inputId(lines[li + 1].key, date, INPUT_ORDER[0]);
     if (target) document.getElementById(target)?.focus();
     else (document.activeElement as HTMLElement | null)?.blur();
   }
@@ -287,7 +309,7 @@ export default function PackagingPlanPage() {
                   const wd = weekdayOf(d);
                   const color = wd === 0 ? "text-rose-600" : wd === 6 ? "text-blue-600" : "";
                   return (
-                    <th key={d} className={`${thBase} sticky top-0 z-20 min-w-28 ${color}`}>
+                    <th key={d} style={dayFill(d)} className={`${thBase} sticky top-0 z-20 min-w-28 ${color}`}>
                       {DAY_NAMES[wd]}요일
                     </th>
                   );
@@ -298,7 +320,7 @@ export default function PackagingPlanPage() {
                   const wd = weekdayOf(d);
                   const color = wd === 0 ? "text-rose-600" : wd === 6 ? "text-blue-600" : "";
                   return (
-                    <th key={d} className={`${thBase} sticky top-[1.9rem] z-20 ${color}`}>
+                    <th key={d} style={dayFill(d)} className={`${thBase} sticky top-[1.9rem] z-20 ${color}`}>
                       {mmdd(d)}
                     </th>
                   );
@@ -315,12 +337,15 @@ export default function PackagingPlanPage() {
               )}
               {!loading &&
                 result?.lines.map((line) => {
-                  const rowCount = FIELD_ORDER.length + 2;
+                  const rowCount = ROW_LAYOUT.length;
+                  const labelCls =
+                    "sticky left-28 z-10 bg-slate-50 border border-slate-300 px-2 py-1 text-center text-slate-500";
                   return (
                     <Fragment key={line.key}>
-                      {FIELD_ORDER.map((f, fi) => (
-                        <tr key={`${line.key}-${f}`}>
-                          {fi === 0 && (
+                      {ROW_LAYOUT.map((row, ri) => {
+                        const rowKey = `${line.key}-${row.kind === "field" ? row.field : row.kind}`;
+                        const lineCell =
+                          ri === 0 ? (
                             <td
                               rowSpan={rowCount}
                               className="sticky left-0 z-10 bg-white border border-slate-300 px-2 text-center align-middle font-semibold text-slate-700"
@@ -328,62 +353,67 @@ export default function PackagingPlanPage() {
                               {line.label}
                               {line.sub && <div className="text-[10px] font-normal text-slate-400">{line.sub}</div>}
                             </td>
-                          )}
-                          <td className="sticky left-28 z-10 bg-slate-50 border border-slate-300 px-2 py-1 text-center text-slate-500">
-                            {FIELD_LABEL[f]}
-                          </td>
-                          {dates.map((d) => {
-                            const wd = weekdayOf(d);
-                            const off = wd === 0 || wd === 6;
-                            return (
-                              <td key={d} className={`border border-slate-200 p-0 ${off ? "bg-slate-50/70" : ""}`}>
-                                <input
-                                  id={inputId(line.key, d, f)}
-                                  value={drafts[key3(line.key, d, f)] ?? ""}
-                                  onChange={(e) => setDraft(line.key, d, f, e.target.value)}
-                                  onBlur={() => saveField(line.key, d, f)}
-                                  onKeyDown={(e) => {
-                                    if (e.key !== "Enter") return;
-                                    e.preventDefault();
-                                    focusBelow(line.key, d, f);
-                                  }}
-                                  placeholder={f === "due_date" ? "YYYY-MM-DD" : ""}
-                                  className={`w-full bg-transparent px-1.5 py-1 text-xs focus:bg-amber-50 focus:outline-none ${
-                                    f === "plan_qty" ? "text-right font-mono" : "text-center"
-                                  }`}
-                                />
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                      <tr key={`${line.key}-actual`}>
-                        <td className="sticky left-28 z-10 bg-slate-50 border border-slate-300 px-2 py-1 text-center text-slate-500">
-                          실적
-                        </td>
-                        {dates.map((d) => {
-                          const a = result.actuals[`${line.key}|${d}`];
+                          ) : null;
+                        if (row.kind === "actual") {
                           return (
-                            <td key={d} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-emerald-700">
-                              {a ? fmtNum(a) : ""}
-                            </td>
+                            <tr key={rowKey}>
+                              <td className={labelCls}>실적</td>
+                              {dates.map((d) => {
+                                const a = result.actuals[`${line.key}|${d}`];
+                                return (
+                                  <td key={d} style={dayFill(d)} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-emerald-700">
+                                    {a ? fmtNum(a) : ""}
+                                  </td>
+                                );
+                              })}
+                            </tr>
                           );
-                        })}
-                      </tr>
-                      <tr key={`${line.key}-packs`}>
-                        <td className="sticky left-28 z-10 bg-slate-50 border border-slate-300 px-2 py-1 text-center text-slate-500">
-                          계획 팩수
-                        </td>
-                        {dates.map((d) => {
-                          const qty = Number((drafts[key3(line.key, d, "plan_qty")] ?? "").replace(/,/g, ""));
-                          const pn = packNumber(drafts[key3(line.key, d, "pack_size")]);
+                        }
+                        if (row.kind === "packs") {
                           return (
-                            <td key={d} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-500">
-                              {qty > 0 && pn ? fmtNum(qty / pn) : ""}
-                            </td>
+                            <tr key={rowKey}>
+                              <td className={labelCls}>계획 팩수</td>
+                              {dates.map((d) => {
+                                const qty = Number((drafts[key3(line.key, d, "plan_qty")] ?? "").replace(/,/g, ""));
+                                const pn = packNumber(drafts[key3(line.key, d, "pack_size")]);
+                                return (
+                                  <td key={d} style={dayFill(d)} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-500">
+                                    {qty > 0 && pn ? fmtNum(qty / pn) : ""}
+                                  </td>
+                                );
+                              })}
+                            </tr>
                           );
-                        })}
-                      </tr>
+                        }
+                        const f = row.field;
+                        return (
+                          <tr key={rowKey}>
+                            {lineCell}
+                            <td className={labelCls}>{FIELD_LABEL[f]}</td>
+                            {dates.map((d) => {
+                              return (
+                                <td key={d} style={dayFill(d)} className="border border-slate-200 p-0">
+                                  <input
+                                    id={inputId(line.key, d, f)}
+                                    value={drafts[key3(line.key, d, f)] ?? ""}
+                                    onChange={(e) => setDraft(line.key, d, f, e.target.value)}
+                                    onBlur={() => saveField(line.key, d, f)}
+                                    onKeyDown={(e) => {
+                                      if (e.key !== "Enter") return;
+                                      e.preventDefault();
+                                      focusBelow(line.key, d, f);
+                                    }}
+                                    placeholder={f === "due_date" ? "YYYY-MM-DD" : ""}
+                                    className={`w-full bg-transparent px-1.5 py-1 text-xs focus:bg-amber-50 focus:outline-none ${
+                                      f === "plan_qty" ? "text-right font-mono" : "text-center"
+                                    }`}
+                                  />
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
                     </Fragment>
                   );
                 })}
