@@ -11,9 +11,9 @@ import { addDays, PACKAGING_FIELDS, type PackagingField, type PackagingScheduleR
 // 실적(일일작업현황 포장공정 양품수량)과 계획 팩수(계획 ÷ 개입수)는 읽기 전용으로 같이 보여준다.
 
 const FIELD_LABEL: Record<PackagingField, string> = {
-  product_name: "품명",
+  product_name: "품목군",
   plan_qty: "계획",
-  pack_size: "개입수",
+  pack_size: "포장단위수량",
   customer: "고객사",
   due_date: "납기일",
   so_no: "수주번호",
@@ -62,10 +62,12 @@ function formatThousands(raw: string): string {
   const digits = raw.replace(/[^\d]/g, "");
   return digits === "" ? "" : Number(digits).toLocaleString("ko-KR");
 }
-/** 개입수 칸에서 팩당 입수(첫 숫자)를 읽는다 — "10" → 10, "1,2"(2종)처럼 여러 값이면 첫 값 */
+/** 포장단위수량 칸에서 팩당 입수를 읽는다 — "10" → 10, "1,2"(2종)처럼 여러 값이면 null */
 function packNumber(s: string | null | undefined): number | null {
-  const m = /^\s*(\d+)/.exec(s ?? "");
-  return m && Number(m[1]) > 0 ? Number(m[1]) : null;
+  const t = (s ?? "").trim();
+  // 두 종 이상이 섞인 칸("1,2")은 종별 수량을 몰라 팩수로 환산하지 않는다
+  if (!/^\d+$/.test(t)) return null;
+  return Number(t) > 0 ? Number(t) : null;
 }
 /** 금~목 주차(주차 번호 = 그 구간 마지막 날(목요일)이 속한 ISO 주차) — PROD-11 주간업무보고와 같은 기준 */
 function weekStartOf(dateStr: string): string {
@@ -170,13 +172,19 @@ export default function PackagingPlanPage() {
             product_name: string | null;
             pack_size: string | null;
             due_date: string | null;
+            order_qty: number | null;
+            missing?: string[];
           };
           const auto: [PackagingField, string | null][] = [
             ["customer", info.customer],
             ["product_name", info.product_name],
             ["pack_size", info.pack_size],
             ["due_date", info.due_date],
+            ["plan_qty", info.order_qty ? String(info.order_qty) : null],
           ];
+          if (info.missing && info.missing.length > 0) {
+            setToast(`수주등록에서 찾을 수 없는 번호: ${info.missing.join(", ")} (찾은 번호만 채웁니다)`);
+          }
           for (const [f, v] of auto) {
             if (v && !(drafts[key3(line, date, f)] ?? "").trim()) {
               fields[f] = v;
@@ -184,7 +192,7 @@ export default function PackagingPlanPage() {
             }
           }
         } else {
-          setToast("수주현황에서 찾을 수 없는 수주번호입니다(번호만 저장됩니다).");
+          setToast("수주등록(SALES-02)에서 찾을 수 없는 수주번호입니다(번호만 저장됩니다).");
         }
       } catch {
         /* 조회 실패는 번호 저장에 영향 없음 */
@@ -209,7 +217,7 @@ export default function PackagingPlanPage() {
     savedRef.current = { ...savedRef.current, ...saved };
     if (filled) {
       setDrafts((prev) => ({ ...prev, ...saved }));
-      setToast("수주현황 정보로 빈 칸을 채웠습니다.");
+      setToast("수주등록·제품정보 값으로 빈 칸을 채웠습니다.");
     }
   }
 
@@ -255,8 +263,9 @@ export default function PackagingPlanPage() {
         <h1 className="text-xl font-bold text-navy">출하포장</h1>
         <p className="text-sm text-slate-500 mt-1">
           PLAN-03 · 포장 라인별·일자별 포장 계획을 입력합니다(칸을 벗어나거나 엔터를 치면 바로 저장되고, 엔터는 아래
-          칸으로 이동합니다). 수주번호를 넣으면 수주현황에서 고객사·품명·개입수·납기일의 빈 칸을 자동으로 채웁니다.
-          실적은 일일작업현황의 포장 양품수량이며, 계획 팩수는 계획 ÷ 개입수로 계산합니다.
+          칸으로 이동합니다). 수주번호를 넣으면 수주등록(SALES-02)의 품목군·납기일·수량(계획)과 제품정보(BASE-01)의
+          포장단위수량을 불러와 빈 칸을 채웁니다(고객사도 함께). 실적은 일일작업현황의 포장 양품수량이며,
+          계획 팩수는 계획 ÷ 포장단위수량으로 계산합니다.
         </p>
       </div>
 
@@ -447,8 +456,8 @@ export default function PackagingPlanPage() {
                   <td className="px-3 py-2 text-right font-mono">
                     {w.packs > 0 ? fmtNum(w.packs) : ""}
                     {w.noPack > 0 && (
-                      <span className="ml-1 text-[10px] text-amber-600" title="개입수가 없어 팩수로 환산하지 못한 칸 수">
-                        ({w.noPack}칸 개입수 없음)
+                      <span className="ml-1 text-[10px] text-amber-600" title="포장단위수량이 없어 팩수로 환산하지 못한 칸 수">
+                        ({w.noPack}칸 포장단위수량 없음)
                       </span>
                     )}
                   </td>

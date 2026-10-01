@@ -166,46 +166,106 @@ export function upsertPackagingCell(
 }
 
 export interface PackagingOrderInfo {
+  /** 입력한 수주번호(여러 개면 입력한 그대로) */
   so_no: string;
+  /** 수주등록에서 찾지 못한 번호 */
+  missing?: string[];
   customer: string | null;
+  /** 품목군(수주등록 SALES-02 품목군) */
   product_name: string | null;
+  /** 포장단위수량(제품정보 BASE-01) */
   pack_size: string | null;
   due_date: string | null;
+  /** 계획(수량) — 그 수주번호의 수주 수량 합계 */
   order_qty: number;
 }
 
 /**
- * 수주번호로 수주현황에서 고객사·품명·개입수·납기일을 찾아온다. 수주현황의 수주번호는 품목 줄마다
- * "SO202609030001-1"처럼 순번이 붙어 있어, 입력한 번호와 같거나 그 번호로 시작하는 줄을 모아 쓴다.
+ * 수주번호로 수주등록(SALES-02)에서 품목군·납기일·수량을, 제품정보(BASE-01)에서 포장단위수량을 찾아온다
+ * (2026-10-01 사용자 요청). 수주 테이블의 so_no는 품목 줄마다 "SO202609030001-1"처럼 순번이 붙어 있어,
+ * 입력한 번호와 같거나(원본 "수주번호" 컬럼 포함) 그 번호로 시작하는 줄을 모두 모아 쓴다.
+ *  - 품목군: 첫 줄의 품목군 / 납기일: 가장 빠른 납기일 / 계획(수량): 수주 수량 합계
+ *  - 포장단위수량: 줄마다 품목코드로 제품정보의 "포장단위수량"을 찾아 수량이 가장 많은 값을 쓴다
+ *    (제품정보에 없으면 수주 품목정보의 "N개입"으로 대신한다)
  */
-export function lookupOrderInfo(db: DatabaseSync, soNoRaw: string): PackagingOrderInfo | null {
+function lookupSingleOrder(db: DatabaseSync, soNoRaw: string): PackagingOrderInfo | null {
   const soNo = soNoRaw.trim();
   if (!soNo) return null;
   const rows = db
     .prepare(
-      `SELECT order_qty, due_date,
-              json_extract(detail, '$."거래처명"') cname, json_extract(detail, '$."품목정보"') info,
-              json_extract(detail, '$."품목군"') grp
-       FROM sales_orders WHERE so_no = ? OR so_no LIKE ? ORDER BY so_no LIMIT 500`
+      `SELECT so.item_code, so.order_qty, so.due_date,
+              json_extract(so.detail, '$."거래처명"') cname, json_extract(so.detail, '$."품목정보"') info,
+              json_extract(so.detail, '$."품목군"') grp,
+              json_extract(it.detail, '$."포장단위수량"') pk
+       FROM sales_orders so LEFT JOIN items it ON it.item_code = so.item_code
+       WHERE so.so_no = ? OR so.so_no LIKE ? OR json_extract(so.detail, '$."수주번호"') = ?
+       ORDER BY so.so_no LIMIT 2000`
     )
-    .all(soNo, `${soNo.replace(/[%_]/g, "")}-%`) as {
+    .all(soNo, `${soNo.replace(/[%_]/g, "")}-%`, soNo) as {
+    item_code: string | null;
     order_qty: number | null;
     due_date: string | null;
     cname: string | null;
     info: string | null;
     grp: string | null;
+    pk: number | string | null;
   }[];
   if (rows.length === 0) return null;
   const first = rows[0];
-  const info = first.info ?? "";
-  const nameFromInfo = info.split("◆")[0].trim();
-  const pack = /(\d+)\s*개입/.exec(info) ?? /\((\d+)\s*P/i.exec(info);
+
+  // 포장단위수량 — 제품정보 값별 수주 수량 합이 가장 큰 값
+  const packWeight = new Map<string, number>();
+  for (const r of rows) {
+    const v = r.pk != null && Number(r.pk) > 0 ? String(Number(r.pk)) : null;
+    if (v) packWeight.set(v, (packWeight.get(v) ?? 0) + (r.order_qty ?? 0) + 1);
+  }
+  let pack: string | null = null;
+  let best = -1;
+  for (const [v, w] of packWeight) if (w > best) { best = w; pack = v; }
+  if (!pack) {
+    const m = /(\d+)\s*개입/.exec(first.info ?? "") ?? /\((\d+)\s*P/i.exec(first.info ?? "");
+    pack = m ? m[1] : null;
+  }
+
   return {
     so_no: soNo,
     customer: first.cname,
-    product_name: nameFromInfo || first.grp,
-    pack_size: pack ? pack[1] : null,
-    due_date: rows.map((r) => r.due_date).filter((d): d is string => !!d).sort()[0] ?? null,
-    order_qty: rows.reduce((s, r) => s + (r.order_qty ?? 0), 0),
+    product_name: first.grp ?? ((first.info ?? "").split("◆")[0].trim() || null),
+    pack_size: pack,
+    due_date: rows.map((r) => r.due_date).filter((x): x is string => !!x).sort()[0] ?? null,
+    order_qty: rows.reduce((sum, r) => sum + (r.order_qty ?? 0), 0),
+  };
+}
+
+/**
+ * 수주번호 칸에는 한 칸에 두 종 이상을 함께 포장하는 경우(예: "Dope Wink 2종") 수주번호를 여러 개 적을 수
+ * 있다(쉼표·공백·슬래시로 구분, 2026-10-01 사용자 요청 — SO202609150008, SO202609150009). 번호마다 찾아
+ *  - 품목군·고객사: 서로 다른 값을 ", "로 이어 붙이고
+ *  - 납기일: 가장 빠른 날짜 / 계획(수량): 수량 합계
+ *  - 포장단위수량: 서로 다른 값을 작은 수부터 ","로 이어 붙인다(예: "1,2").
+ * 못 찾은 번호는 missing에 담아 돌려준다. 하나도 못 찾으면 null.
+ */
+export function lookupOrderInfo(db: DatabaseSync, soNoRaw: string): PackagingOrderInfo | null {
+  const tokens = [...new Set(soNoRaw.split(/[\s,;/]+/).map((t) => t.trim()).filter(Boolean))];
+  if (tokens.length === 0) return null;
+  const found: PackagingOrderInfo[] = [];
+  const missing: string[] = [];
+  for (const t of tokens) {
+    const info = lookupSingleOrder(db, t);
+    if (info) found.push(info);
+    else missing.push(t);
+  }
+  if (found.length === 0) return null;
+  if (found.length === 1 && missing.length === 0) return found[0];
+  const uniq = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))];
+  const packs = uniq(found.map((f) => f.pack_size)).sort((a, b) => Number(a) - Number(b));
+  return {
+    so_no: soNoRaw.trim(),
+    missing,
+    customer: uniq(found.map((f) => f.customer)).join(", ") || null,
+    product_name: uniq(found.map((f) => f.product_name)).join(", ") || null,
+    pack_size: packs.join(",") || null,
+    due_date: found.map((f) => f.due_date).filter((x): x is string => !!x).sort()[0] ?? null,
+    order_qty: found.reduce((sum, f) => sum + f.order_qty, 0),
   };
 }
