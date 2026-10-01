@@ -137,19 +137,19 @@ export default function PpeIssuancePage() {
               {!loading &&
                 workers.map((w, idx) => (
                   <tr key={w.employee_no} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{w.employee_no}</td>
-                    <td className="px-4 py-3 font-medium">{w.worker_name}</td>
-                    <td className="px-4 py-3 text-slate-500">{w.process_code || "-"}</td>
+                    <td className="px-4 py-3 text-center text-slate-500">{idx + 1}</td>
+                    <td className="px-4 py-3 text-center font-mono text-xs text-slate-500">{w.employee_no}</td>
+                    <td className="px-4 py-3 text-center font-medium">{w.worker_name}</td>
+                    <td className="px-4 py-3 text-center text-slate-500">{w.process_code || "-"}</td>
                     {items.map((item) => {
                       const cell = cellMap.get(`${w.employee_no}|${item.item_code}`);
                       return (
-                        <td key={item.item_code} className="px-4 py-3">
+                        <td key={item.item_code} className="px-4 py-3 text-center">
                           <DueBadge dateStr={cell?.next_due_date ?? null} today={today} />
                         </td>
                       );
                     })}
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3 text-center">
                       <button
                         onClick={() => setHistoryTarget(w)}
                         className="text-xs font-medium text-navy hover:underline"
@@ -415,12 +415,12 @@ function HistoryModal({
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-500 text-xs">
               <tr>
-                <th className="text-left px-4 py-2.5 font-semibold">품목</th>
+                <th className="text-center px-4 py-2.5 font-semibold">품목</th>
                 <th className="text-center px-4 py-2.5 font-semibold">차수</th>
                 <th className="text-center px-4 py-2.5 font-semibold">지급일자</th>
                 <th className="text-center px-4 py-2.5 font-semibold">다음예정일</th>
                 <th className="text-center px-4 py-2.5 font-semibold">수령</th>
-                <th className="text-left px-4 py-2.5 font-semibold">비고</th>
+                <th className="text-center px-4 py-2.5 font-semibold">비고</th>
                 <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
@@ -441,7 +441,7 @@ function HistoryModal({
               )}
               {rows?.map((r) => (
                 <tr key={r.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-2.5">{itemNameByCode.get(r.item_code) ?? r.item_code}</td>
+                  <td className="px-4 py-2.5 text-center">{itemNameByCode.get(r.item_code) ?? r.item_code}</td>
                   <td className="px-4 py-2.5 text-center">{r.issue_seq}차</td>
                   <td className="px-4 py-2.5 text-center font-mono text-xs">{r.issue_date}</td>
                   <td className="px-4 py-2.5 text-center font-mono text-xs text-slate-500">
@@ -458,7 +458,7 @@ function HistoryModal({
                       {r.received_yn}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-slate-500">{r.note || "-"}</td>
+                  <td className="px-4 py-2.5 text-center text-slate-500">{r.note || "-"}</td>
                   <td className="px-4 py-2.5 text-right whitespace-nowrap">
                     {confirmId === r.id ? (
                       <span className="inline-flex items-center gap-1.5">
