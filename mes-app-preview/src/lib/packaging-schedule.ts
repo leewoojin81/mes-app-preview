@@ -10,18 +10,16 @@ export interface PackagingLine {
   key: string;
   label: string;
   sub: string;
-  /** 일일작업현황 "라인" 이름 — 실적을 읽어 올 라인(없으면 실적 없음) */
-  actualLines: string[];
 }
 
 export const PACKAGING_LINES: PackagingLine[] = [
-  { key: "line1", label: "1 Line", sub: "Auto (Monthly)", actualLines: ["자동포장기 1호기"] },
-  { key: "line2", label: "2 Line", sub: "Auto (One day)", actualLines: ["자동포장기 2호기"] },
-  { key: "line3", label: "3 Line", sub: "Auto (Monthly)", actualLines: ["자동포장기 3호기"] },
-  { key: "line4", label: "4 Line", sub: "Manual (Conveyor)", actualLines: ["포장 04호기"] },
-  { key: "line5", label: "5 Line", sub: "Manual (Conveyor)", actualLines: ["포장 05호기"] },
-  { key: "etc", label: "기타", sub: "", actualLines: [] },
-  { key: "vial", label: "바이알", sub: "", actualLines: [] },
+  { key: "line1", label: "1 Line", sub: "Auto (Monthly)" },
+  { key: "line2", label: "2 Line", sub: "Auto (One day)" },
+  { key: "line3", label: "3 Line", sub: "Auto (Monthly)" },
+  { key: "line4", label: "4 Line", sub: "Manual (Conveyor)" },
+  { key: "line5", label: "5 Line", sub: "Manual (Conveyor)" },
+  { key: "etc", label: "기타", sub: "" },
+  { key: "vial", label: "바이알", sub: "" },
 ];
 
 export const PACKAGING_FIELDS = ["product_name", "plan_qty", "pack_size", "customer", "due_date", "so_no"] as const;
@@ -38,13 +36,26 @@ export interface PackagingCell {
   so_no: string | null;
 }
 
+export interface PackagingOrderActual {
+  total: number;
+  details: { date: string; line: string; qty: number }[];
+}
+
+/** 수주번호 칸 문자열에서 번호들을 뽑는다(쉼표·공백·슬래시·세미콜론 구분) */
+export function splitSoNos(raw: string | null | undefined): string[] {
+  return [...new Set((raw ?? "").split(/[\s,;/]+/).map((t) => t.trim()).filter(Boolean))];
+}
+
 export interface PackagingScheduleResult {
   from: string;
   to: string;
   lines: PackagingLine[];
   cells: PackagingCell[];
-  /** `${line_key}|${YYYY-MM-DD}` → 그 라인·날짜 실제 포장 수량(일일작업현황 양품수량 합) */
-  actuals: Record<string, number>;
+  /**
+   * 수주번호 → 그 수주의 실제 포장 실적 — 일일작업현황(PROD-10)에서 공정이 출하포장(P410)이고 수주번호가
+   * 같은 줄의 양품수량을 날짜 구분 없이 누계한 값과 날짜·라인별 내역(2026-10-02 사용자 요청).
+   */
+  orderActuals: Record<string, PackagingOrderActual>;
 }
 
 export function ensurePackagingScheduleTable(db: DatabaseSync): void {
@@ -81,26 +92,29 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
     )
     .all(from, to) as unknown as PackagingCell[];
 
-  // 실적 — 일일작업현황의 출하포장(P410) 양품수량을 포장 라인·일자별로 합산
-  const actualRows = db
-    .prepare(
-      `SELECT work_date d, json_extract(detail, '$."라인"') l,
-              SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) q
-       FROM daily_work_status
-       WHERE process_code = 'P410' AND work_date BETWEEN ? AND ?
-       GROUP BY work_date, l`
-    )
-    .all(from, to) as { d: string; l: string | null; q: number | null }[];
-  const lineByActualName = new Map<string, string>();
-  for (const line of PACKAGING_LINES) for (const n of line.actualLines) lineByActualName.set(n, line.key);
-  const actuals: Record<string, number> = {};
-  for (const r of actualRows) {
-    const key = lineByActualName.get(r.l ?? "");
-    if (!key) continue;
-    const k = `${key}|${r.d}`;
-    actuals[k] = (actuals[k] ?? 0) + (r.q ?? 0);
+  // 실적 — 계획 칸의 수주번호와 같은 수주번호의 일일작업현황 출하포장(P410) 양품수량(누계)
+  const soNos = [...new Set(cells.flatMap((c) => splitSoNos(c.so_no)))];
+  const orderActuals: Record<string, PackagingOrderActual> = {};
+  for (let k = 0; k < soNos.length; k += 200) {
+    const chunk = soNos.slice(k, k + 200);
+    const ph = chunk.map(() => "?").join(",");
+    const rows = db
+      .prepare(
+        `SELECT json_extract(detail, '$."수주번호"') so, work_date d, json_extract(detail, '$."라인"') l,
+                SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) q
+         FROM daily_work_status
+         WHERE process_code = 'P410' AND json_extract(detail, '$."수주번호"') IN (${ph})
+         GROUP BY so, work_date, l ORDER BY so, work_date`
+      )
+      .all(...chunk) as { so: string; d: string; l: string | null; q: number | null }[];
+    for (const r of rows) {
+      const a = (orderActuals[r.so] ??= { total: 0, details: [] });
+      const qty = r.q ?? 0;
+      a.total += qty;
+      a.details.push({ date: r.d, line: r.l ?? "", qty });
+    }
   }
-  return { from, to, lines: PACKAGING_LINES, cells, actuals };
+  return { from, to, lines: PACKAGING_LINES, cells, orderActuals };
 }
 
 function cleanText(v: unknown, max: number): string | null {

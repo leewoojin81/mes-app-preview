@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
-import { addDays, PACKAGING_FIELDS, type PackagingField, type PackagingScheduleResult } from "@/lib/packaging-schedule";
+import { addDays, PACKAGING_FIELDS, splitSoNos, type PackagingField, type PackagingScheduleResult } from "@/lib/packaging-schedule";
 
 // 계획정보(PLAN-03) "출하포장" — 포장 라인별·일자별 포장 계획표("2026년 포장_20261001.xlsx" 1번 시트)를
 // 그대로 옮긴 화면(2026-10-01 사용자 요청). 라인(1~5 Line/기타/바이알) × 날짜 한 칸에 품명·계획(수량)·
@@ -69,6 +69,23 @@ const DIVIDER = "2px solid #475569";
 /** 월요일 열의 왼쪽 선 — 월요일~일요일을 한 주 구획으로 구분 */
 function weekEdge(dateStr: string): React.CSSProperties {
   return weekdayOf(dateStr) === 1 ? { borderLeft: DIVIDER } : {};
+}
+/** 칸의 수주번호(여러 개면 합산)에 해당하는 출하포장 실적 누계와 날짜·라인별 내역 */
+function cellActual(
+  result: PackagingScheduleResult,
+  soRaw: string | undefined
+): { total: number; details: { date: string; line: string; qty: number }[] } | null {
+  const nos = splitSoNos(soRaw);
+  if (nos.length === 0) return null;
+  let total = 0;
+  const details: { date: string; line: string; qty: number }[] = [];
+  for (const so of nos) {
+    const a = result.orderActuals[so];
+    if (!a) continue;
+    total += a.total;
+    details.push(...a.details);
+  }
+  return details.length > 0 ? { total, details } : null;
 }
 function mmdd(dateStr: string): string {
   return `${Number(dateStr.slice(5, 7))}/${Number(dateStr.slice(8, 10))}`;
@@ -156,6 +173,16 @@ export default function PackagingPlanPage() {
     const t = setTimeout(() => setToast(null), 3000);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // 수주번호를 바꾸면 그 번호의 출하포장 실적도 새로 읽어 온다(입력 중인 칸의 값은 그대로 둠)
+  function refreshActuals() {
+    fetch(`/api/packaging-schedule?from=${from}&days=${days}`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: PackagingScheduleResult) =>
+        setResult((prev) => (prev ? { ...prev, orderActuals: data.orderActuals } : prev))
+      )
+      .catch(() => undefined);
+  }
 
   function setDraft(line: string, date: string, field: PackagingField, v: string) {
     setDrafts((prev) => ({ ...prev, [key3(line, date, field)]: field === "plan_qty" ? formatThousands(v) : v }));
@@ -249,6 +276,7 @@ export default function PackagingPlanPage() {
       saved[kk] = f === "plan_qty" ? formatThousands(String(v)) : String(v);
     }
     savedRef.current = { ...savedRef.current, ...saved };
+    if (field === "so_no") refreshActuals();
     if (filled) {
       setDrafts((prev) => ({ ...prev, ...saved }));
       setToast("수주등록·제품정보 값으로 채웠습니다.");
@@ -282,7 +310,7 @@ export default function PackagingPlanPage() {
           if (pn) w.packs += qty / pn;
           else w.noPack++;
         }
-        w.actual += result.actuals[`${line.key}|${date}`] ?? 0;
+        w.actual += cellActual(result, drafts[key3(line.key, date, "so_no")])?.total ?? 0;
       }
       map.set(ws, w);
     }
@@ -298,7 +326,7 @@ export default function PackagingPlanPage() {
         <p className="text-sm text-slate-500 mt-1">
           PLAN-03 · 포장 라인별·일자별 포장 계획입니다. 입력할 수 있는 칸은 고객사와 수주번호뿐이며(칸을 벗어나거나
           엔터를 치면 바로 저장되고, 엔터는 아래 칸으로 이동합니다) 나머지 칸은 보여주기만 합니다. 수주번호를 넣으면 수주등록(SALES-02)의 품목군·납기일·수량(계획)과 제품정보(BASE-01)의
-          포장단위수량을 개입수로 불러와 채우며(수주번호를 바꾸면 다시 불러오고, 고객사는 비어 있을 때만 채웁니다) 실적은 일일작업현황의 포장 양품수량이며,
+          포장단위수량을 개입수로 불러와 채우며(수주번호를 바꾸면 다시 불러오고, 고객사는 비어 있을 때만 채웁니다) 실적은 일일작업현황(PROD-10)의 출하포장 공정 중 같은 수주번호의 양품수량 누계이며,
           계획 팩수는 계획 ÷ 개입수로 계산합니다.
         </p>
       </div>
@@ -413,10 +441,21 @@ export default function PackagingPlanPage() {
                             <tr key={rowKey}>
                               <td style={labelStyle} className={labelCls}>실적</td>
                               {dates.map((d) => {
-                                const a = result.actuals[`${line.key}|${d}`];
+                                const a = cellActual(result, drafts[key3(line.key, d, "so_no")]);
                                 return (
-                                  <td key={d} style={{ ...dayFill(d), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-emerald-700">
-                                    {a ? fmtNum(a) : ""}
+                                  <td
+                                    key={d}
+                                    title={
+                                      a
+                                        ? a.details
+                                            .map((x) => `${mmdd(x.date)} ${x.line} ${fmtNum(x.qty)}`)
+                                            .join("\n")
+                                        : undefined
+                                    }
+                                    style={{ ...dayFill(d), ...weekEdge(d), ...blockEdge }}
+                                    className="border border-slate-200 px-1.5 py-1 text-right font-mono text-emerald-700"
+                                  >
+                                    {a && a.total > 0 ? fmtNum(a.total) : ""}
                                   </td>
                                 );
                               })}
