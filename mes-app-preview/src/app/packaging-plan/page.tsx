@@ -13,7 +13,7 @@ import { addDays, PACKAGING_FIELDS, type PackagingField, type PackagingScheduleR
 const FIELD_LABEL: Record<PackagingField, string> = {
   product_name: "품목군",
   plan_qty: "계획",
-  pack_size: "포장단위수량",
+  pack_size: "개입수",
   customer: "고객사",
   due_date: "납기일",
   so_no: "수주번호",
@@ -33,7 +33,19 @@ const ROW_LAYOUT: RowKind[] = [
   { kind: "field", field: "due_date" },
   { kind: "packs" },
 ];
-const INPUT_ORDER: PackagingField[] = ROW_LAYOUT.flatMap((r) => (r.kind === "field" ? [r.field] : []));
+// 행별 글자색(2026-10-01 사용자 요청) — 고객사 #002060, 품목군 #0070C0, 납기일 #FF0000. 나머지 행은 기본 색.
+const FIELD_TEXT_COLOR: Partial<Record<PackagingField, string>> = {
+  customer: "#002060",
+  product_name: "#0070C0",
+  due_date: "#FF0000",
+};
+
+// 입력할 수 있는 칸은 고객사·수주번호뿐이다(2026-10-01 사용자 요청). 품목군·계획·개입수·납기일은 수주번호로
+// 수주등록(SALES-02)·제품정보(BASE-01)에서 불러온 값을 보여주기만 하고, 실적·계획 팩수도 계산 값이다.
+const READONLY_FIELDS = new Set<PackagingField>(["product_name", "plan_qty", "pack_size", "due_date"]);
+const INPUT_ORDER: PackagingField[] = ROW_LAYOUT.flatMap((r) =>
+  r.kind === "field" && !READONLY_FIELDS.has(r.field) ? [r.field] : []
+);
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
 function toLocalDateStr(d: Date): string {
@@ -52,6 +64,12 @@ function dayFill(dateStr: string): React.CSSProperties | undefined {
   if (wd === 0) return { backgroundColor: "#FF9999" };
   return undefined;
 }
+// 구획선(2026-10-01 사용자 요청) — 설비(라인) 블록 사이와 월~일 주 사이를 굵은 선으로 나눈다.
+const DIVIDER = "2px solid #475569";
+/** 월요일 열의 왼쪽 선 — 월요일~일요일을 한 주 구획으로 구분 */
+function weekEdge(dateStr: string): React.CSSProperties {
+  return weekdayOf(dateStr) === 1 ? { borderLeft: DIVIDER } : {};
+}
 function mmdd(dateStr: string): string {
   return `${Number(dateStr.slice(5, 7))}/${Number(dateStr.slice(8, 10))}`;
 }
@@ -62,7 +80,7 @@ function formatThousands(raw: string): string {
   const digits = raw.replace(/[^\d]/g, "");
   return digits === "" ? "" : Number(digits).toLocaleString("ko-KR");
 }
-/** 포장단위수량 칸에서 팩당 입수를 읽는다 — "10" → 10, "1,2"(2종)처럼 여러 값이면 null */
+/** 개입수 칸에서 팩당 입수를 읽는다 — "10" → 10, "1,2"(2종)처럼 여러 값이면 null */
 function packNumber(s: string | null | undefined): number | null {
   const t = (s ?? "").trim();
   // 두 종 이상이 섞인 칸("1,2")은 종별 수량을 몰라 팩수로 환산하지 않는다
@@ -161,6 +179,15 @@ export default function PackagingPlanPage() {
     const fields: Partial<Record<PackagingField, string>> = { [field]: value };
 
     let filled = false;
+    if (field === "so_no" && value.trim() === "") {
+      // 수주번호를 지우면 그 번호에서 불러왔던 품목군·계획·개입수·납기일도 함께 지운다
+      for (const f of READONLY_FIELDS) {
+        if ((drafts[key3(line, date, f)] ?? "") !== "") {
+          fields[f] = "";
+          filled = true;
+        }
+      }
+    }
     if (field === "so_no" && value.trim() !== "") {
       try {
         const res = await fetch(`/api/packaging-schedule/order-info?soNo=${encodeURIComponent(value.trim())}`, {
@@ -186,7 +213,14 @@ export default function PackagingPlanPage() {
             setToast(`수주등록에서 찾을 수 없는 번호: ${info.missing.join(", ")} (찾은 번호만 채웁니다)`);
           }
           for (const [f, v] of auto) {
-            if (v && !(drafts[key3(line, date, f)] ?? "").trim()) {
+            if (READONLY_FIELDS.has(f)) {
+              // 읽기 전용 칸은 수주번호가 바뀔 때마다 수주 값으로 새로 채운다(값이 없으면 비운다)
+              if ((v ?? "") !== (drafts[key3(line, date, f)] ?? "").replace(/,/g, "")) {
+                fields[f] = v ?? "";
+                filled = true;
+              }
+            } else if (v && !(drafts[key3(line, date, f)] ?? "").trim()) {
+              // 고객사는 직접 고칠 수 있는 칸이라 비어 있을 때만 채운다
               fields[f] = v;
               filled = true;
             }
@@ -217,7 +251,7 @@ export default function PackagingPlanPage() {
     savedRef.current = { ...savedRef.current, ...saved };
     if (filled) {
       setDrafts((prev) => ({ ...prev, ...saved }));
-      setToast("수주등록·제품정보 값으로 빈 칸을 채웠습니다.");
+      setToast("수주등록·제품정보 값으로 채웠습니다.");
     }
   }
 
@@ -262,10 +296,10 @@ export default function PackagingPlanPage() {
       <div>
         <h1 className="text-xl font-bold text-navy">출하포장</h1>
         <p className="text-sm text-slate-500 mt-1">
-          PLAN-03 · 포장 라인별·일자별 포장 계획을 입력합니다(칸을 벗어나거나 엔터를 치면 바로 저장되고, 엔터는 아래
-          칸으로 이동합니다). 수주번호를 넣으면 수주등록(SALES-02)의 품목군·납기일·수량(계획)과 제품정보(BASE-01)의
-          포장단위수량을 불러와 빈 칸을 채웁니다(고객사도 함께). 실적은 일일작업현황의 포장 양품수량이며,
-          계획 팩수는 계획 ÷ 포장단위수량으로 계산합니다.
+          PLAN-03 · 포장 라인별·일자별 포장 계획입니다. 입력할 수 있는 칸은 고객사와 수주번호뿐이며(칸을 벗어나거나
+          엔터를 치면 바로 저장되고, 엔터는 아래 칸으로 이동합니다) 나머지 칸은 보여주기만 합니다. 수주번호를 넣으면 수주등록(SALES-02)의 품목군·납기일·수량(계획)과 제품정보(BASE-01)의
+          포장단위수량을 개입수로 불러와 채우며(수주번호를 바꾸면 다시 불러오고, 고객사는 비어 있을 때만 채웁니다) 실적은 일일작업현황의 포장 양품수량이며,
+          계획 팩수는 계획 ÷ 개입수로 계산합니다.
         </p>
       </div>
 
@@ -311,14 +345,18 @@ export default function PackagingPlanPage() {
                 <th rowSpan={2} className={`${thBase} sticky left-0 top-0 z-30 min-w-28`}>
                   설비
                 </th>
-                <th rowSpan={2} className={`${thBase} sticky left-28 top-0 z-30 min-w-16`}>
+                <th
+                  rowSpan={2}
+                  style={{ borderLeft: DIVIDER, borderRight: DIVIDER }}
+                  className={`${thBase} sticky left-28 top-0 z-30 min-w-16`}
+                >
                   구분
                 </th>
                 {dates.map((d) => {
                   const wd = weekdayOf(d);
                   const color = wd === 0 ? "text-rose-600" : wd === 6 ? "text-blue-600" : "";
                   return (
-                    <th key={d} style={dayFill(d)} className={`${thBase} sticky top-0 z-20 min-w-28 ${color}`}>
+                    <th key={d} style={{ ...dayFill(d), ...weekEdge(d) }} className={`${thBase} sticky top-0 z-20 min-w-28 ${color}`}>
                       {DAY_NAMES[wd]}요일
                     </th>
                   );
@@ -329,7 +367,7 @@ export default function PackagingPlanPage() {
                   const wd = weekdayOf(d);
                   const color = wd === 0 ? "text-rose-600" : wd === 6 ? "text-blue-600" : "";
                   return (
-                    <th key={d} style={dayFill(d)} className={`${thBase} sticky top-[1.9rem] z-20 ${color}`}>
+                    <th key={d} style={{ ...dayFill(d), ...weekEdge(d) }} className={`${thBase} sticky top-[1.9rem] z-20 ${color}`}>
                       {mmdd(d)}
                     </th>
                   );
@@ -353,10 +391,17 @@ export default function PackagingPlanPage() {
                     <Fragment key={line.key}>
                       {ROW_LAYOUT.map((row, ri) => {
                         const rowKey = `${line.key}-${row.kind === "field" ? row.field : row.kind}`;
+                        // 설비 블록의 첫 행 위/마지막 행 아래를 굵은 선으로 구분
+                        const blockEdge: React.CSSProperties = {
+                          ...(ri === 0 ? { borderTop: DIVIDER } : {}),
+                          ...(ri === ROW_LAYOUT.length - 1 ? { borderBottom: DIVIDER } : {}),
+                        };
+                        const labelStyle: React.CSSProperties = { ...blockEdge, borderLeft: DIVIDER, borderRight: DIVIDER };
                         const lineCell =
                           ri === 0 ? (
                             <td
                               rowSpan={rowCount}
+                              style={{ borderTop: DIVIDER, borderBottom: DIVIDER, borderLeft: DIVIDER }}
                               className="sticky left-0 z-10 bg-white border border-slate-300 px-2 text-center align-middle font-semibold text-slate-700"
                             >
                               {line.label}
@@ -366,11 +411,11 @@ export default function PackagingPlanPage() {
                         if (row.kind === "actual") {
                           return (
                             <tr key={rowKey}>
-                              <td className={labelCls}>실적</td>
+                              <td style={labelStyle} className={labelCls}>실적</td>
                               {dates.map((d) => {
                                 const a = result.actuals[`${line.key}|${d}`];
                                 return (
-                                  <td key={d} style={dayFill(d)} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-emerald-700">
+                                  <td key={d} style={{ ...dayFill(d), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-emerald-700">
                                     {a ? fmtNum(a) : ""}
                                   </td>
                                 );
@@ -381,12 +426,12 @@ export default function PackagingPlanPage() {
                         if (row.kind === "packs") {
                           return (
                             <tr key={rowKey}>
-                              <td className={labelCls}>계획 팩수</td>
+                              <td style={labelStyle} className={labelCls}>계획 팩수</td>
                               {dates.map((d) => {
                                 const qty = Number((drafts[key3(line.key, d, "plan_qty")] ?? "").replace(/,/g, ""));
                                 const pn = packNumber(drafts[key3(line.key, d, "pack_size")]);
                                 return (
-                                  <td key={d} style={dayFill(d)} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-500">
+                                  <td key={d} style={{ ...dayFill(d), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-500">
                                     {qty > 0 && pn ? fmtNum(qty / pn) : ""}
                                   </td>
                                 );
@@ -395,13 +440,27 @@ export default function PackagingPlanPage() {
                           );
                         }
                         const f = row.field;
+                        const readOnly = READONLY_FIELDS.has(f);
                         return (
                           <tr key={rowKey}>
                             {lineCell}
-                            <td className={labelCls}>{FIELD_LABEL[f]}</td>
+                            <td style={labelStyle} className={labelCls}>{FIELD_LABEL[f]}</td>
                             {dates.map((d) => {
+                              if (readOnly) {
+                                return (
+                                  <td
+                                    key={d}
+                                    style={{ ...dayFill(d), ...weekEdge(d), ...blockEdge, color: FIELD_TEXT_COLOR[f] }}
+                                    className={`border border-slate-200 px-1.5 py-1 text-xs text-slate-700 ${
+                                      f === "plan_qty" ? "text-right font-mono" : "text-center"
+                                    }`}
+                                  >
+                                    {drafts[key3(line.key, d, f)] ?? ""}
+                                  </td>
+                                );
+                              }
                               return (
-                                <td key={d} style={dayFill(d)} className="border border-slate-200 p-0">
+                                <td key={d} style={{ ...dayFill(d), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 p-0">
                                   <input
                                     id={inputId(line.key, d, f)}
                                     value={drafts[key3(line.key, d, f)] ?? ""}
@@ -412,6 +471,7 @@ export default function PackagingPlanPage() {
                                       e.preventDefault();
                                       focusBelow(line.key, d, f);
                                     }}
+                                    style={{ color: FIELD_TEXT_COLOR[f] }}
                                     placeholder={f === "due_date" ? "YYYY-MM-DD" : ""}
                                     className={`w-full bg-transparent px-1.5 py-1 text-xs focus:bg-amber-50 focus:outline-none ${
                                       f === "plan_qty" ? "text-right font-mono" : "text-center"
@@ -456,8 +516,8 @@ export default function PackagingPlanPage() {
                   <td className="px-3 py-2 text-right font-mono">
                     {w.packs > 0 ? fmtNum(w.packs) : ""}
                     {w.noPack > 0 && (
-                      <span className="ml-1 text-[10px] text-amber-600" title="포장단위수량이 없어 팩수로 환산하지 못한 칸 수">
-                        ({w.noPack}칸 포장단위수량 없음)
+                      <span className="ml-1 text-[10px] text-amber-600" title="개입수가 없어 팩수로 환산하지 못한 칸 수">
+                        ({w.noPack}칸 개입수 없음)
                       </span>
                     )}
                   </td>
