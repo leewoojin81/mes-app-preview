@@ -10,6 +10,8 @@ interface PlanRow {
   month: number;
   customer_code: string;
   customer_name: string;
+  /** 거래처로 아직 등록되지 않은 임시 거래처(고객사 마스터에 없음) */
+  is_temp?: number;
   qty: number;
   updated_at: string;
 }
@@ -27,6 +29,8 @@ export default function SalesMonthlyTargetPage() {
 
   // 탭을 전환했다 돌아와도 보고 있던 필터는 유지되도록 세션 단위로 저장한다.
   const [yearFilter, setYearFilter] = useTabState("yearFilter", "");
+  // 월 필터(2026-10-01 사용자 요청) — 연도·월·고객사 세 조건으로 목록을 좁힌다.
+  const [monthFilter, setMonthFilter] = useTabState("monthFilter", "");
   const [customerFilter, setCustomerFilter] = useTabState("customerFilter", "");
 
   const [showForm, setShowForm] = useState(false);
@@ -34,6 +38,18 @@ export default function SalesMonthlyTargetPage() {
   const [deleteTarget, setDeleteTarget] = useState<PlanRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const deleteDrag = useDraggableModal();
+
+  function loadCustomers() {
+    fetch("/api/customers", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: CustomerOption[]) =>
+        setCustomers(
+          [...data]
+            .map((c) => ({ customer_code: c.customer_code, customer_name: c.customer_name }))
+            .sort((a, b) => a.customer_name.localeCompare(b.customer_name))
+        )
+      );
+  }
 
   async function load() {
     setLoading(true);
@@ -45,15 +61,8 @@ export default function SalesMonthlyTargetPage() {
 
   useEffect(() => {
     load();
-    fetch("/api/customers", { cache: "no-store" })
-      .then((res) => res.json())
-      .then((data: CustomerOption[]) =>
-        setCustomers(
-          [...data]
-            .map((c) => ({ customer_code: c.customer_code, customer_name: c.customer_name }))
-            .sort((a, b) => a.customer_name.localeCompare(b.customer_name))
-        )
-      );
+    loadCustomers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const yearOptions = useMemo(
@@ -61,11 +70,22 @@ export default function SalesMonthlyTargetPage() {
     [rows]
   );
 
+  // 아직 거래처로 등록되지 않은 임시 거래처도 고객사 필터에서 고를 수 있게 한다
+  const tempCustomerOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of rows) if (r.is_temp) m.set(r.customer_code, r.customer_name);
+    return [...m.entries()].map(([customer_code, customer_name]) => ({ customer_code, customer_name }));
+  }, [rows]);
+
   const visibleRows = rows.filter((r) => {
     if (yearFilter && String(r.year) !== yearFilter) return false;
+    if (monthFilter && String(r.month) !== monthFilter) return false;
     if (customerFilter && r.customer_code !== customerFilter) return false;
     return true;
   });
+
+  // 합계 목표수량 — 연도/월/고객사 필터가 적용된 표시 행 기준(필터를 바꾸면 합계도 바뀐다)
+  const totalQty = visibleRows.reduce((sum, r) => sum + r.qty, 0);
 
   return (
     <div className="w-full px-4 py-4 space-y-4">
@@ -101,6 +121,18 @@ export default function SalesMonthlyTargetPage() {
           ))}
         </select>
         <select
+          value={monthFilter}
+          onChange={(e) => setMonthFilter(e.target.value)}
+          className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white text-slate-600"
+        >
+          <option value="">전체 월</option>
+          {MONTHS.map((m) => (
+            <option key={m} value={m}>
+              {m}월
+            </option>
+          ))}
+        </select>
+        <select
           value={customerFilter}
           onChange={(e) => setCustomerFilter(e.target.value)}
           className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white text-slate-600 max-w-56"
@@ -109,6 +141,11 @@ export default function SalesMonthlyTargetPage() {
           {customers.map((c) => (
             <option key={c.customer_code} value={c.customer_code}>
               {c.customer_name}
+            </option>
+          ))}
+          {tempCustomerOptions.map((c) => (
+            <option key={c.customer_code} value={c.customer_code}>
+              {c.customer_name} (임시)
             </option>
           ))}
         </select>
@@ -160,7 +197,14 @@ export default function SalesMonthlyTargetPage() {
                     <td className="px-4 py-3 text-slate-500 text-center">{idx + 1}</td>
                     <td className="px-4 py-3 text-center">{r.year}년</td>
                     <td className="px-4 py-3 text-center">{r.month}월</td>
-                    <td className="px-4 py-3 font-medium">{r.customer_name}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {r.customer_name}
+                      {r.is_temp ? (
+                        <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
+                          임시
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-right font-mono">{r.qty.toLocaleString()}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-2">
@@ -184,6 +228,22 @@ export default function SalesMonthlyTargetPage() {
                   </tr>
                 ))}
             </tbody>
+            {!loading && visibleRows.length > 0 && (
+              <tfoot>
+                <tr className="bg-slate-100 font-semibold text-navy">
+                  <td
+                    colSpan={4}
+                    className="px-4 py-3 text-center sticky bottom-0 bg-slate-100 shadow-[inset_0_1px_0_#cbd5e1]"
+                  >
+                    합계 <span className="text-xs font-normal text-slate-500">({visibleRows.length.toLocaleString()}건)</span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono sticky bottom-0 bg-slate-100 shadow-[inset_0_1px_0_#cbd5e1]">
+                    {totalQty.toLocaleString()}
+                  </td>
+                  <td className="sticky bottom-0 bg-slate-100 shadow-[inset_0_1px_0_#cbd5e1]" />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
         <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
@@ -199,6 +259,7 @@ export default function SalesMonthlyTargetPage() {
           onSaved={() => {
             setShowForm(false);
             load();
+            loadCustomers();
           }}
         />
       )}
@@ -267,7 +328,7 @@ function PlanFormModal({
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(String(editing?.year ?? currentYear));
   const [month, setMonth] = useState(String(editing?.month ?? new Date().getMonth() + 1));
-  const [customerCode, setCustomerCode] = useState(editing?.customer_code ?? "");
+  const [customerCode, setCustomerCode] = useState(editing && !editing.is_temp ? editing.customer_code : "");
   // 고객사 텍스트 자동완성 — 수주등록(SALES-02)의 거래처 검색과 같은 패턴(드롭다운
   // select 대신 입력하며 후보를 좁혀 고른다, 2026-08-26 사용자 요청). 화면엔 이름만
   // 보이고 실제 제출값(customerCode)은 정확히 일치하는 거래처를 찾았을 때만 채워진다
@@ -293,7 +354,15 @@ function PlanFormModal({
   const submit = async () => {
     setSaving(true);
     setError(null);
-    const body = { year: Number(year), month: Number(month), customer_code: customerCode, qty: qty === "" ? 0 : Number(qty) };
+    // 목록에 없는 고객사 이름을 입력한 경우 임시 거래처로 저장한다(고객사 마스터에는 저장하지 않음, 2026-10-01 사용자 요청)
+    const newCustomerName = !customerCode ? customerInput.trim() : "";
+    const body = {
+      year: Number(year),
+      month: Number(month),
+      customer_code: customerCode,
+      new_customer_name: newCustomerName,
+      qty: qty === "" ? 0 : Number(qty),
+    };
     const url = editing
       ? `/api/sales-monthly-customer-plan/${editing.id}`
       : "/api/sales-monthly-customer-plan";
@@ -370,6 +439,13 @@ function PlanFormModal({
               autoComplete="off"
               className={inputCls}
             />
+            {!customerCode && customerInput.trim() !== "" && (
+              <p className="mt-1 text-xs text-amber-600">
+                목록에 없는 고객사입니다. 저장하면 임시 거래처 &quot;{customerInput.trim()}&quot;(으)로 계획만
+                잡아 둡니다(고객사 정보에는 저장되지 않음). 거래처가 등록되면 이 목표를 수정해 실제 거래처로
+                바꿔 주세요.
+              </p>
+            )}
             {showCustomerSuggestions && customerSuggestions.length > 0 && (
               <ul className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-md shadow-lg">
                 {customerSuggestions.map((c) => (
@@ -414,7 +490,7 @@ function PlanFormModal({
           </button>
           <button
             onClick={submit}
-            disabled={saving || !customerCode || !year || !month}
+            disabled={saving || (!customerCode && customerInput.trim() === "") || !year || !month}
             className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white disabled:opacity-40"
           >
             {saving ? "저장 중..." : "저장"}
