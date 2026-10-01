@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
+import PackagingSummaryTab from "./PackagingSummaryTab";
 import { addDays, PACKAGING_FIELDS, splitSoNos, type PackagingField, type PackagingScheduleResult } from "@/lib/packaging-schedule";
 
 // 계획정보(PLAN-03) "출하포장" — 포장 라인별·일자별 포장 계획표("2026년 포장_20261001.xlsx" 1번 시트)를
@@ -144,7 +145,7 @@ function soOnly(drafts: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(drafts).filter(([k]) => k.endsWith("|so_no")));
 }
 
-export default function PackagingPlanPage() {
+function ScheduleTab() {
   const [from, setFrom] = useTabState("pkFrom", today);
   const [days, setDays] = useTabState("pkDays", 28);
   const [result, setResult] = useState<PackagingScheduleResult | null>(null);
@@ -292,9 +293,8 @@ export default function PackagingPlanPage() {
   const thBase = "px-2 py-1.5 text-center font-semibold border border-slate-300 bg-[#D9E1F2] text-slate-600 text-xs";
 
   return (
-    <div className="w-full px-4 sm:px-6 py-6 space-y-5">
+    <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-bold text-navy">출하포장</h1>
         <p className="text-sm text-slate-500 mt-1">
           PLAN-03 · 포장 라인별·일자별 포장 계획입니다. 직접 입력하는 칸은 수주번호뿐이며(칸을 벗어나거나 엔터를 치면 저장되고, 엔터는 아래 칸으로 이동합니다 · 여러 개는 쉼표로 구분), 나머지는 수주번호로 수주등록(SALES-02)의 품목군·납기일·수량(계획), 거래처정보(BASE-06)의 고객사 약칭(없으면 거래처명), 제품정보(BASE-01)의 포장단위수량(개입수)을 읽어 와 보여줍니다. 실적은 일일작업현황(PROD-10)의 출하포장 공정 중 그 라인에 계획한 수주번호와 같은 줄의 양품수량을 실제 포장한 날짜 칸에 맞춰 보여주며, 팩수는 계획 ÷ 개입수로 계산합니다.
         </p>
@@ -599,6 +599,33 @@ export default function PackagingPlanPage() {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+export default function PackagingPlanPage() {
+  const [tab, setTab] = useTabState<"schedule" | "plan">("pkTab", "plan");
+  const tabs = [
+    { id: "plan", label: "1. 월간 생산계획" },
+    { id: "schedule", label: "2. 주차별 생산계획" },
+  ] as const;
+  return (
+    <div className="w-full px-4 sm:px-6 py-6 space-y-5">
+      <h1 className="text-xl font-bold text-navy">출하포장</h1>
+      <div className="flex gap-1 border-b border-slate-200">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 ${
+              tab === t.id ? "border-navy text-navy" : "border-transparent text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === "schedule" ? <ScheduleTab /> : <PackagingSummaryTab />}
     </div>
   );
 }
