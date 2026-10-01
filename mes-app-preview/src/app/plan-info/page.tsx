@@ -447,12 +447,17 @@ function LineCapaPlanTab() {
   const [savingAll, setSavingAll] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  function load() {
-    setLoading(true);
+  // silent=true는 칸 저장 직후 재조회용 — 표를 "불러오는 중..."으로 바꾸면 입력칸이 전부 사라져
+  // 엔터로 아래 칸에 옮겨 둔 커서(포커스)가 날아가므로(2026-10-01 사용자 요청: Day/비고 입력 후
+  // 엔터 시 아래로 이동) 표를 그대로 둔 채 계산 값(월CAPA·UPH 등)만 갱신하고, 지금 입력 중인
+  // 다른 칸의 입력값은 덮어쓰지 않는다.
+  function load(silent = false) {
+    if (!silent) setLoading(true);
     fetch(`/api/line-capa-plan?yearMonth=${yearMonth}`, { cache: "no-store" })
       .then((res) => res.json())
       .then((data: LineCapaResult) => {
         setResult(data);
+        if (silent) return;
         setDrafts(
           Object.fromEntries(
             data.rows.map((r) => [r.key, r.dailyCapa != null ? r.dailyCapa.toLocaleString("ko-KR") : ""])
@@ -488,7 +493,7 @@ function LineCapaPlanTab() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "저장에 실패했습니다.");
-      load();
+      load(true);
     } catch (err) {
       setToast(err instanceof Error ? err.message : "저장에 실패했습니다.");
     } finally {
@@ -507,7 +512,7 @@ function LineCapaPlanTab() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "저장에 실패했습니다.");
-      load();
+      load(true);
     } catch (err) {
       setToast(err instanceof Error ? err.message : "저장에 실패했습니다.");
     } finally {
@@ -700,7 +705,6 @@ function LineCapaPlanTab() {
                             e.preventDefault();
                             if (nextCapaRow) focusId(`lc-capa-${nextCapaRow.key}`);
                           }}
-                          disabled={savingKey === `${r.key}:capa`}
                           placeholder="-"
                           className="w-28 border border-slate-300 rounded-md px-2 py-1.5 text-sm text-right font-mono disabled:opacity-50"
                         />
@@ -734,7 +738,6 @@ function LineCapaPlanTab() {
                           e.preventDefault();
                           if (nextRemarkKey) focusId(`lc-remark-${nextRemarkKey}`);
                         }}
-                        disabled={savingKey === `${r.key}:remark`}
                         placeholder={r.defaultRemark ?? "-"}
                         className="w-64 border border-slate-300 rounded-md px-2 py-1.5 text-sm placeholder:text-slate-400 placeholder:italic disabled:opacity-50"
                       />
