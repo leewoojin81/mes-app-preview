@@ -244,6 +244,8 @@ export interface LineCapaRow {
   label: string;
   isIndirect: boolean;
   headcount: number;
+  /** 직접 입력한 인원 텍스트(없으면 null — 화면/엑셀은 자동 집계 "N 명"을 보여준다) */
+  headcountText: string | null;
   hoursPerDay: number;
   workDays: number;
   dailyCapa: number | null;

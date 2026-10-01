@@ -1,3 +1,4 @@
+import { effectiveHeadcount } from "@/lib/plan-headcount";
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getDb } from "@/lib/db";
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
 
   const dataRows = result.rows.map((r, i) => [
     r.label,
-    mergeInjectionStats && i === lowerIdx ? "" : `${r.headcount} 명`,
+    mergeInjectionStats && i === lowerIdx ? "" : (r.headcountText ?? `${r.headcount} 명`),
     mergeInjectionStats && i === lowerIdx ? "" : `${r.hoursPerDay.toFixed(2)} hr`,
     mergeInjectionStats && i === lowerIdx ? "" : `${r.workDays} 일`,
     fmt(r.dailyCapa),
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
     ...dataRows,
     [
       "합계",
-      `${result.totals.headcount} 명`,
+      `${result.rows.reduce((sum, r) => sum + effectiveHeadcount(r.headcountText, r.headcount), 0)} 명`,
       `${result.rows[0]?.hoursPerDay.toFixed(2) ?? "8.00"} hr`,
       `${result.rows[0]?.workDays ?? 0} 일`,
       fmt(result.totals.dailyCapa),

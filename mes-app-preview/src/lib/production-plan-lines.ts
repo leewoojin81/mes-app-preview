@@ -56,6 +56,8 @@ export interface LineCapaRow {
   label: string;
   isIndirect: boolean;
   headcount: number;
+  /** 직접 입력한 인원 텍스트(없으면 null — 화면/엑셀은 자동 집계 "N 명"을 보여준다) */
+  headcountText: string | null;
   hoursPerDay: number;
   workDays: number;
   dailyCapa: number | null;
@@ -101,6 +103,11 @@ function ensureTable(db: DatabaseSync): void {
   const cols = db.prepare("PRAGMA table_info(line_capa_plan)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "remark")) {
     db.exec("ALTER TABLE line_capa_plan ADD COLUMN remark TEXT");
+  }
+  // "인원" 칸을 직접 입력하는 텍스트로 바꿔 쓸 수 있게 한 컬럼(2026-10-01 사용자 요청) — 비워두면 BASE-09
+  // 자동 집계 인원("12 명")을 그대로 보여준다. UPH 등 계산은 이 텍스트가 아니라 자동 집계 인원 숫자를 쓴다.
+  if (!cols.some((c) => c.name === "headcount_text")) {
+    db.exec("ALTER TABLE line_capa_plan ADD COLUMN headcount_text TEXT");
   }
 }
 
@@ -149,10 +156,16 @@ export function computeLineCapaPlan(db: DatabaseSync, yearMonth: string): LineCa
   const processNameByCode = new Map(processNameRows.map((r) => [r.process_code, r.process_name]));
 
   const capaRows = db
-    .prepare(`SELECT line_key, daily_capa, remark FROM line_capa_plan WHERE year_month = ?`)
-    .all(yearMonth) as { line_key: string; daily_capa: number | null; remark: string | null }[];
+    .prepare(`SELECT line_key, daily_capa, remark, headcount_text FROM line_capa_plan WHERE year_month = ?`)
+    .all(yearMonth) as {
+    line_key: string;
+    daily_capa: number | null;
+    remark: string | null;
+    headcount_text: string | null;
+  }[];
   const capaByLine = new Map(capaRows.map((r) => [r.line_key, r.daily_capa]));
   const remarkByLine = new Map(capaRows.map((r) => [r.line_key, r.remark]));
+  const headcountTextByLine = new Map(capaRows.map((r) => [r.line_key, r.headcount_text]));
 
   const rows: LineCapaRow[] = PRODUCTION_LINES.map((line) => {
     const headcount = line.processCodes.reduce((sum, code) => sum + (headcountByProcess.get(code) ?? 0), 0);
@@ -184,6 +197,7 @@ export function computeLineCapaPlan(db: DatabaseSync, yearMonth: string): LineCa
       label: line.label,
       isIndirect: !!line.isIndirect,
       headcount,
+      headcountText: headcountTextByLine.get(line.key) ?? null,
       hoursPerDay: HOURS_PER_DAY,
       workDays,
       dailyCapa,

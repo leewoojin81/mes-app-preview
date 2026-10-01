@@ -28,6 +28,7 @@ interface CapaBody {
   lineKey?: string;
   dailyCapa?: number | string | null;
   remark?: string | null;
+  headcountText?: string | null;
 }
 
 // 라인 하나의 "공정별 계획(일CAPA)"과 "비고" 칸을 저장한다 — 한 행(year_month, line_key)에
@@ -54,8 +55,9 @@ export async function PATCH(req: NextRequest) {
 
   const hasDailyCapa = !!body && Object.prototype.hasOwnProperty.call(body, "dailyCapa");
   const hasRemark = !!body && Object.prototype.hasOwnProperty.call(body, "remark");
-  if (!hasDailyCapa && !hasRemark) {
-    return NextResponse.json({ error: "dailyCapa 또는 remark 중 하나는 있어야 합니다." }, { status: 400 });
+  const hasHeadcountText = !!body && Object.prototype.hasOwnProperty.call(body, "headcountText");
+  if (!hasDailyCapa && !hasRemark && !hasHeadcountText) {
+    return NextResponse.json({ error: "dailyCapa, remark, headcountText 중 하나는 있어야 합니다." }, { status: 400 });
   }
 
   let dailyCapa: number | null = null;
@@ -79,6 +81,12 @@ export async function PATCH(req: NextRequest) {
     remark = raw ? String(raw) : null;
   }
 
+  let headcountText: string | null = null;
+  if (hasHeadcountText) {
+    const raw = typeof body?.headcountText === "string" ? body.headcountText.trim() : body?.headcountText;
+    headcountText = raw ? String(raw).slice(0, 100) : null;
+  }
+
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
   ensureLineCapaPlanTable(db);
 
@@ -97,6 +105,15 @@ export async function PATCH(req: NextRequest) {
        ON CONFLICT(year_month, line_key) DO UPDATE SET
          remark = excluded.remark, updated_at = excluded.updated_at, updated_by = excluded.updated_by`
     ).run(yearMonth, lineKey, remark, session?.u ?? null);
+  }
+
+  if (hasHeadcountText) {
+    db.prepare(
+      `INSERT INTO line_capa_plan (year_month, line_key, headcount_text, updated_at, updated_by)
+       VALUES (?, ?, ?, datetime('now','localtime'), ?)
+       ON CONFLICT(year_month, line_key) DO UPDATE SET
+         headcount_text = excluded.headcount_text, updated_at = excluded.updated_at, updated_by = excluded.updated_by`
+    ).run(yearMonth, lineKey, headcountText, session?.u ?? null);
   }
 
   return NextResponse.json({ ok: true });

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTabState } from "@/lib/use-tab-state";
+import { effectiveHeadcount } from "@/lib/plan-headcount";
 import type { ItemProcessRoutingRow, LineCapaResult } from "@/lib/types";
 
 interface ItemHit {
@@ -443,6 +444,8 @@ function LineCapaPlanTab() {
   const [loading, setLoading] = useState(true);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [remarkDrafts, setRemarkDrafts] = useState<Record<string, string>>({});
+  // 인원 칸은 직접 입력하는 텍스트(2026-10-01 사용자 요청) — 비워두면 자동 집계 인원을 안내문으로 보여준다.
+  const [headDrafts, setHeadDrafts] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [savingAll, setSavingAll] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -464,6 +467,7 @@ function LineCapaPlanTab() {
           )
         );
         setRemarkDrafts(Object.fromEntries(data.rows.map((r) => [r.key, r.remark ?? ""])));
+        setHeadDrafts(Object.fromEntries(data.rows.map((r) => [r.key, r.headcountText ?? ""])));
         setLoading(false);
       });
   }
@@ -490,6 +494,25 @@ function LineCapaPlanTab() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ yearMonth, lineKey, dailyCapa }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "저장에 실패했습니다.");
+      load(true);
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "저장에 실패했습니다.");
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  async function saveHeadcountText(lineKey: string) {
+    const headcountText = headDrafts[lineKey] ?? "";
+    setSavingKey(`${lineKey}:head`);
+    try {
+      const res = await fetch("/api/line-capa-plan", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ yearMonth, lineKey, headcountText }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "저장에 실패했습니다.");
@@ -549,6 +572,16 @@ function LineCapaPlanTab() {
               body: JSON.stringify({ yearMonth, lineKey: r.key, remark: remarkDrafts[r.key] ?? "" }),
             }).then((res) => res.ok)
           );
+          // 사출_하는 사출_상 인원 칸에 병합돼 있어 따로 저장하지 않는다
+          if (r.key !== "injection_lower") {
+            tasks.push(
+              fetch("/api/line-capa-plan", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ yearMonth, lineKey: r.key, headcountText: headDrafts[r.key] ?? "" }),
+              }).then((res) => res.ok)
+            );
+          }
           return tasks;
         })
       );
@@ -654,6 +687,7 @@ function LineCapaPlanTab() {
                   const skipStatsCells = r.key === "injection_lower";
                   const nextCapaRow = result.rows.slice(i + 1).find((x) => !x.isIndirect);
                   const nextRemarkKey = result.rows[i + 1]?.key;
+                  const nextHeadRow = result.rows.slice(i + 1).find((x) => x.key !== "injection_lower");
                   const injectionLowerRow = mergeStatsDown
                     ? result.rows.find((x) => x.key === "injection_lower")
                     : undefined;
@@ -666,32 +700,41 @@ function LineCapaPlanTab() {
                     : null;
                   return (
                   <tr key={r.key} className="hover:bg-slate-50 border-b border-slate-200">
-                    <td className="px-3 py-2.5 font-medium text-slate-700">{r.label}</td>
+                    <td className="px-3 py-2.5 font-medium text-slate-700 text-center">{r.label}</td>
                     {!skipStatsCells && (
                       <>
-                        <td
-                          className="px-3 py-2.5 text-right font-mono"
-                          rowSpan={mergeStatsDown ? 2 : undefined}
-                        >
-                          {r.headcount.toLocaleString()} 명
+                        <td className="px-2 py-1.5 text-center" rowSpan={mergeStatsDown ? 2 : undefined}>
+                          <input
+                            id={`lc-head-${r.key}`}
+                            value={headDrafts[r.key] ?? ""}
+                            onChange={(e) => setHeadDrafts((prev) => ({ ...prev, [r.key]: e.target.value }))}
+                            onBlur={() => saveHeadcountText(r.key)}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              e.preventDefault();
+                              if (nextHeadRow) focusId(`lc-head-${nextHeadRow.key}`);
+                            }}
+                            placeholder={`${r.headcount.toLocaleString()} 명`}
+                            className="w-28 border border-slate-300 rounded-md px-2 py-1.5 text-sm text-center font-mono placeholder:text-slate-500 placeholder:not-italic"
+                          />
                         </td>
                         <td
-                          className="px-3 py-2.5 text-right font-mono"
+                          className="px-3 py-2.5 text-center font-mono"
                           rowSpan={mergeStatsDown ? 2 : undefined}
                         >
                           {r.hoursPerDay.toFixed(2)} hr
                         </td>
                         <td
-                          className="px-3 py-2.5 text-right font-mono"
+                          className="px-3 py-2.5 text-center font-mono"
                           rowSpan={mergeStatsDown ? 2 : undefined}
                         >
                           {r.workDays.toLocaleString()} 일
                         </td>
                       </>
                     )}
-                    <td className="px-2 py-1.5">
+                    <td className="px-2 py-1.5 text-center">
                       {r.isIndirect ? (
-                        <span className="block text-right text-slate-300 px-2">-</span>
+                        <span className="block text-center text-slate-300 px-2">-</span>
                       ) : (
                         <input
                           id={`lc-capa-${r.key}`}
@@ -706,14 +749,14 @@ function LineCapaPlanTab() {
                             if (nextCapaRow) focusId(`lc-capa-${nextCapaRow.key}`);
                           }}
                           placeholder="-"
-                          className="w-28 border border-slate-300 rounded-md px-2 py-1.5 text-sm text-right font-mono disabled:opacity-50"
+                          className="w-28 border border-slate-300 rounded-md px-2 py-1.5 text-sm text-center font-mono disabled:opacity-50"
                         />
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-slate-500">{fmtNum(r.monthlyCapa)}</td>
+                    <td className="px-3 py-2.5 text-center font-mono text-slate-500">{fmtNum(r.monthlyCapa)}</td>
                     {!skipStatsCells && (
                       <td
-                        className="px-3 py-2.5 text-right font-mono text-slate-500"
+                        className="px-3 py-2.5 text-center font-mono text-slate-500"
                         rowSpan={mergeStatsDown ? 2 : undefined}
                       >
                         {mergeStatsDown
@@ -747,13 +790,17 @@ function LineCapaPlanTab() {
                 })}
               {!loading && result && (
                 <tr className="bg-slate-50 font-semibold text-navy">
-                  <td className="px-3 py-2.5">합계</td>
-                  <td className="px-3 py-2.5 text-right font-mono">{result.totals.headcount.toLocaleString()} 명</td>
-                  <td className="px-3 py-2.5 text-right font-mono">{(result.rows[0]?.hoursPerDay ?? 8).toFixed(2)} hr</td>
-                  <td className="px-3 py-2.5 text-right font-mono">{(result.rows[0]?.workDays ?? 0).toLocaleString()} 일</td>
-                  <td className="px-3 py-2.5 text-right font-mono">{fmtNum(result.totals.dailyCapa)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono">{fmtNum(result.totals.monthlyCapa)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono">
+                  <td className="px-3 py-2.5 text-center">합계</td>
+                  <td className="px-3 py-2.5 text-center font-mono">{result.rows
+                      .reduce((sum, r) => sum + effectiveHeadcount(headDrafts[r.key] ?? r.headcountText, r.headcount), 0)
+                      .toLocaleString()}{" "}
+                    명
+                  </td>
+                  <td className="px-3 py-2.5 text-center font-mono">{(result.rows[0]?.hoursPerDay ?? 8).toFixed(2)} hr</td>
+                  <td className="px-3 py-2.5 text-center font-mono">{(result.rows[0]?.workDays ?? 0).toLocaleString()} 일</td>
+                  <td className="px-3 py-2.5 text-center font-mono">{fmtNum(result.totals.dailyCapa)}</td>
+                  <td className="px-3 py-2.5 text-center font-mono">{fmtNum(result.totals.monthlyCapa)}</td>
+                  <td className="px-3 py-2.5 text-center font-mono">
                     {result.totals.uph == null ? "-" : fmtNum(result.totals.uph, 2)}
                   </td>
                   <td className="px-3 py-2.5" />
