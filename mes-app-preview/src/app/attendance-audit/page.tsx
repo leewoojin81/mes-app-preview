@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
+import BizAuditTab from "@/components/BizAuditTab";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
 import { formatHoursClock } from "@/lib/format-hours";
 import type {
@@ -400,6 +401,8 @@ export default function AttendanceAuditPage() {
   const [mismatchOnly, setMismatchOnly] = useTabState("aaMismatchOnly", false);
   const [nameErrorOnly, setNameErrorOnly] = useTabState("aaNameErrorOnly", false);
   const [searchText, setSearchText] = useTabState("aaSearchText", "");
+  // 근태대사(PSN-01 ↔ 세콤 카드) / 비즈 대사(PSN-01 ↔ 비즈 업로드) 탭(2026-10-01 사용자 요청)
+  const [activeTab, setActiveTab] = useTabState<"audit" | "biz">("aaActiveTab", "audit");
 
   // 조장 세션이면(그리고 아직 공정을 안 골랐으면) 본인 소속공정을 기본값으로 채운다
   // (PSN-05 근무시간조회와 동일한 관례).
@@ -476,6 +479,31 @@ export default function AttendanceAuditPage() {
         </p>
       </div>
 
+      <div className="flex items-center gap-1 border-b border-slate-200">
+        {(
+          [
+            { key: "audit", label: "근태대사" },
+            { key: "biz", label: "비즈 대사" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`px-4 py-2.5 -mb-px text-sm font-semibold border-b-2 transition-colors ${
+              activeTab === t.key
+                ? "text-navy border-navy"
+                : "text-slate-400 border-transparent hover:text-slate-600"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "biz" && <BizAuditTab me={me} />}
+
+      {activeTab === "audit" && (
+      <>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
         <div className="bg-white border border-slate-200 rounded-lg px-4 py-3 shadow-sm">
           <p className="text-xs text-slate-500">조회기간 불일치 건수</p>
@@ -676,6 +704,8 @@ export default function AttendanceAuditPage() {
           </table>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
