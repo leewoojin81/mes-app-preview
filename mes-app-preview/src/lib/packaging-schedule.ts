@@ -18,7 +18,6 @@ export const PACKAGING_LINES: PackagingLine[] = [
   { key: "line3", label: "3 Line", sub: "Auto (Monthly)" },
   { key: "line4", label: "4 Line", sub: "Manual (Conveyor)" },
   { key: "line5", label: "5 Line", sub: "Manual (Conveyor)" },
-  { key: "etc", label: "기타", sub: "" },
   { key: "vial", label: "바이알", sub: "" },
 ];
 
@@ -36,9 +35,10 @@ export interface PackagingCell {
   so_no: string | null;
 }
 
-export interface PackagingOrderActual {
+/** 한 라인·한 날짜의 실적 — 그 라인에 계획한 수주번호들의 그날 출하포장 양품수량 */
+export interface PackagingDayActual {
   total: number;
-  details: { date: string; line: string; qty: number }[];
+  details: { so: string; line: string; qty: number }[];
 }
 
 /** 수주번호 칸 문자열에서 번호들을 뽑는다(쉼표·공백·슬래시·세미콜론 구분) */
@@ -52,10 +52,11 @@ export interface PackagingScheduleResult {
   lines: PackagingLine[];
   cells: PackagingCell[];
   /**
-   * 수주번호 → 그 수주의 실제 포장 실적 — 일일작업현황(PROD-10)에서 공정이 출하포장(P410)이고 수주번호가
-   * 같은 줄의 양품수량을 날짜 구분 없이 누계한 값과 날짜·라인별 내역(2026-10-02 사용자 요청).
+   * `${line_key}|${YYYY-MM-DD}` → 실적. 일일작업현황(PROD-10)에서 공정이 출하포장(P410)이고 수주번호가 그 라인의
+   * 계획에 들어 있는 수주번호와 같은 줄의 양품수량을 **실제 포장한 날짜**별로 모은다 — 계획 대비 실적이라 계획과
+   * 같은 날짜 열에 맞춰 보여준다(2026-10-02 사용자 요청).
    */
-  orderActuals: Record<string, PackagingOrderActual>;
+  lineActuals: Record<string, PackagingDayActual>;
 }
 
 export function ensurePackagingScheduleTable(db: DatabaseSync): void {
@@ -92,9 +93,16 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
     )
     .all(from, to) as unknown as PackagingCell[];
 
-  // 실적 — 계획 칸의 수주번호와 같은 수주번호의 일일작업현황 출하포장(P410) 양품수량(누계)
-  const soNos = [...new Set(cells.flatMap((c) => splitSoNos(c.so_no)))];
-  const orderActuals: Record<string, PackagingOrderActual> = {};
+  // 수주번호 → 그 수주를 계획한 라인 — 전체 계획(표시 기간 밖 포함)에서 가장 이른 계획의 라인으로 정한다.
+  // 같은 수주가 실제로는 다른 포장기에서 작업돼도 계획한 라인의 실적으로 본다.
+  const planned = db
+    .prepare("SELECT line_key, so_no FROM packaging_schedule WHERE so_no IS NOT NULL ORDER BY plan_date, line_key")
+    .all() as { line_key: string; so_no: string }[];
+  const lineBySo = new Map<string, string>();
+  for (const r of planned) for (const so of splitSoNos(r.so_no)) if (!lineBySo.has(so)) lineBySo.set(so, r.line_key);
+
+  const lineActuals: Record<string, PackagingDayActual> = {};
+  const soNos = [...lineBySo.keys()];
   for (let k = 0; k < soNos.length; k += 200) {
     const chunk = soNos.slice(k, k + 200);
     const ph = chunk.map(() => "?").join(",");
@@ -103,18 +111,20 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
         `SELECT json_extract(detail, '$."수주번호"') so, work_date d, json_extract(detail, '$."라인"') l,
                 SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) q
          FROM daily_work_status
-         WHERE process_code = 'P410' AND json_extract(detail, '$."수주번호"') IN (${ph})
-         GROUP BY so, work_date, l ORDER BY so, work_date`
+         WHERE process_code = 'P410' AND work_date BETWEEN ? AND ? AND json_extract(detail, '$."수주번호"') IN (${ph})
+         GROUP BY so, work_date, l ORDER BY work_date, so`
       )
-      .all(...chunk) as { so: string; d: string; l: string | null; q: number | null }[];
+      .all(from, to, ...chunk) as { so: string; d: string; l: string | null; q: number | null }[];
     for (const r of rows) {
-      const a = (orderActuals[r.so] ??= { total: 0, details: [] });
+      const lineKey = lineBySo.get(r.so);
+      if (!lineKey) continue;
+      const a = (lineActuals[`${lineKey}|${r.d}`] ??= { total: 0, details: [] });
       const qty = r.q ?? 0;
       a.total += qty;
-      a.details.push({ date: r.d, line: r.l ?? "", qty });
+      a.details.push({ so: r.so, line: r.l ?? "", qty });
     }
   }
-  return { from, to, lines: PACKAGING_LINES, cells, orderActuals };
+  return { from, to, lines: PACKAGING_LINES, cells, lineActuals };
 }
 
 function cleanText(v: unknown, max: number): string | null {
