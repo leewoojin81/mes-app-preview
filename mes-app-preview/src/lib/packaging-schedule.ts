@@ -1,10 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 
 // 계획정보(PLAN-03) "출하포장" — 포장 라인별·일자별 포장 계획표("2026년 포장_20261001.xlsx" 1번 시트)를
-// 그대로 옮긴 화면의 데이터. 라인(1~5 Line/기타/바이알) × 날짜 한 칸에 품명·계획(수량)·개입수·고객사·
-// 납기일·수주번호를 적는다. 수주번호를 넣으면 수주현황(sales_orders)에서 고객사·품명·개입수·납기일을
-// 자동으로 채운다(엑셀의 VLOOKUP과 같은 동작). 실적은 일일작업현황(PROD-10)의 포장공정(P410) 양품수량을
-// 포장 라인(자동포장기 N호기/포장 0N호기)별로 합산해 읽기 전용으로 붙인다.
+// 그대로 옮긴 화면의 데이터. 라인(1~5 Line/바이알) × 날짜 한 칸에 수주번호만 직접 입력하고, 고객사(약칭)·품목군·
+// 계획(수량)·개입수·납기일은 그 수주번호로 수주등록(SALES-02)·거래처정보(BASE-06)·제품정보(BASE-01)에서 읽어 온다
+// (2026-10-02 사용자 요청 — 수주번호 외에는 수기 입력하지 않는다). 읽을 때마다 최신 값으로 다시 찾으므로 수주
+// 수량·납기일이나 거래처 약칭이 바뀌면 자동으로 따라가고, 저장된 값은 수주를 찾지 못할 때의 예비값이다. 실적은
+// 일일작업현황(PROD-10)의 출하포장 공정 중 수주번호가 같은 줄의 양품수량을 실제 포장한 날짜별로 붙인다.
 
 export interface PackagingLine {
   key: string;
@@ -21,7 +22,8 @@ export const PACKAGING_LINES: PackagingLine[] = [
   { key: "vial", label: "바이알", sub: "" },
 ];
 
-export const PACKAGING_FIELDS = ["product_name", "plan_qty", "pack_size", "customer", "due_date", "so_no"] as const;
+// pack_method(팩방법)는 제품정보(BASE-01) 포장방법을 읽어 보여주기만 하는 값이라 DB에는 저장하지 않는다
+export const PACKAGING_FIELDS = ["product_name", "plan_qty", "pack_size", "customer", "due_date", "so_no", "pack_method"] as const;
 export type PackagingField = (typeof PACKAGING_FIELDS)[number];
 
 export interface PackagingCell {
@@ -33,6 +35,8 @@ export interface PackagingCell {
   customer: string | null;
   due_date: string | null;
   so_no: string | null;
+  /** 팩방법 — 제품정보(BASE-01) 포장방법(저장하지 않고 수주번호로 읽어 온다) */
+  pack_method: string | null;
 }
 
 /** 한 라인·한 날짜의 실적 — 그 라인에 계획한 수주번호들의 그날 출하포장 양품수량 */
@@ -50,6 +54,7 @@ export interface PackagingScheduleResult {
   from: string;
   to: string;
   lines: PackagingLine[];
+  /** 수주번호로 읽어 온 값이 채워진 계획 칸(수주를 못 찾으면 저장된 예비값) */
   cells: PackagingCell[];
   /**
    * `${line_key}|${YYYY-MM-DD}` → 실적. 일일작업현황(PROD-10)에서 공정이 출하포장(P410)이고 수주번호가 그 라인의
@@ -57,6 +62,15 @@ export interface PackagingScheduleResult {
    * 같은 날짜 열에 맞춰 보여준다(2026-10-02 사용자 요청).
    */
   lineActuals: Record<string, PackagingDayActual>;
+  /** 표시 기간 계획 칸에 적힌 수주번호 중 수주등록(SALES-02)에 없는 번호 — 화면이 색으로 오류 표기한다 */
+  missingSoNos: string[];
+  /**
+   * 생산캘린더(BASE-08) 기준 휴일(day_type=휴일) 날짜와 근무일(day_type=평일) 날짜. 화면이 칸 색을 정한다 —
+   * 캘린더 휴일인 평일과 캘린더상 근무일인 일요일은 토요일과 같은 색으로, 휴일인 일요일은 일요일 색으로 칠한다
+   * (2026-10-02 사용자 요청).
+   */
+  holidays: string[];
+  workDays: string[];
 }
 
 export function ensurePackagingScheduleTable(db: DatabaseSync): void {
@@ -83,6 +97,159 @@ export function addDays(dateStr: string, delta: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
+// ── 수주번호로 값 읽어 오기 ──────────────────────────────────────────────────────
+
+export interface PackagingOrderInfo {
+  customer: string | null;
+  /** 품목군(수주등록 SALES-02 품목군) */
+  product_name: string | null;
+  /** 개입수 — 제품정보(BASE-01) 포장단위수량 */
+  pack_size: string | null;
+  due_date: string | null;
+  /** 팩방법 — 제품정보(BASE-01) 포장방법 */
+  pack_method: string | null;
+  /** 계획(수량) — 그 수주번호의 수주 수량 합계 */
+  order_qty: number;
+}
+
+interface OrderRow {
+  so_no: string;
+  item_code: string | null;
+  order_qty: number | null;
+  due_date: string | null;
+  cname: string | null;
+  info: string | null;
+  grp: string | null;
+  pk: number | string | null;
+  pm: string | null;
+  dso: string | null;
+}
+
+function soBase(soNo: string): string {
+  const i = soNo.indexOf("-");
+  return i > 0 ? soNo.slice(0, i) : soNo;
+}
+
+/**
+ * 수주번호들에 해당하는 수주등록(SALES-02) 줄을 한 번에 찾는다. 수주 테이블의 so_no는 품목 줄마다
+ * "SO202609030001-1"처럼 순번이 붙어 있고 원본 "수주번호" 컬럼에는 순번 없는 번호가 있어, 입력한 번호가
+ * so_no(순번 앞부분)나 원본 수주번호와 같은 줄을 모두 모은다. 고객사는 거래처정보(BASE-06)의 약칭을 우선하고
+ * 없으면 수주의 거래처명, 개입수는 제품정보(BASE-01)의 포장단위수량이다. 못 찾은 번호는 결과에 키가 없다.
+ */
+function fetchOrderRowsByTokens(db: DatabaseSync, tokens: string[]): Map<string, OrderRow[]> {
+  const result = new Map<string, OrderRow[]>();
+  const wanted = new Set(tokens);
+  for (let k = 0; k < tokens.length; k += 200) {
+    const chunk = tokens.slice(k, k + 200);
+    const ph = chunk.map(() => "?").join(",");
+    const rows = db
+      .prepare(
+        `SELECT so.so_no, so.item_code, so.order_qty, so.due_date,
+                COALESCE(NULLIF(TRIM(cu.short_name), ''), json_extract(so.detail, '$."거래처명"')) cname,
+                json_extract(so.detail, '$."품목정보"') info,
+                json_extract(so.detail, '$."품목군"') grp,
+                json_extract(it.detail, '$."포장단위수량"') pk,
+                json_extract(it.detail, '$."포장방법"') pm,
+                json_extract(so.detail, '$."수주번호"') dso
+         FROM sales_orders so
+         LEFT JOIN items it ON it.item_code = so.item_code
+         LEFT JOIN customers cu ON cu.customer_code = so.customer_code
+         WHERE substr(so.so_no, 1, CASE WHEN instr(so.so_no, '-') > 0 THEN instr(so.so_no, '-') - 1 ELSE length(so.so_no) END) IN (${ph})
+            OR json_extract(so.detail, '$."수주번호"') IN (${ph})
+         ORDER BY so.so_no`
+      )
+      .all(...chunk, ...chunk) as unknown as OrderRow[];
+    for (const r of rows) {
+      for (const key of new Set([r.so_no, soBase(r.so_no), r.dso ?? ""])) {
+        if (!key || !wanted.has(key)) continue;
+        const list = result.get(key) ?? [];
+        list.push(r);
+        result.set(key, list);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ *  - 품목군: 첫 줄의 품목군 / 납기일: 가장 빠른 납기일 / 계획(수량): 수주 수량 합계
+ *  - 개입수: 줄마다 품목코드로 제품정보의 "포장단위수량"을 찾아 수량이 가장 많은 값(없으면 수주 품목정보의 "N개입")
+ */
+function summarizeOrder(rows: OrderRow[]): PackagingOrderInfo {
+  const first = rows[0];
+  const packWeight = new Map<string, number>();
+  for (const r of rows) {
+    const v = r.pk != null && Number(r.pk) > 0 ? String(Number(r.pk)) : null;
+    if (v) packWeight.set(v, (packWeight.get(v) ?? 0) + (r.order_qty ?? 0) + 1);
+  }
+  let pack: string | null = null;
+  let best = -1;
+  for (const [v, w] of packWeight) {
+    if (w > best) {
+      best = w;
+      pack = v;
+    }
+  }
+  if (!pack) {
+    const m = /(\d+)\s*개입/.exec(first.info ?? "") ?? /\((\d+)\s*P/i.exec(first.info ?? "");
+    pack = m ? m[1] : null;
+  }
+  // 팩방법 — 제품정보 포장방법 값별 수주 수량 합이 가장 큰 값
+  const methodWeight = new Map<string, number>();
+  for (const r of rows) {
+    const m = (r.pm ?? "").trim();
+    if (m) methodWeight.set(m, (methodWeight.get(m) ?? 0) + (r.order_qty ?? 0) + 1);
+  }
+  let method: string | null = null;
+  let bestMethod = -1;
+  for (const [v, w] of methodWeight) {
+    if (w > bestMethod) {
+      bestMethod = w;
+      method = v;
+    }
+  }
+  return {
+    customer: first.cname,
+    product_name: first.grp ?? ((first.info ?? "").split("◆")[0].trim() || null),
+    pack_method: method,
+    pack_size: pack,
+    due_date: rows.map((r) => r.due_date).filter((x): x is string => !!x).sort()[0] ?? null,
+    order_qty: rows.reduce((sum, r) => sum + (r.order_qty ?? 0), 0),
+  };
+}
+
+/**
+ * 한 칸에 수주번호가 여러 개(예: "Dope Wink 2종" = SO202609150008, SO202609150009)이면 합친다:
+ * 고객사·품목군은 서로 다른 값을 ", "로, 개입수는 서로 다른 값을 작은 수부터 ","로(예: "1,2"),
+ * 납기일은 가장 빠른 날짜, 계획은 수량 합계.
+ */
+function combineOrderInfos(infos: PackagingOrderInfo[]): PackagingOrderInfo {
+  if (infos.length === 1) return infos[0];
+  const uniq = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))];
+  return {
+    customer: uniq(infos.map((f) => f.customer)).join(", ") || null,
+    product_name: uniq(infos.map((f) => f.product_name)).join(", ") || null,
+    pack_size: uniq(infos.map((f) => f.pack_size)).sort((a, b) => Number(a) - Number(b)).join(",") || null,
+    pack_method: uniq(infos.map((f) => f.pack_method)).join(", ") || null,
+    due_date: infos.map((f) => f.due_date).filter((x): x is string => !!x).sort()[0] ?? null,
+    order_qty: infos.reduce((sum, f) => sum + f.order_qty, 0),
+  };
+}
+
+/** 수주번호 칸 문자열 하나에서 값을 읽어 온다(번호가 여러 개면 합침). 하나도 못 찾으면 null */
+export function lookupOrderInfo(db: DatabaseSync, soNoRaw: string): PackagingOrderInfo | null {
+  const tokens = splitSoNos(soNoRaw);
+  if (tokens.length === 0) return null;
+  const map = fetchOrderRowsByTokens(db, tokens);
+  const infos = tokens
+    .map((t) => map.get(t))
+    .filter((rows): rows is OrderRow[] => !!rows)
+    .map(summarizeOrder);
+  return infos.length > 0 ? combineOrderInfos(infos) : null;
+}
+
+// ── 조회 ─────────────────────────────────────────────────────────────────────────
+
 export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: number): PackagingScheduleResult {
   ensurePackagingScheduleTable(db);
   const to = addDays(from, days - 1);
@@ -91,7 +258,11 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
       `SELECT plan_date, line_key, product_name, plan_qty, pack_size, customer, due_date, so_no
        FROM packaging_schedule WHERE plan_date BETWEEN ? AND ? ORDER BY plan_date, line_key`
     )
-    .all(from, to) as unknown as PackagingCell[];
+    .all(from, to)
+    .map((c) => ({ ...(c as unknown as Omit<PackagingCell, "pack_method">), pack_method: null }))
+    // 수주번호가 없는 칸은 보여주지 않는다 — 수주번호 외의 값은 직접 입력하지 않고 수주번호로만 채우기 때문에
+    // (2026-10-02 사용자 요청) 예전에 값만 남아 있는 칸(엑셀에서 가져온 이어지는 작업일 등)이 있어도 숨긴다.
+    .filter((c) => splitSoNos(c.so_no).length > 0) as PackagingCell[];
 
   // 수주번호 → 그 수주를 계획한 라인 — 전체 계획(표시 기간 밖 포함)에서 가장 이른 계획의 라인으로 정한다.
   // 같은 수주가 실제로는 다른 포장기에서 작업돼도 계획한 라인의 실적으로 본다.
@@ -124,8 +295,38 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
       a.details.push({ so: r.so, line: r.l ?? "", qty });
     }
   }
-  return { from, to, lines: PACKAGING_LINES, cells, lineActuals };
+
+  // 수주번호로 값 읽어 오기 — 칸에 적힌 수주번호들을 한 번에 찾아 고객사·품목군·계획·개입수·납기일을 채우고,
+  // 수주등록에 없는 번호는 missingSoNos로 돌려준다(저장된 값은 못 찾았을 때의 예비값으로 그대로 둔다).
+  const tokens = [...new Set(cells.flatMap((c) => splitSoNos(c.so_no)))];
+  const orderMap = fetchOrderRowsByTokens(db, tokens);
+  const missingSoNos = tokens.filter((t) => !orderMap.has(t));
+  const filledCells = cells.map((c) => {
+    const infos = splitSoNos(c.so_no)
+      .map((t) => orderMap.get(t))
+      .filter((rows): rows is OrderRow[] => !!rows)
+      .map(summarizeOrder);
+    if (infos.length === 0) return c;
+    const merged = combineOrderInfos(infos);
+    return {
+      ...c,
+      customer: merged.customer ?? c.customer,
+      product_name: merged.product_name ?? c.product_name,
+      plan_qty: merged.order_qty > 0 ? merged.order_qty : c.plan_qty,
+      pack_size: merged.pack_size ?? c.pack_size,
+      pack_method: merged.pack_method,
+      due_date: merged.due_date ?? c.due_date,
+    };
+  });
+  const calRows = db
+    .prepare("SELECT cal_date, day_type FROM production_calendar WHERE cal_date BETWEEN ? AND ? ORDER BY cal_date")
+    .all(from, to) as { cal_date: string; day_type: string }[];
+  const holidays = calRows.filter((r) => r.day_type === "휴일").map((r) => r.cal_date);
+  const workDays = calRows.filter((r) => r.day_type === "평일").map((r) => r.cal_date);
+  return { from, to, lines: PACKAGING_LINES, cells: filledCells, lineActuals, missingSoNos, holidays, workDays };
 }
+
+// ── 저장 ─────────────────────────────────────────────────────────────────────────
 
 function cleanText(v: unknown, max: number): string | null {
   if (v == null) return null;
@@ -148,7 +349,14 @@ export function upsertPackagingCell(
        FROM packaging_schedule WHERE plan_date = ? AND line_key = ?`
     )
     .get(planDate, lineKey) as
-    | { product_name: string | null; plan_qty: number | null; pack_size: string | null; customer: string | null; due_date: string | null; so_no: string | null }
+    | {
+        product_name: string | null;
+        plan_qty: number | null;
+        pack_size: string | null;
+        customer: string | null;
+        due_date: string | null;
+        so_no: string | null;
+      }
     | undefined;
   const next = {
     product_name: current?.product_name ?? null,
@@ -161,7 +369,7 @@ export function upsertPackagingCell(
   if ("product_name" in fields) next.product_name = cleanText(fields.product_name, 100);
   if ("pack_size" in fields) next.pack_size = cleanText(fields.pack_size, 30);
   if ("customer" in fields) next.customer = cleanText(fields.customer, 100);
-  if ("so_no" in fields) next.so_no = cleanText(fields.so_no, 40);
+  if ("so_no" in fields) next.so_no = cleanText(fields.so_no, 80);
   if ("due_date" in fields) {
     const s = cleanText(fields.due_date, 10);
     next.due_date = s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
@@ -189,107 +397,43 @@ export function upsertPackagingCell(
   ).run(planDate, lineKey, next.product_name, next.plan_qty, next.pack_size, next.customer, next.due_date, next.so_no, user);
 }
 
-export interface PackagingOrderInfo {
-  /** 입력한 수주번호(여러 개면 입력한 그대로) */
-  so_no: string;
-  /** 수주등록에서 찾지 못한 번호 */
-  missing?: string[];
-  customer: string | null;
-  /** 품목군(수주등록 SALES-02 품목군) */
-  product_name: string | null;
-  /** 포장단위수량(제품정보 BASE-01) */
-  pack_size: string | null;
-  due_date: string | null;
-  /** 계획(수량) — 그 수주번호의 수주 수량 합계 */
-  order_qty: number;
-}
-
 /**
- * 수주번호로 수주등록(SALES-02)에서 품목군·납기일·수량을, 제품정보(BASE-01)에서 포장단위수량을 찾아온다
- * (2026-10-01 사용자 요청). 수주 테이블의 so_no는 품목 줄마다 "SO202609030001-1"처럼 순번이 붙어 있어,
- * 입력한 번호와 같거나(원본 "수주번호" 컬럼 포함) 그 번호로 시작하는 줄을 모두 모아 쓴다.
- *  - 품목군: 첫 줄의 품목군 / 납기일: 가장 빠른 납기일 / 계획(수량): 수주 수량 합계
- *  - 포장단위수량: 줄마다 품목코드로 제품정보의 "포장단위수량"을 찾아 수량이 가장 많은 값을 쓴다
- *    (제품정보에 없으면 수주 품목정보의 "N개입"으로 대신한다)
+ * 수주번호 한 칸을 저장한다 — 번호만 직접 입력하는 칸이다(2026-10-02). 저장할 때 읽어 온 값을 예비값으로 같이
+ * 저장해 두고(수주를 못 찾으면 이전 값을 그대로 둔다), 번호를 지우면 읽어 왔던 값도 함께 비운다.
  */
-function lookupSingleOrder(db: DatabaseSync, soNoRaw: string): PackagingOrderInfo | null {
-  const soNo = soNoRaw.trim();
-  if (!soNo) return null;
-  const rows = db
-    .prepare(
-      `SELECT so.item_code, so.order_qty, so.due_date,
-              json_extract(so.detail, '$."거래처명"') cname, json_extract(so.detail, '$."품목정보"') info,
-              json_extract(so.detail, '$."품목군"') grp,
-              json_extract(it.detail, '$."포장단위수량"') pk
-       FROM sales_orders so LEFT JOIN items it ON it.item_code = so.item_code
-       WHERE so.so_no = ? OR so.so_no LIKE ? OR json_extract(so.detail, '$."수주번호"') = ?
-       ORDER BY so.so_no LIMIT 2000`
-    )
-    .all(soNo, `${soNo.replace(/[%_]/g, "")}-%`, soNo) as {
-    item_code: string | null;
-    order_qty: number | null;
-    due_date: string | null;
-    cname: string | null;
-    info: string | null;
-    grp: string | null;
-    pk: number | string | null;
-  }[];
-  if (rows.length === 0) return null;
-  const first = rows[0];
-
-  // 포장단위수량 — 제품정보 값별 수주 수량 합이 가장 큰 값
-  const packWeight = new Map<string, number>();
-  for (const r of rows) {
-    const v = r.pk != null && Number(r.pk) > 0 ? String(Number(r.pk)) : null;
-    if (v) packWeight.set(v, (packWeight.get(v) ?? 0) + (r.order_qty ?? 0) + 1);
+export function savePackagingSoNo(
+  db: DatabaseSync,
+  planDate: string,
+  lineKey: string,
+  soNoRaw: string,
+  user: string | null
+): void {
+  const soNo = cleanText(soNoRaw, 80);
+  if (!soNo) {
+    upsertPackagingCell(
+      db,
+      planDate,
+      lineKey,
+      { so_no: null, product_name: null, plan_qty: null, pack_size: null, customer: null, due_date: null },
+      user
+    );
+    return;
   }
-  let pack: string | null = null;
-  let best = -1;
-  for (const [v, w] of packWeight) if (w > best) { best = w; pack = v; }
-  if (!pack) {
-    const m = /(\d+)\s*개입/.exec(first.info ?? "") ?? /\((\d+)\s*P/i.exec(first.info ?? "");
-    pack = m ? m[1] : null;
-  }
-
-  return {
-    so_no: soNo,
-    customer: first.cname,
-    product_name: first.grp ?? ((first.info ?? "").split("◆")[0].trim() || null),
-    pack_size: pack,
-    due_date: rows.map((r) => r.due_date).filter((x): x is string => !!x).sort()[0] ?? null,
-    order_qty: rows.reduce((sum, r) => sum + (r.order_qty ?? 0), 0),
-  };
-}
-
-/**
- * 수주번호 칸에는 한 칸에 두 종 이상을 함께 포장하는 경우(예: "Dope Wink 2종") 수주번호를 여러 개 적을 수
- * 있다(쉼표·공백·슬래시로 구분, 2026-10-01 사용자 요청 — SO202609150008, SO202609150009). 번호마다 찾아
- *  - 품목군·고객사: 서로 다른 값을 ", "로 이어 붙이고
- *  - 납기일: 가장 빠른 날짜 / 계획(수량): 수량 합계
- *  - 포장단위수량: 서로 다른 값을 작은 수부터 ","로 이어 붙인다(예: "1,2").
- * 못 찾은 번호는 missing에 담아 돌려준다. 하나도 못 찾으면 null.
- */
-export function lookupOrderInfo(db: DatabaseSync, soNoRaw: string): PackagingOrderInfo | null {
-  const tokens = [...new Set(soNoRaw.split(/[\s,;/]+/).map((t) => t.trim()).filter(Boolean))];
-  if (tokens.length === 0) return null;
-  const found: PackagingOrderInfo[] = [];
-  const missing: string[] = [];
-  for (const t of tokens) {
-    const info = lookupSingleOrder(db, t);
-    if (info) found.push(info);
-    else missing.push(t);
-  }
-  if (found.length === 0) return null;
-  if (found.length === 1 && missing.length === 0) return found[0];
-  const uniq = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))];
-  const packs = uniq(found.map((f) => f.pack_size)).sort((a, b) => Number(a) - Number(b));
-  return {
-    so_no: soNoRaw.trim(),
-    missing,
-    customer: uniq(found.map((f) => f.customer)).join(", ") || null,
-    product_name: uniq(found.map((f) => f.product_name)).join(", ") || null,
-    pack_size: packs.join(",") || null,
-    due_date: found.map((f) => f.due_date).filter((x): x is string => !!x).sort()[0] ?? null,
-    order_qty: found.reduce((sum, f) => sum + f.order_qty, 0),
-  };
+  const info = lookupOrderInfo(db, soNo);
+  upsertPackagingCell(
+    db,
+    planDate,
+    lineKey,
+    info
+      ? {
+          so_no: soNo,
+          customer: info.customer,
+          product_name: info.product_name,
+          plan_qty: info.order_qty > 0 ? info.order_qty : null,
+          pack_size: info.pack_size,
+          due_date: info.due_date,
+        }
+      : { so_no: soNo },
+    user
+  );
 }

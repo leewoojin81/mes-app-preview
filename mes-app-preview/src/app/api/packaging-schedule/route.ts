@@ -1,20 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
-import {
-  fetchPackagingSchedule,
-  PACKAGING_FIELDS,
-  PACKAGING_LINES,
-  upsertPackagingCell,
-  type PackagingField,
-} from "@/lib/packaging-schedule";
+import { fetchPackagingSchedule, PACKAGING_LINES, savePackagingSoNo } from "@/lib/packaging-schedule";
 
 export const runtime = "nodejs";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAYS = 62;
 
-// 계획정보(PLAN-03) "출하포장" — 시작일부터 days일 동안의 라인×일자 포장 계획과 실적을 내려준다.
+// 계획정보(PLAN-03) "출하포장" — 시작일부터 days일 동안의 라인×일자 포장 계획과 실적을 내려준다. 고객사·품목군·계획·
+// 개입수·납기일은 칸의 수주번호로 수주등록·거래처정보·제품정보에서 읽어 채워서 내려준다.
 export async function GET(req: NextRequest) {
   const from = req.nextUrl.searchParams.get("from");
   const days = Math.min(MAX_DAYS, Math.max(1, parseInt(req.nextUrl.searchParams.get("days") ?? "28", 10) || 28));
@@ -27,10 +22,11 @@ export async function GET(req: NextRequest) {
 interface PatchBody {
   planDate?: string;
   lineKey?: string;
-  fields?: Partial<Record<PackagingField, unknown>>;
+  soNo?: string | null;
 }
 
-// 한 칸(라인·일자)의 일부 필드를 저장한다 — 칸마다 blur/엔터 시 바로 저장한다. 모든 필드가 비면 그 칸을 지운다.
+// 한 칸(라인·일자)의 수주번호를 저장한다 — 직접 입력하는 값은 수주번호뿐이다(2026-10-02 사용자 요청). 번호를 지우면
+// 그 칸의 읽어 온 값도 함께 지워진다.
 export async function PATCH(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as PatchBody | null;
   const planDate = body?.planDate?.trim();
@@ -38,14 +34,10 @@ export async function PATCH(req: NextRequest) {
   if (!planDate || !DATE_RE.test(planDate) || !lineKey || !PACKAGING_LINES.some((l) => l.key === lineKey)) {
     return NextResponse.json({ error: "planDate(YYYY-MM-DD)와 올바른 lineKey가 필요합니다." }, { status: 400 });
   }
-  const fields: Partial<Record<PackagingField, unknown>> = {};
-  for (const f of PACKAGING_FIELDS) {
-    if (body?.fields && Object.prototype.hasOwnProperty.call(body.fields, f)) fields[f] = body.fields[f];
-  }
-  if (Object.keys(fields).length === 0) {
-    return NextResponse.json({ error: "저장할 필드가 없습니다." }, { status: 400 });
+  if (!body || !Object.prototype.hasOwnProperty.call(body, "soNo")) {
+    return NextResponse.json({ error: "soNo가 필요합니다. 수주번호 외의 값은 직접 입력할 수 없습니다." }, { status: 400 });
   }
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
-  upsertPackagingCell(getDb(), planDate, lineKey, fields, session?.u ?? null);
+  savePackagingSoNo(getDb(), planDate, lineKey, body.soNo ?? "", session?.u ?? null);
   return NextResponse.json({ ok: true });
 }
