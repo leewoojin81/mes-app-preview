@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import SpecialWorkDayPanel from "@/components/SpecialWorkDayPanel";
 import SpecialWorkDayGrid from "@/components/SpecialWorkDayGrid";
+import BizAttendanceTab from "@/components/BizAttendanceTab";
 import { useTabState } from "@/lib/use-tab-state";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
 import { formatBizName } from "@/lib/biz-import";
@@ -26,11 +27,13 @@ interface Me {
 // 셋 다 버튼이었고 초과신청은 바로 다운로드, 특근일은 팝업이었다). 조회 그리드는 필터와
 // 함께 세 탭 모두에서 그대로 보여주고(탭마다 어떤 인원·날짜가 다운로드 대상인지 바로
 // 확인 가능), 탭별로 다른 건 그 위의 액션 영역(다운로드 버튼/특근일 입력 패널)뿐이다.
-type WorkHoursLookupTab = "lookup" | "overtime" | "special";
+type WorkHoursLookupTab = "lookup" | "overtime" | "special" | "biz";
 const TABS: { key: WorkHoursLookupTab; label: string }[] = [
   { key: "lookup", label: "조회" },
   { key: "overtime", label: "초과신청" },
   { key: "special", label: "특근일" },
+  // 비즈 근태 시스템 "기간별 근무관리" 업로드 데이터를 원본 모양대로 조회(2026-10-01 사용자 요청)
+  { key: "biz", label: "비즈" },
 ];
 
 const COLS: { key: keyof WorkHoursLookupTotals; label: string }[] = [
@@ -393,6 +396,9 @@ export default function WorkHoursLookupPage() {
         />
       )}
 
+      {activeTab === "biz" && <BizAttendanceTab role={me?.role ?? null} />}
+
+      {activeTab !== "biz" && (
       <div className="flex items-center gap-2 flex-wrap">
         {activeTab !== "special" && (
           <>
@@ -461,6 +467,7 @@ export default function WorkHoursLookupPage() {
           )}
         </div>
       </div>
+      )}
 
       {activeTab === "special" && (
         <SpecialWorkDayGrid
@@ -471,9 +478,9 @@ export default function WorkHoursLookupPage() {
         />
       )}
 
-      {activeTab !== "special" && error && <p className="text-sm text-rose-600">{error}</p>}
+      {activeTab !== "special" && activeTab !== "biz" && error && <p className="text-sm text-rose-600">{error}</p>}
 
-      {activeTab !== "special" && (
+      {activeTab !== "special" && activeTab !== "biz" && (
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
         <div className="overflow-auto max-h-[calc(100vh-19rem)]">
           {activeTab === "overtime" ? (
