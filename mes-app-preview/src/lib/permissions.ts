@@ -97,6 +97,7 @@ const CODE_API_PREFIXES: Record<string, string[]> = {
   "SALES-01": ["/api/sales-monthly-customer-plan"],
   "SALES-03": ["/api/product-shipment"],
   "PLAN-02": ["/api/item-process-routing", "/api/line-capa-plan"],
+  "PLAN-03": ["/api/packaging-schedule"],
   "PROD-02": [
     "/api/production-results",
     "/api/defects",
