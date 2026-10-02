@@ -573,7 +573,10 @@ interface SoLineStat {
   line_key: string;
   reps: Set<string>;
   qty: number;
+  /** 작업일수 */
   days: number;
+  /** 설비 하루 생산량 중 이 수주가 차지한 몫을 날짜별로 더한 "설비 일수 환산"(같은 날 여러 수주를 번갈아 포장해도 하루가 겹쳐 세어지지 않는다) */
+  machineDays: number;
 }
 const p410LearnCache = new WeakMap<
   DatabaseSync,
@@ -595,7 +598,13 @@ function p410Learn(db: DatabaseSync) {
     )
     .all() as { so: string | null; item_code: string; l: string | null; d: string; n: number; q: number | null }[];
   const repLines = new Map<string, Map<string, EquipmentUse>>();
-  const soMap = new Map<string, { stat: SoLineStat; dates: Set<string> }>();
+  const soMap = new Map<string, { stat: SoLineStat; dates: Set<string>; byDate: Map<string, number> }>();
+  // 설비·날짜별 전체 생산량 — 수주가 하루에서 차지한 몫을 구하는 데 쓴다
+  const dayTotals = new Map<string, number>();
+  for (const r of rows) {
+    const k = lineKeyOfEquipment(r.l);
+    if (k) dayTotals.set(`${k}|${r.d}`, (dayTotals.get(`${k}|${r.d}`) ?? 0) + (r.q ?? 0));
+  }
   for (const r of rows) {
     const key = lineKeyOfEquipment(r.l);
     if (!key) continue;
@@ -608,14 +617,27 @@ function p410Learn(db: DatabaseSync) {
     repLines.set(rep, lines);
     if (r.so) {
       const sk = `${r.so}|${key}`;
-      const e = soMap.get(sk) ?? { stat: { so: r.so, line_key: key, reps: new Set<string>(), qty: 0, days: 0 }, dates: new Set<string>() };
+      const e =
+        soMap.get(sk) ?? {
+          stat: { so: r.so, line_key: key, reps: new Set<string>(), qty: 0, days: 0, machineDays: 0 },
+          dates: new Set<string>(),
+          byDate: new Map<string, number>(),
+        };
       e.stat.qty += r.q ?? 0;
       e.stat.reps.add(rep);
       e.dates.add(r.d);
+      e.byDate.set(r.d, (e.byDate.get(r.d) ?? 0) + (r.q ?? 0));
       soMap.set(sk, e);
     }
   }
-  const soStats = [...soMap.values()].map((e) => ({ ...e.stat, days: e.dates.size }));
+  const soStats = [...soMap.values()].map((e) => {
+    let machineDays = 0;
+    for (const [d, q] of e.byDate) {
+      const total = dayTotals.get(`${e.stat.line_key}|${d}`) ?? 0;
+      machineDays += total > 0 ? q / total : 1;
+    }
+    return { ...e.stat, days: e.dates.size, machineDays };
+  });
   const out = { at: Date.now(), repLines, soStats };
   p410LearnCache.set(db, out);
   return out;
@@ -626,7 +648,8 @@ function learnedRepLines(db: DatabaseSync): Map<string, Map<string, EquipmentUse
 
 // ── 물량 규모별 일CAPA 예측 ────────────────────────────────────────────────────────
 // 일일작업현황(PROD-10) 출하포장 실적을 수주번호×설비 단위로 묶어 (총 양품수량, 작업일수)를 구하고, 일평균 = 총량 ÷ 작업일수로
-// 물량 구간별 평균 일CAPA를 낸다. 작지번호는 품목·도수 한 건씩 나뉘어(최대 2천 개·1~3일) 일CAPA 기준이 안 되므로 수주번호로 묶었다.
+// 물량 구간별 평균 일CAPA를 낸다 — 단, 한 설비가 같은 날 여러 수주를 번갈아 포장하므로 수주별 작업일수를 그대로 세면 일CAPA가
+// 낮게 나온다. 날짜별로 그 수주가 설비 하루 생산량에서 차지한 몫만 더한 "설비 일수 환산"으로 나눈다(구간 평균은 수량 가중). 작지번호는 품목·도수 한 건씩 나뉘어(최대 2천 개·1~3일) 일CAPA 기준이 안 되므로 수주번호로 묶었다.
 // 물량 구간은 실제 분포(중앙값 2.1만, 75% 8만, 90% 17.5만, 상위 5% 29만 이상)에 맞춰 4구간으로 나눴다.
 const VOLUME_BINS: { label: string; max: number }[] = [
   { label: "2만 이하", max: 20_000 },
@@ -652,8 +675,8 @@ function forecastCapa(db: DatabaseSync, so: string, itemCodes: string[], lineKey
   if (remaining <= 0) return null;
   const bin = volumeBin(orderQty);
   const reps = new Set(itemCodes.map(repCodeOf));
-  const same = p410Learn(db).soStats.filter((x) => x.so !== so && x.line_key === lineKey && x.days > 0 && volumeBin(x.qty) === bin);
-  const pick = (list: SoLineStat[]) => (list.length ? list.reduce((a, x) => a + x.qty / x.days, 0) / list.length : 0);
+  const same = p410Learn(db).soStats.filter((x) => x.so !== so && x.line_key === lineKey && x.machineDays > 0 && volumeBin(x.qty) === bin);
+  const pick = (list: SoLineStat[]) => (list.length ? list.reduce((a, x) => a + x.qty, 0) / list.reduce((a, x) => a + x.machineDays, 0) : 0);
   const sameItem = same.filter((x) => [...x.reps].some((r) => reps.has(r)));
   let list = sameItem;
   let basis: "item" | "equipment" = "item";
