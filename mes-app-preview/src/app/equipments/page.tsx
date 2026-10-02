@@ -73,6 +73,9 @@ export default function EquipmentMasterPage() {
   const [loading, setLoading] = useState(true);
   // 탭을 전환했다 돌아와도 보고 있던 필터는 유지되도록 세션 단위로 저장한다.
   const [useFilter, setUseFilter] = useTabState<"" | "Y" | "N">("useFilter", "");
+  const [groupFilter, setGroupFilter] = useTabState<string>("equipGroupFilter", "");
+  const [lineFilter, setLineFilter] = useTabState<string>("equipLineFilter", "");
+  const [workTimeFilter, setWorkTimeFilter] = useTabState<string>("equipWorkTimeFilter", "");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Equipment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Equipment | null>(null);
@@ -91,7 +94,18 @@ export default function EquipmentMasterPage() {
 
   useEffect(load, []);
 
-  const visibleRows = rows.filter((r) => !useFilter || r.use_yn === useFilter);
+  const visibleRows = rows.filter(
+    (r) =>
+      (!useFilter || r.use_yn === useFilter) &&
+      (!groupFilter || (r.equipment_group ?? "") === groupFilter) &&
+      (!lineFilter || (r.line_id ?? "") === lineFilter) &&
+      (!workTimeFilter || (r.work_time_type ?? "") === workTimeFilter)
+  );
+  const optionsOf = (pick: (r: Equipment) => string | null | undefined) =>
+    [...new Set(rows.map((r) => (pick(r) ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko", { numeric: true }));
+  const groupOptions = optionsOf((r) => r.equipment_group);
+  const lineOptions = optionsOf((r) => r.line_id);
+  const workTimeOptions = optionsOf((r) => r.work_time_type);
 
   return (
     <div className="w-full px-4 py-4 space-y-4">
@@ -114,22 +128,57 @@ export default function EquipmentMasterPage() {
         </button>
       </div>
 
-      <div className="flex items-center gap-2">
-        {USE_TABS.map((tab) => (
-          <button
-            key={tab.label}
-            onClick={() => setUseFilter(tab.value)}
-            className={`px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-              useFilter === tab.value
-                ? tab.value === "N"
-                  ? "bg-rose-700 text-white border-rose-700"
-                  : "bg-navy text-white border-navy"
-                : "bg-white text-slate-600 border-slate-300 hover:border-navy"
-            }`}
-          >
-            {tab.label}
-          </button>
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          {USE_TABS.map((tab) => (
+            <button
+              key={tab.label}
+              onClick={() => setUseFilter(tab.value)}
+              className={`px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                useFilter === tab.value
+                  ? tab.value === "N"
+                    ? "bg-rose-700 text-white border-rose-700"
+                    : "bg-navy text-white border-navy"
+                  : "bg-white text-slate-600 border-slate-300 hover:border-navy"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {[
+          { label: "설비군", value: groupFilter, set: setGroupFilter, options: groupOptions },
+          { label: "라인", value: lineFilter, set: setLineFilter, options: lineOptions },
+          { label: "작업시간", value: workTimeFilter, set: setWorkTimeFilter, options: workTimeOptions },
+        ].map((f) => (
+          <label key={f.label} className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+            {f.label}
+            <select
+              value={f.value}
+              onChange={(e) => f.set(e.target.value)}
+              className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white text-slate-700 font-normal"
+            >
+              <option value="">전체</option>
+              {f.options.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </label>
         ))}
+        {(groupFilter || lineFilter || workTimeFilter) && (
+          <button
+            onClick={() => {
+              setGroupFilter("");
+              setLineFilter("");
+              setWorkTimeFilter("");
+            }}
+            className="px-2.5 py-1.5 rounded-md text-xs border border-slate-300 bg-white text-slate-600 hover:border-navy"
+          >
+            필터 초기화
+          </button>
+        )}
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
@@ -140,6 +189,9 @@ export default function EquipmentMasterPage() {
               <tr>
                 <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
                   No
+                </th>
+                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
+                  관리
                 </th>
                 {COLUMNS.map((c) => (
                   <th
@@ -153,9 +205,6 @@ export default function EquipmentMasterPage() {
                   사용여부
                 </th>
                 <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">수정일자</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">
-                  관리
-                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -177,6 +226,25 @@ export default function EquipmentMasterPage() {
                 visibleRows.map((r, idx) => (
                   <tr key={r.equipment_id} className="hover:bg-slate-50">
                     <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => {
+                            setEditing(r);
+                            setShowForm(true);
+                          }}
+                          className="text-xs font-medium text-navy hover:underline"
+                        >
+                          수정
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(r)}
+                          className="text-xs font-medium text-rose-600 hover:underline"
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    </td>
                     {COLUMNS.map((c) => {
                       const v = r[c.key];
                       return (
@@ -208,25 +276,6 @@ export default function EquipmentMasterPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.updated_at ? r.updated_at.slice(0, 16) : "-"}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            setEditing(r);
-                            setShowForm(true);
-                          }}
-                          className="text-xs font-medium text-navy hover:underline"
-                        >
-                          수정
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(r)}
-                          className="text-xs font-medium text-rose-600 hover:underline"
-                        >
-                          삭제
-                        </button>
-                      </div>
-                    </td>
                   </tr>
                 ))}
             </tbody>

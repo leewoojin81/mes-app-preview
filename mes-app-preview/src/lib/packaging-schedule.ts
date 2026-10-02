@@ -303,6 +303,24 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
   const tokens = [...new Set(cells.flatMap((c) => splitSoNos(c.so_no)))];
   const orderMap = fetchOrderRowsByTokens(db, tokens);
   const missingSoNos = tokens.filter((t) => !orderMap.has(t));
+  // 계획 = 포장기 UPH × 하루 작업시간 × 개입수 (2026-10-02 사용자 요청). 라인 N은 설비정보(BASE-05) Packing 설비군의 "N호기"
+  // 설비를 쓴다 — 예) UPH 1500 × 8시간(일취업시간 480분) × 개입수 10 = 120,000. UPH·개입수가 없으면 계획은 비워 둔다.
+  const capaByLine = new Map<string, { uph: number; hours: number }>();
+  const pkRows = db
+    .prepare(
+      `SELECT equipment_name, uph, daily_work_minutes FROM equipments
+        WHERE equipment_group = 'Packing' AND COALESCE(use_yn, 'Y') = 'Y' ORDER BY equipment_id`
+    )
+    .all() as { equipment_name: string; uph: number | null; daily_work_minutes: number | null }[];
+  for (const e of pkRows) {
+    const m = /(\d+)\s*호기/.exec(e.equipment_name ?? "");
+    if (!m) continue;
+    const key = `line${Number(m[1])}`;
+    if (capaByLine.has(key)) continue;
+    const uph = Number(e.uph) || 0;
+    const hours = (Number(e.daily_work_minutes) || 0) / 60;
+    if (uph > 0 && hours > 0) capaByLine.set(key, { uph, hours });
+  }
   const filledCells = cells.map((c) => {
     const infos = splitSoNos(c.so_no)
       .map((t) => orderMap.get(t))
@@ -310,11 +328,13 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
       .map(summarizeOrder);
     if (infos.length === 0) return c;
     const merged = combineOrderInfos(infos);
+    const capa = capaByLine.get(c.line_key);
+    const pn = merged.pack_size && /^\d+$/.test(merged.pack_size.trim()) ? Number(merged.pack_size) : 0;
     return {
       ...c,
       customer: merged.customer ?? c.customer,
       product_name: merged.product_name ?? c.product_name,
-      plan_qty: merged.order_qty > 0 ? merged.order_qty : c.plan_qty,
+      plan_qty: capa && pn > 0 ? Math.round(capa.uph * capa.hours * pn) : null,
       order_qty: merged.order_qty > 0 ? merged.order_qty : null,
       pack_size: merged.pack_size ?? c.pack_size,
       pack_method: merged.pack_method,
