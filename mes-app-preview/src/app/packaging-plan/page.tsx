@@ -24,13 +24,15 @@ const FIELD_ORDER = PACKAGING_FIELDS as readonly PackagingField[];
 
 // 표에 보이는 행 순서(2026-10-01 사용자 요청: 구분 → 고객사, 수주번호, 품명, 계획, 실적, 개입수, 납기일).
 // 실적·계획 팩수는 읽기 전용 행이다. 엔터 이동은 이 순서의 입력 행만 따라간다.
-type RowKind = { kind: "field"; field: PackagingField } | { kind: "actual" } | { kind: "packs" };
+type RowKind = { kind: "field"; field: PackagingField } | { kind: "orderqty" } | { kind: "actual" } | { kind: "progress" } | { kind: "packs" };
 const ROW_LAYOUT: RowKind[] = [
   { kind: "field", field: "customer" },
   { kind: "field", field: "so_no" },
   { kind: "field", field: "product_name" },
+  { kind: "orderqty" },
   { kind: "field", field: "plan_qty" },
   { kind: "actual" },
+  { kind: "progress" },
   { kind: "field", field: "pack_size" },
   { kind: "field", field: "pack_method" },
   { kind: "field", field: "due_date" },
@@ -48,7 +50,7 @@ const FIELD_TEXT_COLOR: Partial<Record<PackagingField, string>> = {
 const READONLY_FIELDS = new Set<PackagingField>(["customer", "product_name", "plan_qty", "pack_size", "pack_method", "due_date"]);
 // 보고 싶은 구분(행)만 체크해서 보는 기능(2026-10-02 사용자 요청) — 행 식별자와 체크박스 이름
 const rowId = (r: RowKind): string => (r.kind === "field" ? r.field : r.kind);
-const rowLabel = (r: RowKind): string => (r.kind === "field" ? FIELD_LABEL[r.field] : r.kind === "actual" ? "실적" : "팩수");
+const rowLabel = (r: RowKind): string => (r.kind === "field" ? FIELD_LABEL[r.field] : r.kind === "orderqty" ? "수주량" : r.kind === "actual" ? "실적" : r.kind === "progress" ? "진도율" : "팩수");
 const ALL_ROW_IDS = ROW_LAYOUT.map(rowId);
 const SHOWN_ROWS_STORAGE_KEY = "packagingPlan.shownRows";
 
@@ -162,7 +164,20 @@ function ScheduleTab() {
       const raw = localStorage.getItem(SHOWN_ROWS_STORAGE_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw);
-      if (Array.isArray(saved)) setShownRowsState(ALL_ROW_IDS.filter((id) => saved.includes(id)));
+      if (Array.isArray(saved)) {
+        // 수주량 행이 새로 생겼으므로(2026-10-02) 이전에 저장한 선택에도 한 번은 보이게 넣어 준다
+        if (!localStorage.getItem(SHOWN_ROWS_STORAGE_KEY + ".progressAdded")) {
+          localStorage.setItem(SHOWN_ROWS_STORAGE_KEY + ".progressAdded", "1");
+          if (!saved.includes("progress")) saved.push("progress");
+          localStorage.setItem(SHOWN_ROWS_STORAGE_KEY, JSON.stringify(saved));
+        }
+        if (!localStorage.getItem(SHOWN_ROWS_STORAGE_KEY + ".orderqtyAdded")) {
+          localStorage.setItem(SHOWN_ROWS_STORAGE_KEY + ".orderqtyAdded", "1");
+          if (!saved.includes("orderqty")) saved.push("orderqty");
+          localStorage.setItem(SHOWN_ROWS_STORAGE_KEY, JSON.stringify(saved));
+        }
+        setShownRowsState(ALL_ROW_IDS.filter((id) => saved.includes(id)));
+      }
     } catch {
       /* 저장값을 못 읽으면 전체 표시 */
     }
@@ -289,6 +304,13 @@ function ScheduleTab() {
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([ws, v]) => ({ ws, ...v }));
   }, [result, dates, drafts]);
+
+  // 수주량(수주번호의 수주 수량 합계) — 서버가 칸마다 내려준다
+  const orderQtyByCell = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of result?.cells ?? []) if (c.order_qty) m.set(`${c.line_key}|${c.plan_date}`, c.order_qty);
+    return m;
+  }, [result]);
 
   const thBase = "px-2 py-1.5 text-center font-semibold border border-slate-300 bg-[#D9E1F2] text-slate-600 text-xs";
 
@@ -446,6 +468,22 @@ function ScheduleTab() {
                               {line.sub && <div className="text-[10px] font-normal text-slate-400">{line.sub}</div>}
                             </td>
                           ) : null;
+                        if (row.kind === "orderqty") {
+                          return (
+                            <tr key={rowKey} className="h-7">
+                              {lineCell}
+                              <td style={labelStyle} className={labelCls}>수주량</td>
+                              {dates.map((d) => {
+                                const q = orderQtyByCell.get(`${line.key}|${d}`);
+                                return (
+                                  <td key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 px-1.5 py-1 text-right font-mono">
+                                    {q && q > 0 ? fmtNum(q) : ""}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        }
                         if (row.kind === "actual") {
                           return (
                             <tr key={rowKey} className="h-7">
@@ -467,6 +505,23 @@ function ScheduleTab() {
                                     className="border border-slate-200 px-1.5 py-1 text-right font-mono text-emerald-700"
                                   >
                                     {a && a.total > 0 ? fmtNum(a.total) : ""}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        }
+                        if (row.kind === "progress") {
+                          return (
+                            <tr key={rowKey} className="h-7">
+                              {lineCell}
+                              <td style={labelStyle} className={labelCls}>진도율</td>
+                              {dates.map((d) => {
+                                const act = result.lineActuals[`${line.key}|${d}`]?.total ?? 0;
+                                const qty = Number((drafts[key3(line.key, d, "plan_qty")] ?? "").replace(/,/g, ""));
+                                return (
+                                  <td key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-600">
+                                    {qty > 0 && act > 0 ? `${((act / qty) * 100).toFixed(1)}%` : ""}
                                   </td>
                                 );
                               })}
@@ -606,11 +661,13 @@ function ScheduleTab() {
 export default function PackagingPlanPage() {
   const [tab, setTab] = useTabState<"schedule" | "plan">("pkTab", "plan");
   const tabs = [
-    { id: "plan", label: "1. 월간 생산계획" },
-    { id: "schedule", label: "2. 주차별 생산계획" },
+    { id: "plan", label: "생산계획" },
+    { id: "schedule", label: "일정" },
   ] as const;
   return (
-    <div className="w-full px-4 sm:px-6 py-6 space-y-5">
+    <div className="w-full px-4 sm:px-6 pb-6 space-y-5">
+      {/* 제목·탭(생산계획 탭에서는 월 선택까지)은 스크롤해도 위에 고정하고, 1. 월간 생산계획부터 아래로 움직이게 한다 */}
+      <div className="sticky top-0 z-30 bg-background -mx-4 sm:-mx-6 px-4 sm:px-6 pt-6 pb-2 space-y-3">
       <h1 className="text-xl font-bold text-navy">출하포장</h1>
       <div className="flex gap-1 border-b border-slate-200">
         {tabs.map((t) => (
@@ -624,6 +681,8 @@ export default function PackagingPlanPage() {
             {t.label}
           </button>
         ))}
+      </div>
+      <div id="pk-sticky-slot" />
       </div>
       {tab === "schedule" ? <ScheduleTab /> : <PackagingSummaryTab />}
     </div>

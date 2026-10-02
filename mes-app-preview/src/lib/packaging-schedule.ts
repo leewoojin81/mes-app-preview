@@ -35,6 +35,8 @@ export interface PackagingCell {
   customer: string | null;
   due_date: string | null;
   so_no: string | null;
+  /** 수주량 — 수주번호의 수주 수량 합계(저장하지 않고 수주등록에서 읽어 온다) */
+  order_qty?: number | null;
   /** 팩방법 — 제품정보(BASE-01) 포장방법(저장하지 않고 수주번호로 읽어 온다) */
   pack_method: string | null;
 }
@@ -313,6 +315,7 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
       customer: merged.customer ?? c.customer,
       product_name: merged.product_name ?? c.product_name,
       plan_qty: merged.order_qty > 0 ? merged.order_qty : c.plan_qty,
+      order_qty: merged.order_qty > 0 ? merged.order_qty : null,
       pack_size: merged.pack_size ?? c.pack_size,
       pack_method: merged.pack_method,
       due_date: merged.due_date ?? c.due_date,
