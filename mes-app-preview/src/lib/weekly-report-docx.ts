@@ -38,9 +38,10 @@ function run(text: string, o: { size?: number; bold?: boolean; underline?: boole
 
 function para(
   runs: string,
-  o: { align?: "left" | "center" | "right"; before?: number; after?: number } = {}
+  o: { align?: "left" | "center" | "right"; before?: number; after?: number; pageBreakBefore?: boolean } = {}
 ): string {
   const ppr =
+    (o.pageBreakBefore ? "<w:pageBreakBefore/>" : "") +
     (o.before != null || o.after != null
       ? `<w:spacing${o.before != null ? ` w:before="${o.before}"` : ""}${o.after != null ? ` w:after="${o.after}"` : ""}/>`
       : "") + (o.align ? `<w:jc w:val="${o.align}"/>` : "");
@@ -341,7 +342,8 @@ export async function buildWeeklyReportDocx(r: WeeklyReportResult): Promise<Buff
   block("인쇄", printingTable(r.printing));
   if (shipping) block("출하", planTable(shipping, monthNo));
 
-  parts.push(para(run("2. 생산공정 수율", { size: 28, bold: true }), { before: 200 }));
+  // 2. 생산공정 수율부터는 Word 2페이지에서 시작한다(2026-10-02 사용자 요청)
+  parts.push(para(run("2. 생산공정 수율", { size: 28, bold: true }), { pageBreakBefore: true }));
   parts.push(para(run(yieldSummary(r), { size: 24 })));
   parts.push(yieldTable(r));
   const exInjection = yieldExInjectionSummary(r);

@@ -3,8 +3,16 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
+import { useDraggableModal } from "@/lib/use-draggable-modal";
 import PackagingSummaryTab from "./PackagingSummaryTab";
-import { addDays, PACKAGING_FIELDS, splitSoNos, type PackagingField, type PackagingScheduleResult } from "@/lib/packaging-schedule";
+import {
+  addDays,
+  PACKAGING_FIELDS,
+  splitSoNos,
+  type PackagingCandidate,
+  type PackagingField,
+  type PackagingScheduleResult,
+} from "@/lib/packaging-schedule";
 
 // 계획정보(PLAN-03) "출하포장" — 포장 라인별·일자별 포장 계획표("2026년 포장_20261001.xlsx" 1번 시트)를
 // 그대로 옮긴 화면(2026-10-01 사용자 요청). 라인(1~5 Line/기타/바이알) × 날짜 한 칸에 품명·계획(수량)·
@@ -221,7 +229,7 @@ function ScheduleTab() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3000);
+    const t = setTimeout(() => setToast(null), 6000);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -253,8 +261,10 @@ function ScheduleTab() {
   // 수주등록·거래처정보·제품정보에서 나머지 칸의 값을 읽어 채운다. 번호를 지우면 읽어 온 값도 함께 지워진다.
   async function saveField(line: string, date: string, field: PackagingField) {
     if (field !== "so_no") return;
-    const k = key3(line, date, field);
-    const value = (drafts[k] ?? "").trim();
+    await saveSoValue(line, date, (drafts[key3(line, date, field)] ?? "").trim());
+  }
+  async function saveSoValue(line: string, date: string, value: string) {
+    const k = key3(line, date, "so_no");
     if (value === (savedRef.current[k] ?? "")) return;
     const res = await fetch("/api/packaging-schedule", {
       method: "PATCH",
@@ -269,6 +279,59 @@ function ScheduleTab() {
     savedRef.current = { ...savedRef.current, [k]: value };
     setDrafts((prev) => ({ ...prev, [k]: value }));
     await reloadAfterSave(value);
+  }
+
+  // 팝업에서 고른 수주번호의 잔량이 다 계획될 때까지 그 날짜부터 근무일마다 자동으로 채운다(서버가 휴일을 건너뛴다)
+  async function autoFillSo(line: string, date: string, soNos: string[]) {
+    const res = await fetch("/api/packaging-schedule", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ planDate: date, lineKey: line, soNo: soNos.join(", "), autoFill: true }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setToast(data.error ?? "자동 배정에 실패했습니다.");
+      return;
+    }
+    await reloadAfterSave(soNos.join(", "));
+    const filled = (data.filled ?? []) as { so_no: string; dates: string[] }[];
+    const msg = filled.map((f) => `${f.so_no}: ${f.dates.map(mmdd).join(", ")}`).join(" / ");
+    const notes: string[] = [];
+    if ((data.singleOnly ?? []).length > 0) notes.push(`하루 계획을 계산하지 못해(UPH·개입수 없음) 한 칸만 넣음: ${(data.singleOnly as string[]).join(", ")}`);
+    if ((data.missing ?? []).length > 0) notes.push(`수주등록에 없음: ${(data.missing as string[]).join(", ")}`);
+    setToast(`자동 배정 — ${msg}${notes.length ? ` (${notes.join(" · ")})` : ""}`);
+  }
+
+  // 수주번호 칸을 오른쪽 클릭하면 여러 수주번호를 한 줄에 하나씩 넣는 창을 연다
+  const [soPopup, setSoPopup] = useState<{ line: string; date: string; text: string; auto: boolean } | null>(null);
+  const [soFocus, setSoFocus] = useState<string | null>(null);
+  const soDrag = useDraggableModal();
+  // 팝업을 열면 그 라인에서 포장할 수 있는 수주 후보(납기일 빠른 순)를 불러온다
+  const [candidates, setCandidates] = useState<PackagingCandidate[] | null>(null);
+  const popupLine = soPopup?.line ?? null;
+  const popupDate = soPopup?.date ?? null;
+  useEffect(() => {
+    if (!popupLine) {
+      setCandidates(null);
+      return;
+    }
+    let alive = true;
+    setCandidates(null);
+    fetch(`/api/packaging-schedule/candidates?line=${popupLine}&date=${popupDate ?? ""}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: { rows?: PackagingCandidate[] }) => alive && setCandidates(d.rows ?? []))
+      .catch(() => alive && setCandidates([]));
+    return () => {
+      alive = false;
+    };
+  }, [popupLine, popupDate]);
+  function toggleCandidate(so: string) {
+    setSoPopup((p) => {
+      if (!p) return p;
+      const cur = splitSoNos(p.text);
+      const next = cur.includes(so) ? cur.filter((x) => x !== so) : [...cur, so];
+      return { ...p, text: next.join("\n") };
+    });
   }
 
   // 엔터 → 같은 날짜 열의 아래 입력칸으로(라인의 마지막 항목이면 다음 라인의 첫 항목)
@@ -311,6 +374,37 @@ function ScheduleTab() {
     for (const c of result?.cells ?? []) if (c.order_qty) m.set(`${c.line_key}|${c.plan_date}`, c.order_qty);
     return m;
   }, [result]);
+
+  // 누적 진도율 — 그 칸의 수주번호(여러 개면 합산)로 시작일 전 실적 + 표시 중인 첫 날부터 그 날짜까지의 실적(계획 칸이
+  // 없는 날의 실적, 예: 계획 시작 전날 9/30 포장분 포함)을 모두 더한 값 ÷ 수주량
+  const cumProgress = useMemo(() => {
+    const m = new Map<string, number>();
+    if (!result) return m;
+    for (const line of result.lines) {
+      const cumByTok = new Map<string, number>();
+      const seen = new Set<string>();
+      for (const d of dates) {
+        // 이 날 이 라인에서 나온 수주번호별 실적을 누적
+        for (const x of result.lineActuals[`${line.key}|${d}`]?.details ?? []) {
+          cumByTok.set(x.so, (cumByTok.get(x.so) ?? 0) + x.qty);
+        }
+        const so = (drafts[key3(line.key, d, "so_no")] ?? "").trim();
+        if (!so) continue;
+        const toks = splitSoNos(so);
+        let total = 0;
+        for (const t of toks) {
+          if (!seen.has(t)) {
+            seen.add(t);
+            cumByTok.set(t, (cumByTok.get(t) ?? 0) + (result.soPriorActual?.[t] ?? 0));
+          }
+          total += cumByTok.get(t) ?? 0;
+        }
+        const oq = orderQtyByCell.get(`${line.key}|${d}`) ?? 0;
+        if (oq > 0 && total > 0) m.set(`${line.key}|${d}`, (total / oq) * 100);
+      }
+    }
+    return m;
+  }, [result, dates, drafts, orderQtyByCell]);
 
   const thBase = "px-2 py-1.5 text-center font-semibold border border-slate-300 bg-[#D9E1F2] text-slate-600 text-xs";
 
@@ -517,11 +611,22 @@ function ScheduleTab() {
                               {lineCell}
                               <td style={labelStyle} className={labelCls}>진도율</td>
                               {dates.map((d) => {
-                                const act = result.lineActuals[`${line.key}|${d}`]?.total ?? 0;
-                                const qty = Number((drafts[key3(line.key, d, "plan_qty")] ?? "").replace(/,/g, ""));
+                                const pct = cumProgress.get(`${line.key}|${d}`);
                                 return (
-                                  <td key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-600">
-                                    {qty > 0 && act > 0 ? `${((act / qty) * 100).toFixed(1)}%` : ""}
+                                  <td
+                                    key={d}
+                                    style={{
+                                      ...dayFill(d, calendar),
+                                      ...weekEdge(d),
+                                      ...blockEdge,
+                                      // 엑셀 데이터 막대처럼 진도율만큼 칸을 왼쪽부터 채운다(100% 넘으면 가득)
+                                      ...(pct != null
+                                        ? { backgroundImage: `linear-gradient(to right, #8FB4E3 ${Math.min(100, pct)}%, transparent ${Math.min(100, pct)}%)` }
+                                        : {}),
+                                    }}
+                                    className="border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-700"
+                                  >
+                                    {pct != null ? `${pct.toFixed(1)}%` : ""}
                                   </td>
                                 );
                               })}
@@ -565,6 +670,7 @@ function ScheduleTab() {
                                   </td>
                                 );
                               }
+                              const soMulti = f === "so_no" ? splitSoNos(drafts[key3(line.key, d, "so_no")]) : [];
                               const soErr =
                                 f === "so_no"
                                   ? splitSoNos(drafts[key3(line.key, d, "so_no")]).filter((t) =>
@@ -575,9 +681,23 @@ function ScheduleTab() {
                                 <td key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 p-0">
                                   <input
                                     id={inputId(line.key, d, f)}
-                                    value={drafts[key3(line.key, d, f)] ?? ""}
+                                    value={
+                                      f === "so_no" && soFocus !== key3(line.key, d, f) && soMulti.length > 1
+                                        ? `${soMulti[0]} 외 ${soMulti.length - 1}종`
+                                        : (drafts[key3(line.key, d, f)] ?? "")
+                                    }
                                     onChange={(e) => setDraft(line.key, d, f, e.target.value)}
-                                    onBlur={() => saveField(line.key, d, f)}
+                                    onFocus={() => f === "so_no" && setSoFocus(key3(line.key, d, f))}
+                                    onBlur={() => {
+                                      if (f === "so_no") setSoFocus(null);
+                                      saveField(line.key, d, f);
+                                    }}
+                                    onContextMenu={(e) => {
+                                      if (f !== "so_no") return;
+                                      e.preventDefault();
+                                      soDrag.reset();
+                                      setSoPopup({ line: line.key, date: d, auto: true, text: splitSoNos(drafts[key3(line.key, d, "so_no")]).join("\n") });
+                                    }}
                                     onKeyDown={(e) => {
                                       if (e.key !== "Enter") return;
                                       e.preventDefault();
@@ -585,12 +705,14 @@ function ScheduleTab() {
                                     }}
                                     style={{ color: FIELD_TEXT_COLOR[f] }}
                                     placeholder={f === "due_date" ? "YYYY-MM-DD" : ""}
-                                    title={soErr.length > 0 ? `수주등록(SALES-02)에 없는 수주번호: ${soErr.join(", ")}` : undefined}
+                                    title={soErr.length > 0 ? `수주등록(SALES-02)에 없는 수주번호: ${soErr.join(", ")}` : soMulti.length > 1 ? `수주번호 ${soMulti.length}종\n${soMulti.join("\n")}` : f === "so_no" ? "오른쪽 클릭: 수주번호 여러 개 입력" : undefined}
                                     className={`w-full px-1.5 py-1 text-xs focus:bg-amber-50 focus:outline-none ${
                                       f === "so_no"
                                         ? soErr.length > 0
                                           ? "bg-[#FFC7CE] text-[#9C0006] font-semibold"
-                                          : (drafts[key3(line.key, d, "so_no")] ?? "").trim() !== ""
+                                          : soMulti.length > 1
+                                            ? "bg-[#E4DFEC] text-[#5B3A8E] font-semibold"
+                                            : (drafts[key3(line.key, d, "so_no")] ?? "").trim() !== ""
                                             ? "bg-[#FFFFCC]"
                                             : "bg-transparent"
                                         : "bg-transparent"
@@ -646,6 +768,111 @@ function ScheduleTab() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {soPopup && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          // 제목 줄을 끌다가 창 밖에서 놓아도 닫히지 않도록, 바깥 영역을 직접 누를 때만 닫는다
+          onMouseDown={(e) => e.target === e.currentTarget && setSoPopup(null)}
+        >
+          <div className="bg-white rounded-lg shadow-xl w-[960px] max-w-[95vw] p-4 space-y-3" style={soDrag.style}>
+            <div className="text-sm font-semibold text-slate-700 cursor-move select-none" onMouseDown={soDrag.onMouseDown} title="끌어서 창 위치를 옮길 수 있습니다">
+              수주번호 입력
+              <span className="ml-2 font-normal text-xs text-slate-400">
+                {result?.lines.find((l) => l.key === soPopup.line)?.label} · {soPopup.date}
+              </span>
+            </div>
+            <div className="flex gap-3 items-stretch">
+              <div className="w-[230px] shrink-0 flex flex-col gap-1.5">
+                <textarea
+                  autoFocus
+                  value={soPopup.text}
+                  onChange={(e) => setSoPopup({ ...soPopup, text: e.target.value })}
+                  rows={12}
+                  placeholder={"한 줄에 수주번호 하나씩\n(쉼표로 구분해도 됩니다)"}
+                  className="w-full flex-1 border border-slate-300 rounded-md px-2.5 py-2 text-sm font-mono focus:outline-none focus:border-navy"
+                />
+                <div className="text-xs text-slate-400">{splitSoNos(soPopup.text).length}종 · 비우면 이 칸의 수주번호가 지워집니다.</div>
+              </div>
+              <div className="flex-1 min-w-0 border border-slate-200 rounded-md overflow-hidden flex flex-col">
+                <div className="px-2.5 py-1.5 bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                  이 라인에서 포장할 수 있는 수주 <span className="text-slate-400">(납기일 빠른 순 · 포장방법 기준 · 미포장·계획 안 잡힌 수주만 · 눌러서 추가/해제)</span>
+                </div>
+                <div className="overflow-auto max-h-[330px]">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-[#D9E1F2] text-slate-600">
+                      <tr>
+                        <th className="px-2 py-1.5 text-center font-semibold">납기일</th>
+                        <th className="px-2 py-1.5 text-center font-semibold">고객사</th>
+                        <th className="px-2 py-1.5 text-center font-semibold">품목군</th>
+                        <th className="px-2 py-1.5 text-center font-semibold">수주번호</th>
+                        <th className="px-2 py-1.5 text-center font-semibold">주문량</th>
+                        <th className="px-2 py-1.5 text-center font-semibold">생산실적</th>
+                        <th className="px-2 py-1.5 text-center font-semibold">잔량</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {candidates == null && (
+                        <tr>
+                          <td colSpan={7} className="py-6 text-center text-slate-400">
+                            불러오는 중…
+                          </td>
+                        </tr>
+                      )}
+                      {candidates != null && candidates.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-6 text-center text-slate-400">
+                            포장할 수 있는 수주가 없습니다.
+                          </td>
+                        </tr>
+                      )}
+                      {(candidates ?? []).map((c) => {
+                        const picked = splitSoNos(soPopup.text).includes(c.so_no);
+                        return (
+                          <tr
+                            key={c.so_no}
+                            onClick={() => toggleCandidate(c.so_no)}
+                            className={`cursor-pointer ${picked ? "bg-[#E4DFEC]" : "hover:bg-slate-50"}`}
+                                                      >
+                            <td className="px-2 py-1 text-center whitespace-nowrap text-[#FF0000]">{c.due_date ?? ""}</td>
+                            <td className="px-2 py-1 text-center text-[#002060]">{c.customer ?? ""}</td>
+                            <td className="px-2 py-1 text-center text-[#0070C0]">{c.product_group ?? ""}</td>
+                            <td className="px-2 py-1 text-center font-mono whitespace-nowrap">{c.so_no}</td>
+                            <td className="px-2 py-1 text-right font-mono">{fmtNum(c.order_qty)}</td>
+                            <td className="px-2 py-1 text-right font-mono text-emerald-700">{c.packed_qty > 0 ? fmtNum(c.packed_qty) : ""}</td>
+                            <td className="px-2 py-1 text-right font-mono font-semibold">{fmtNum(Math.max(0, c.order_qty - c.packed_qty))}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+              <input type="checkbox" checked={soPopup.auto} onChange={(e) => setSoPopup({ ...soPopup, auto: e.target.checked })} />
+              잔량이 다 계획될 때까지 이 날짜부터 근무일마다 자동 배정 (하루 계획 = UPH × 작업시간 × 개입수 · 휴일은 건너뜀 · 여러 개면 순서대로 이어서)
+            </label>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setSoPopup(null)} className="px-3 py-1.5 rounded-md text-sm border border-slate-300 bg-white text-slate-600 hover:border-navy">
+                취소
+              </button>
+              <button
+                onClick={() => {
+                  const { line, date, text, auto } = soPopup;
+                  setSoPopup(null);
+                  const tokens = splitSoNos(text);
+                  if (auto && tokens.length > 0) void autoFillSo(line, date, tokens);
+                  else void saveSoValue(line, date, tokens.join(", "));
+                }}
+                className="px-3 py-1.5 rounded-md text-sm font-medium bg-navy text-white hover:opacity-90"
+              >
+                저장
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -64,6 +64,8 @@ export interface PackagingScheduleResult {
    * 같은 날짜 열에 맞춰 보여준다(2026-10-02 사용자 요청).
    */
   lineActuals: Record<string, PackagingDayActual>;
+  /** 수주번호 → 표시 시작일 **이전**에 포장한 실적 합계(누적 진도율이 시작일 전 실적도 포함하도록) */
+  soPriorActual: Record<string, number>;
   /** 표시 기간 계획 칸에 적힌 수주번호 중 수주등록(SALES-02)에 없는 번호 — 화면이 색으로 오류 표기한다 */
   missingSoNos: string[];
   /**
@@ -252,6 +254,27 @@ export function lookupOrderInfo(db: DatabaseSync, soNoRaw: string): PackagingOrd
 
 // ── 조회 ─────────────────────────────────────────────────────────────────────────
 
+/** 라인(line1~) → 포장기 UPH·하루 작업시간 — 설비정보(BASE-05) Packing 설비군의 "N호기" 설비 */
+function loadCapaByLine(db: DatabaseSync): Map<string, { uph: number; hours: number }> {
+  const capaByLine = new Map<string, { uph: number; hours: number }>();
+  const pkRows = db
+    .prepare(
+      `SELECT equipment_name, uph, daily_work_minutes FROM equipments
+        WHERE equipment_group = 'Packing' AND COALESCE(use_yn, 'Y') = 'Y' ORDER BY equipment_id`
+    )
+    .all() as { equipment_name: string; uph: number | null; daily_work_minutes: number | null }[];
+  for (const e of pkRows) {
+    const m = /(\d+)\s*호기/.exec(e.equipment_name ?? "");
+    if (!m) continue;
+    const key = `line${Number(m[1])}`;
+    if (capaByLine.has(key)) continue;
+    const uph = Number(e.uph) || 0;
+    const hours = (Number(e.daily_work_minutes) || 0) / 60;
+    if (uph > 0 && hours > 0) capaByLine.set(key, { uph, hours });
+  }
+  return capaByLine;
+}
+
 export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: number): PackagingScheduleResult {
   ensurePackagingScheduleTable(db);
   const to = addDays(from, days - 1);
@@ -275,6 +298,7 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
   for (const r of planned) for (const so of splitSoNos(r.so_no)) if (!lineBySo.has(so)) lineBySo.set(so, r.line_key);
 
   const lineActuals: Record<string, PackagingDayActual> = {};
+  const soPriorActual: Record<string, number> = {};
   const soNos = [...lineBySo.keys()];
   for (let k = 0; k < soNos.length; k += 200) {
     const chunk = soNos.slice(k, k + 200);
@@ -288,6 +312,15 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
          GROUP BY so, work_date, l ORDER BY work_date, so`
       )
       .all(from, to, ...chunk) as { so: string; d: string; l: string | null; q: number | null }[];
+    const priorRows = db
+      .prepare(
+        `SELECT json_extract(detail, '$."수주번호"') so, SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) q
+         FROM daily_work_status
+         WHERE process_code = 'P410' AND work_date < ? AND json_extract(detail, '$."수주번호"') IN (${ph})
+         GROUP BY so`
+      )
+      .all(from, ...chunk) as { so: string; q: number | null }[];
+    for (const r of priorRows) soPriorActual[r.so] = (soPriorActual[r.so] ?? 0) + (r.q ?? 0);
     for (const r of rows) {
       const lineKey = lineBySo.get(r.so);
       if (!lineKey) continue;
@@ -305,22 +338,7 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
   const missingSoNos = tokens.filter((t) => !orderMap.has(t));
   // 계획 = 포장기 UPH × 하루 작업시간 × 개입수 (2026-10-02 사용자 요청). 라인 N은 설비정보(BASE-05) Packing 설비군의 "N호기"
   // 설비를 쓴다 — 예) UPH 1500 × 8시간(일취업시간 480분) × 개입수 10 = 120,000. UPH·개입수가 없으면 계획은 비워 둔다.
-  const capaByLine = new Map<string, { uph: number; hours: number }>();
-  const pkRows = db
-    .prepare(
-      `SELECT equipment_name, uph, daily_work_minutes FROM equipments
-        WHERE equipment_group = 'Packing' AND COALESCE(use_yn, 'Y') = 'Y' ORDER BY equipment_id`
-    )
-    .all() as { equipment_name: string; uph: number | null; daily_work_minutes: number | null }[];
-  for (const e of pkRows) {
-    const m = /(\d+)\s*호기/.exec(e.equipment_name ?? "");
-    if (!m) continue;
-    const key = `line${Number(m[1])}`;
-    if (capaByLine.has(key)) continue;
-    const uph = Number(e.uph) || 0;
-    const hours = (Number(e.daily_work_minutes) || 0) / 60;
-    if (uph > 0 && hours > 0) capaByLine.set(key, { uph, hours });
-  }
+  const cellPlans = allocateCellPlans(db).cellPlan;
   const filledCells = cells.map((c) => {
     const infos = splitSoNos(c.so_no)
       .map((t) => orderMap.get(t))
@@ -328,13 +346,12 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
       .map(summarizeOrder);
     if (infos.length === 0) return c;
     const merged = combineOrderInfos(infos);
-    const capa = capaByLine.get(c.line_key);
-    const pn = merged.pack_size && /^\d+$/.test(merged.pack_size.trim()) ? Number(merged.pack_size) : 0;
+    const planned = cellPlans.get(`${c.plan_date}|${c.line_key}`);
     return {
       ...c,
       customer: merged.customer ?? c.customer,
       product_name: merged.product_name ?? c.product_name,
-      plan_qty: capa && pn > 0 ? Math.round(capa.uph * capa.hours * pn) : null,
+      plan_qty: planned && planned > 0 ? planned : null,
       order_qty: merged.order_qty > 0 ? merged.order_qty : null,
       pack_size: merged.pack_size ?? c.pack_size,
       pack_method: merged.pack_method,
@@ -346,7 +363,7 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
     .all(from, to) as { cal_date: string; day_type: string }[];
   const holidays = calRows.filter((r) => r.day_type === "휴일").map((r) => r.cal_date);
   const workDays = calRows.filter((r) => r.day_type === "평일").map((r) => r.cal_date);
-  return { from, to, lines: PACKAGING_LINES, cells: filledCells, lineActuals, missingSoNos, holidays, workDays };
+  return { from, to, lines: PACKAGING_LINES, cells: filledCells, lineActuals, soPriorActual, missingSoNos, holidays, workDays };
 }
 
 // ── 저장 ─────────────────────────────────────────────────────────────────────────
@@ -459,4 +476,252 @@ export function savePackagingSoNo(
       : { so_no: soNo },
     user
   );
+}
+
+// ── 라인별 포장 가능 수주 후보 ───────────────────────────────────────────────────────
+
+export interface PackagingCandidate {
+  so_no: string;
+  customer: string | null;
+  product_group: string | null;
+  order_qty: number;
+  /** 이미 포장한 양(PROD-10 출하포장 양품수량 누계 — 칸 날짜가 주어지면 그 날짜 **전날까지**의 실적) */
+  packed_qty: number;
+  due_date: string | null;
+  pack_method: string | null;
+}
+
+/**
+ * 라인이 처리할 수 있는 포장방법(2026-10-02 사용자 선택: 포장방법으로 구분) — 2 Line(원데이)은 원데이·원데이(보석),
+ * 바이알은 바이알, 나머지 라인(1·3 먼슬리, 4·5 수동)은 그 둘을 뺀 포장방법(비어 있으면 포함)이다.
+ */
+function lineAcceptsMethod(lineKey: string, pm: string | null): boolean {
+  const m = (pm ?? "").trim();
+  const oneDay = m.startsWith("원데이");
+  if (lineKey === "line2") return oneDay;
+  if (lineKey === "vial") return m === "바이알";
+  return !oneDay && m !== "바이알";
+}
+
+/**
+ * 그 라인에서 포장할 수 있는 수주 후보 — 납기일이 이른 순. 수주번호(수주등록 "수주번호") 단위로 묶어 수량을 합하고,
+ * 이미 포장한 양이 수주량 이상이거나 일정에 계획이 수주량만큼 이미 잡힌 수주, MO-번호가 없는 줄, (주)메디오스 수주는 뺀다. 납기가 `sinceDue`보다 이전이면 오래된 수주로 보고 뺀다.
+ */
+export function fetchPackagingCandidates(
+  db: DatabaseSync,
+  lineKey: string,
+  sinceDue: string,
+  exceptCell?: { date: string; line: string },
+  limit = 300
+): PackagingCandidate[] {
+  const rows = db
+    .prepare(
+      `SELECT COALESCE(NULLIF(json_extract(so.detail, '$."수주번호"'), ''),
+                       substr(so.so_no, 1, CASE WHEN instr(so.so_no, '-') > 0 THEN instr(so.so_no, '-') - 1 ELSE length(so.so_no) END)) sono,
+              MAX(COALESCE(NULLIF(TRIM(cu.short_name), ''), json_extract(so.detail, '$."거래처명"'))) cname,
+              MAX(json_extract(so.detail, '$."품목군"')) grp,
+              SUM(so.order_qty) qty,
+              MIN(so.due_date) due,
+              MAX(json_extract(it.detail, '$."포장방법"')) pm
+         FROM sales_orders so
+         LEFT JOIN items it ON it.item_code = so.item_code
+         LEFT JOIN customers cu ON cu.customer_code = so.customer_code
+        WHERE so.due_date >= ?
+          -- 수주등록(SALES-02)에서 MO-번호가 없는 줄과 (주)메디오스 거래처는 후보에서 뺀다(2026-10-02 사용자 요청)
+          AND TRIM(COALESCE(json_extract(so.detail, '$."MO-번호"'), '')) <> ''
+          AND REPLACE(COALESCE(json_extract(so.detail, '$."거래처명"'), ''), ' ', '') <> '(주)메디오스'
+        GROUP BY sono
+        ORDER BY due, sono`
+    )
+    .all(sinceDue) as { sono: string; cname: string | null; grp: string | null; qty: number | null; due: string | null; pm: string | null }[];
+  const eligible = rows.filter((r) => r.sono && lineAcceptsMethod(lineKey, r.pm));
+  const packed = new Map<string, number>();
+  for (let k = 0; k < eligible.length; k += 200) {
+    const chunk = eligible.slice(k, k + 200).map((r) => r.sono);
+    const ph = chunk.map(() => "?").join(",");
+    const prows = db
+      .prepare(
+        `SELECT json_extract(detail, '$."수주번호"') so, SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) q
+           FROM daily_work_status
+          WHERE process_code = 'P410' AND json_extract(detail, '$."수주번호"') IN (${ph})
+            ${exceptCell ? "AND work_date < ?" : ""}
+          GROUP BY so`
+      )
+      .all(...chunk, ...(exceptCell ? [exceptCell.date] : [])) as { so: string; q: number | null }[];
+    for (const p of prows) packed.set(p.so, p.q ?? 0);
+  }
+  const remainingAfter = allocateCellPlans(
+    db,
+    exceptCell ? (d, l) => d === exceptCell.date && l === exceptCell.line : undefined
+  ).remainingAfter;
+  const out: PackagingCandidate[] = [];
+  for (const r of eligible) {
+    const qty = r.qty ?? 0;
+    const done = packed.get(r.sono) ?? 0;
+    if (qty > 0 && done >= qty) continue;
+    // 수주량만큼 일정에 계획이 이미 잡힌 수주는 뺀다(2026-10-02 사용자 요청)
+    if (qty > 0 && remainingAfter.has(r.sono) && (remainingAfter.get(r.sono) ?? 0) <= 0) continue;
+    out.push({ so_no: r.sono, customer: r.cname, product_group: r.grp, order_qty: qty, packed_qty: done, due_date: r.due, pack_method: r.pm });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * 일정(packaging_schedule)의 칸별 계획을 계산한다(2026-10-02 사용자 요청) — 칸의 하루 계획은 포장기 UPH × 작업시간 × 개입수이지만
+ * 수주의 남은 양을 넘지는 않는다. 수주별 남은 양은 처음 계획된 날짜 **전날까지**의 포장 실적을 뺀 수주량에서 시작해, 날짜 순으로
+ * 칸마다 줄어든다(예: 잔량 486,000 · 하루 240,000 → 240,000 · 240,000 · 6,000). 한 칸에 수주번호가 여러 개면 적힌 순서대로
+ * 각 수주의 남은 양까지 채워 나눈다. skip은 계산에서 뺄 칸(지금 고치고 있는 칸 등)이다.
+ * remainingAfter는 계획에 한 번이라도 나온 수주의 남은 양 — 0 이하면 이미 다 계획된 수주다.
+ */
+function allocateCellPlans(
+  db: DatabaseSync,
+  skip?: (date: string, line: string) => boolean
+): { cellPlan: Map<string, number>; remainingAfter: Map<string, number> } {
+  const capa = loadCapaByLine(db);
+  const cells = db
+    .prepare("SELECT plan_date, line_key, so_no FROM packaging_schedule WHERE so_no IS NOT NULL AND TRIM(so_no) <> '' ORDER BY plan_date, line_key")
+    .all() as { plan_date: string; line_key: string; so_no: string }[];
+  const tokens = [...new Set(cells.flatMap((c) => splitSoNos(c.so_no)))];
+  const orderMap = fetchOrderRowsByTokens(db, tokens);
+  const packedStmt = db.prepare(
+    `SELECT SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) q FROM daily_work_status
+      WHERE process_code = 'P410' AND json_extract(detail, '$."수주번호"') = ? AND work_date < ?`
+  );
+  const remaining = new Map<string, number>();
+  const cellPlan = new Map<string, number>();
+  for (const c of cells) {
+    if (skip?.(c.plan_date, c.line_key)) continue;
+    const toks = splitSoNos(c.so_no);
+    const infos = toks
+      .map((t) => orderMap.get(t))
+      .filter((rows): rows is OrderRow[] => !!rows)
+      .map(summarizeOrder);
+    if (infos.length === 0) continue;
+    for (const t of toks) {
+      const rows = orderMap.get(t);
+      if (rows && !remaining.has(t)) {
+        const packed = (packedStmt.get(t, c.plan_date) as { q: number | null } | undefined)?.q ?? 0;
+        remaining.set(t, rows.reduce((sum, r) => sum + (r.order_qty ?? 0), 0) - packed);
+      }
+    }
+    const cap = capa.get(c.line_key);
+    const merged = combineOrderInfos(infos);
+    const pn = merged.pack_size && /^\d+$/.test(merged.pack_size.trim()) ? Number(merged.pack_size) : 0;
+    if (!cap || pn <= 0) continue;
+    let left = Math.round(cap.uph * cap.hours * pn);
+    let total = 0;
+    for (const t of toks) {
+      if (left <= 0) break;
+      const room = Math.max(0, remaining.get(t) ?? 0);
+      const take = Math.min(left, room);
+      remaining.set(t, (remaining.get(t) ?? 0) - take);
+      left -= take;
+      total += take;
+    }
+    cellPlan.set(`${c.plan_date}|${c.line_key}`, total);
+  }
+  return { cellPlan, remainingAfter: remaining };
+}
+
+export interface AutoFillResult {
+  /** 수주번호별로 배정한 날짜들 */
+  filled: { so_no: string; dates: string[] }[];
+  /** 계획을 계산하지 못해(UPH·개입수 없음) 시작 칸 하나만 넣은 수주번호 */
+  singleOnly: string[];
+  /** 수주등록에서 못 찾은 수주번호 */
+  missing: string[];
+}
+
+/**
+ * 수주번호의 잔량이 다 계획될 때까지 시작일부터 근무일마다 그 라인 칸에 자동으로 넣는다(2026-10-02 사용자 요청).
+ * 잔량 = 수주량 − 시작일 전날까지의 포장 실적 − 그 수주가 시작일 이후 이 라인 밖/이전에 이미 잡힌 계획.
+ * 하루 계획은 포장기 UPH × 작업시간 × 개입수이고, 생산캘린더(BASE-08)의 휴일(주말·공휴일)은 건너뛰며, 이미 다른 수주가
+ * 들어 있는 칸은 건드리지 않고 건너뛴다. 여러 수주번호면 적힌 순서대로 이어서 채운다.
+ */
+export function autoFillPackagingSoNos(
+  db: DatabaseSync,
+  startDate: string,
+  lineKey: string,
+  soNos: string[],
+  user: string | null
+): AutoFillResult {
+  const result: AutoFillResult = { filled: [], singleOnly: [], missing: [] };
+  const cap = loadCapaByLine(db).get(lineKey);
+  const holidaySet = new Set(
+    (db.prepare("SELECT cal_date FROM production_calendar WHERE day_type = '휴일' AND cal_date >= ?").all(startDate) as { cal_date: string }[]).map(
+      (r) => r.cal_date
+    )
+  );
+  const workSet = new Set(
+    (db.prepare("SELECT cal_date FROM production_calendar WHERE day_type = '평일' AND cal_date >= ?").all(startDate) as { cal_date: string }[]).map(
+      (r) => r.cal_date
+    )
+  );
+  const isOff = (d: string): boolean => {
+    if (holidaySet.has(d)) return true;
+    if (workSet.has(d)) return false;
+    const [y, m, dd] = d.split("-").map(Number);
+    const wd = new Date(y, m - 1, dd).getDay();
+    return wd === 0 || wd === 6; // 캘린더에 없는 날은 주말만 쉬는 날로 본다
+  };
+  const occupied = new Map(
+    (
+      db
+        .prepare("SELECT plan_date, so_no FROM packaging_schedule WHERE line_key = ? AND plan_date >= ? AND so_no IS NOT NULL AND TRIM(so_no) <> ''")
+        .all(lineKey, startDate) as { plan_date: string; so_no: string }[]
+    ).map((r) => [r.plan_date, r.so_no])
+  );
+  occupied.delete(startDate); // 시작 칸은 지금 고치는 칸이라 다른 수주가 있어도 바꾼다
+  let cursor = startDate;
+  for (const so of soNos) {
+    const info = lookupOrderInfo(db, so);
+    if (!info) {
+      result.missing.push(so);
+      continue;
+    }
+    const pn = info.pack_size && /^\d+$/.test(info.pack_size.trim()) ? Number(info.pack_size) : 0;
+    const daily = cap && pn > 0 ? Math.round(cap.uph * cap.hours * pn) : 0;
+    if (daily <= 0) {
+      // 하루 계획을 못 구하면 시작 칸 하나만
+      savePackagingSoNo(db, cursor, lineKey, so, user);
+      result.singleOnly.push(so);
+      result.filled.push({ so_no: so, dates: [cursor] });
+      occupied.set(cursor, so);
+      cursor = addDays(cursor, 1);
+      continue;
+    }
+    const prow = db
+      .prepare(
+        `SELECT SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) q FROM daily_work_status
+          WHERE process_code = 'P410' AND json_extract(detail, '$."수주번호"') = ? AND work_date < ?`
+      )
+      .get(so, startDate) as { q: number | null } | undefined;
+    // 이미 다른 칸(이 라인 시작일 이후는 제외)에서 계획돼 남은 양이 있으면 그것에서, 없으면 수주량 − 시작일 전날까지의 실적에서 시작
+    const alloc = allocateCellPlans(db, (d, l) => l === lineKey && d >= startDate).remainingAfter;
+    let remaining = alloc.has(so) ? (alloc.get(so) ?? 0) : info.order_qty - (prow?.q ?? 0);
+    const dates: string[] = [];
+    let guard = 0;
+    while (remaining > 0 && guard++ < 120) {
+      const cur = occupied.get(cursor);
+      if (isOff(cursor) || (cur && cur !== so)) {
+        cursor = addDays(cursor, 1);
+        continue;
+      }
+      savePackagingSoNo(db, cursor, lineKey, so, user);
+      occupied.set(cursor, so);
+      dates.push(cursor);
+      remaining -= daily;
+      cursor = addDays(cursor, 1);
+    }
+    if (dates.length === 0) {
+      // 잔량이 없어도 눌러서 고른 수주이므로 시작 칸에는 넣는다
+      savePackagingSoNo(db, cursor, lineKey, so, user);
+      occupied.set(cursor, so);
+      dates.push(cursor);
+      cursor = addDays(cursor, 1);
+    }
+    result.filled.push({ so_no: so, dates });
+  }
+  return result;
 }

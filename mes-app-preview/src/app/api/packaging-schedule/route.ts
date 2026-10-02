@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
-import { fetchPackagingSchedule, PACKAGING_LINES, savePackagingSoNo } from "@/lib/packaging-schedule";
+import { autoFillPackagingSoNos, fetchPackagingSchedule, PACKAGING_LINES, savePackagingSoNo, splitSoNos } from "@/lib/packaging-schedule";
 
 export const runtime = "nodejs";
 
@@ -23,6 +23,8 @@ interface PatchBody {
   planDate?: string;
   lineKey?: string;
   soNo?: string | null;
+  /** true면 수주번호들의 잔량이 다 계획될 때까지 그 날짜부터 근무일마다 자동으로 채운다 */
+  autoFill?: boolean;
 }
 
 // 한 칸(라인·일자)의 수주번호를 저장한다 — 직접 입력하는 값은 수주번호뿐이다(2026-10-02 사용자 요청). 번호를 지우면
@@ -38,6 +40,11 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "soNo가 필요합니다. 수주번호 외의 값은 직접 입력할 수 없습니다." }, { status: 400 });
   }
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
+  const soTokens = splitSoNos(body.soNo ?? "");
+  if (body.autoFill && soTokens.length > 0) {
+    const r = autoFillPackagingSoNos(getDb(), planDate, lineKey, soTokens, session?.u ?? null);
+    return NextResponse.json({ ok: true, ...r });
+  }
   savePackagingSoNo(getDb(), planDate, lineKey, body.soNo ?? "", session?.u ?? null);
   return NextResponse.json({ ok: true });
 }

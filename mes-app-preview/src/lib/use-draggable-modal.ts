@@ -35,6 +35,8 @@ export function useDraggableModal() {
   }
 
   return {
+    /** 같은 컴포넌트 안에서 조건부로 열고 닫는 팝업이 열릴 때마다 가운데에서 다시 시작하도록 위치를 되돌린다 */
+    reset: () => setPos({ x: 0, y: 0 }),
     style: { transform: `translate(${pos.x}px, ${pos.y}px)` },
     onMouseDown,
   };
