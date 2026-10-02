@@ -281,6 +281,25 @@ function ScheduleTab() {
     await reloadAfterSave(value);
   }
 
+  // UPH가 없는 라인의 계획 직접 입력 — 칸을 벗어나거나 엔터를 치면 저장한다
+  async function savePlanQty(line: string, date: string) {
+    const raw = (drafts[key3(line, date, "plan_qty")] ?? "").replace(/,/g, "").trim();
+    const cell = result?.cells.find((c) => c.line_key === line && c.plan_date === date);
+    const before = cell?.plan_qty != null ? String(cell.plan_qty) : "";
+    if (raw === before) return;
+    const res = await fetch("/api/packaging-schedule", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ planDate: date, lineKey: line, planQty: raw }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setToast(data.error ?? "저장에 실패했습니다.");
+      return;
+    }
+    await reloadAfterSave("");
+  }
+
   // 팝업에서 고른 수주번호의 잔량이 다 계획될 때까지 그 날짜부터 근무일마다 자동으로 채운다(서버가 휴일을 건너뛴다)
   async function autoFillSo(line: string, date: string, soNos: string[]) {
     const res = await fetch("/api/packaging-schedule", {
@@ -372,6 +391,12 @@ function ScheduleTab() {
   const orderQtyByCell = useMemo(() => {
     const m = new Map<string, number>();
     for (const c of result?.cells ?? []) if (c.order_qty) m.set(`${c.line_key}|${c.plan_date}`, c.order_qty);
+    return m;
+  }, [result]);
+  // 표시용 수주량 — 수주번호가 일정에 처음 나오는 칸에만(이후 날짜 칸은 비움)
+  const orderQtyShown = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of result?.cells ?? []) if (c.order_qty_first) m.set(`${c.line_key}|${c.plan_date}`, c.order_qty_first);
     return m;
   }, [result]);
 
@@ -568,7 +593,7 @@ function ScheduleTab() {
                               {lineCell}
                               <td style={labelStyle} className={labelCls}>수주량</td>
                               {dates.map((d) => {
-                                const q = orderQtyByCell.get(`${line.key}|${d}`);
+                                const q = orderQtyShown.get(`${line.key}|${d}`);
                                 return (
                                   <td key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 px-1.5 py-1 text-right font-mono">
                                     {q && q > 0 ? fmtNum(q) : ""}
@@ -657,6 +682,27 @@ function ScheduleTab() {
                             {lineCell}
                             <td style={labelStyle} className={labelCls}>{FIELD_LABEL[f]}</td>
                             {dates.map((d) => {
+                              // UPH가 없는 라인(예: 수동 5호기)은 계획을 직접 입력한다
+                              const manualPlan = f === "plan_qty" && result.manualPlanLines.includes(line.key);
+                              if (manualPlan) {
+                                const k = key3(line.key, d, "plan_qty");
+                                const hasSo = (drafts[key3(line.key, d, "so_no")] ?? "").trim() !== "";
+                                return (
+                                  <td key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 p-0">
+                                    <input
+                                      value={drafts[k] ?? ""}
+                                      disabled={!hasSo}
+                                      onChange={(e) => setDraft(line.key, d, "plan_qty", e.target.value.replace(/[^\d,]/g, ""))}
+                                      onBlur={() => savePlanQty(line.key, d)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+                                      }}
+                                      title={hasSo ? "UPH가 없어 계획을 직접 입력합니다" : "수주번호를 먼저 입력하세요"}
+                                      className={`w-full px-1.5 py-1 text-xs text-right font-mono focus:bg-amber-50 focus:outline-none ${hasSo ? "bg-[#FFF2CC]" : "bg-transparent"}`}
+                                    />
+                                  </td>
+                                );
+                              }
                               if (readOnly) {
                                 return (
                                   <td
@@ -777,7 +823,7 @@ function ScheduleTab() {
           // 제목 줄을 끌다가 창 밖에서 놓아도 닫히지 않도록, 바깥 영역을 직접 누를 때만 닫는다
           onMouseDown={(e) => e.target === e.currentTarget && setSoPopup(null)}
         >
-          <div className="bg-white rounded-lg shadow-xl w-[960px] max-w-[95vw] p-4 space-y-3" style={soDrag.style}>
+          <div className="bg-white rounded-lg shadow-xl w-[1240px] max-w-[96vw] p-4 space-y-3" style={soDrag.style}>
             <div className="text-sm font-semibold text-slate-700 cursor-move select-none" onMouseDown={soDrag.onMouseDown} title="끌어서 창 위치를 옮길 수 있습니다">
               수주번호 입력
               <span className="ml-2 font-normal text-xs text-slate-400">
@@ -798,7 +844,7 @@ function ScheduleTab() {
               </div>
               <div className="flex-1 min-w-0 border border-slate-200 rounded-md overflow-hidden flex flex-col">
                 <div className="px-2.5 py-1.5 bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                  이 라인에서 포장할 수 있는 수주 <span className="text-slate-400">(납기일 빠른 순 · 포장방법 기준 · 미포장·계획 안 잡힌 수주만 · 눌러서 추가/해제)</span>
+                  이 라인에서 포장할 수 있는 수주 <span className="text-slate-400">(납기일 빠른 순 · 품목별 PROD-10 작업 설비 이력으로 라인 구분 · 추천 설비 = 과거 사용 비율 1순위 · 이력 없으면 라인 타입(먼슬리/원데이/바이알)으로 선택 · 예상 소요 = 잔량 ÷ 비슷한 물량대 과거 평균 일CAPA · 눌러서 추가/해제)</span>
                 </div>
                 <div className="overflow-auto max-h-[330px]">
                   <table className="w-full text-xs">
@@ -811,19 +857,21 @@ function ScheduleTab() {
                         <th className="px-2 py-1.5 text-center font-semibold">주문량</th>
                         <th className="px-2 py-1.5 text-center font-semibold">생산실적</th>
                         <th className="px-2 py-1.5 text-center font-semibold">잔량</th>
+                        <th className="px-2 py-1.5 text-center font-semibold">추천 설비</th>
+                        <th className="px-2 py-1.5 text-center font-semibold">예상 소요</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {candidates == null && (
                         <tr>
-                          <td colSpan={7} className="py-6 text-center text-slate-400">
+                          <td colSpan={9} className="py-6 text-center text-slate-400">
                             불러오는 중…
                           </td>
                         </tr>
                       )}
                       {candidates != null && candidates.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="py-6 text-center text-slate-400">
+                          <td colSpan={9} className="py-6 text-center text-slate-400">
                             포장할 수 있는 수주가 없습니다.
                           </td>
                         </tr>
@@ -843,6 +891,24 @@ function ScheduleTab() {
                             <td className="px-2 py-1 text-right font-mono">{fmtNum(c.order_qty)}</td>
                             <td className="px-2 py-1 text-right font-mono text-emerald-700">{c.packed_qty > 0 ? fmtNum(c.packed_qty) : ""}</td>
                             <td className="px-2 py-1 text-right font-mono font-semibold">{fmtNum(Math.max(0, c.order_qty - c.packed_qty))}</td>
+                            <td
+                              className={`px-2 py-1 text-center whitespace-nowrap ${c.recommend && c.recommend.line_key === soPopup.line ? "font-semibold text-emerald-700" : "text-slate-500"}`}
+                              title={c.recommend ? `PROD-10 과거 출하포장 실적 기준 ${c.recommend.equipment} ${c.recommend.ratio}% (${fmtNum(c.recommend.qty)}개)` : "PROD-10에 이 품목의 출하포장 이력이 없습니다. 라인 타입(먼슬리/원데이/바이알)을 보고 선택해 주세요."}
+                            >
+                              {c.recommend ? `${c.recommend.equipment} ${c.recommend.ratio}%` : "이력 없음"}
+                            </td>
+                            <td
+                              className="px-2 py-1 text-center whitespace-nowrap text-slate-600"
+                              title={
+                                c.forecast
+                                  ? `${c.forecast.equipment} · ${c.forecast.bin_label} 물량대 과거 평균 일CAPA ${fmtNum(c.forecast.daily_capa)}개 (${
+                                      c.forecast.basis === "item" ? "같은 품목" : "해당 설비 전체"
+                                    } 이력 ${c.forecast.samples}건) → 잔량 ${fmtNum(Math.max(0, c.order_qty - c.packed_qty))}개 ÷ 일CAPA = 약 ${c.forecast.est_days}일`
+                                  : "비슷한 물량대의 과거 이력이 없어 예상할 수 없습니다."
+                              }
+                            >
+                              {c.forecast ? `약 ${c.forecast.est_days}일 (일 ${fmtNum(c.forecast.daily_capa)})` : ""}
+                            </td>
                           </tr>
                         );
                       })}

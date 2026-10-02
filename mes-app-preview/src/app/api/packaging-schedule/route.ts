@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
-import { autoFillPackagingSoNos, fetchPackagingSchedule, PACKAGING_LINES, savePackagingSoNo, splitSoNos } from "@/lib/packaging-schedule";
+import {
+  autoFillPackagingSoNos,
+  fetchPackagingSchedule,
+  getManualPlanLines,
+  PACKAGING_LINES,
+  savePackagingPlanQty,
+  savePackagingSoNo,
+  splitSoNos,
+} from "@/lib/packaging-schedule";
 
 export const runtime = "nodejs";
 
@@ -23,6 +31,8 @@ interface PatchBody {
   planDate?: string;
   lineKey?: string;
   soNo?: string | null;
+  /** UPH가 없는 라인의 계획 직접 입력 */
+  planQty?: number | string | null;
   /** true면 수주번호들의 잔량이 다 계획될 때까지 그 날짜부터 근무일마다 자동으로 채운다 */
   autoFill?: boolean;
 }
@@ -35,6 +45,16 @@ export async function PATCH(req: NextRequest) {
   const lineKey = body?.lineKey?.trim();
   if (!planDate || !DATE_RE.test(planDate) || !lineKey || !PACKAGING_LINES.some((l) => l.key === lineKey)) {
     return NextResponse.json({ error: "planDate(YYYY-MM-DD)와 올바른 lineKey가 필요합니다." }, { status: 400 });
+  }
+  if (body && Object.prototype.hasOwnProperty.call(body, "planQty")) {
+    const db = getDb();
+    const manual = getManualPlanLines(db);
+    if (!manual.includes(lineKey)) {
+      return NextResponse.json({ error: "이 라인의 계획은 UPH로 자동 계산되어 직접 입력할 수 없습니다." }, { status: 400 });
+    }
+    const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
+    savePackagingPlanQty(db, planDate, lineKey, body.planQty ?? "", session?.u ?? null);
+    return NextResponse.json({ ok: true });
   }
   if (!body || !Object.prototype.hasOwnProperty.call(body, "soNo")) {
     return NextResponse.json({ error: "soNo가 필요합니다. 수주번호 외의 값은 직접 입력할 수 없습니다." }, { status: 400 });
