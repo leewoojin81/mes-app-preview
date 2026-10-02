@@ -108,6 +108,10 @@ function weekEdge(dateStr: string): React.CSSProperties {
 function mmdd(dateStr: string): string {
   return `${Number(dateStr.slice(5, 7))}/${Number(dateStr.slice(8, 10))}`;
 }
+/** 천 개 단위 올림(엑셀 ROUNDUP(x,-3)) — 171,193 → 172,000 */
+function roundUpThousand(n: number): number {
+  return Math.ceil(n / 1000) * 1000;
+}
 function fmtNum(n: number): string {
   return Math.round(n).toLocaleString("ko-KR");
 }
@@ -901,13 +905,13 @@ function ScheduleTab() {
                               className="px-2 py-1 text-center whitespace-nowrap text-slate-600"
                               title={
                                 c.forecast
-                                  ? `${c.forecast.equipment} · ${c.forecast.bin_label} 물량대 과거 평균 일CAPA ${fmtNum(c.forecast.daily_capa)}개 (${
+                                  ? `${c.forecast.equipment} · ${c.forecast.bin_label} 물량대 과거 평균 일CAPA ${fmtNum(roundUpThousand(c.forecast.daily_capa))}개(천 개 단위 올림, 실제 ${fmtNum(c.forecast.daily_capa)}) (${
                                       c.forecast.basis === "item" ? "같은 품목" : "해당 설비 전체"
                                     } 이력 ${c.forecast.samples}건) → 잔량 ${fmtNum(Math.max(0, c.order_qty - c.packed_qty))}개 ÷ 일CAPA = 약 ${c.forecast.est_days}일`
                                   : "비슷한 물량대의 과거 이력이 없어 예상할 수 없습니다."
                               }
                             >
-                              {c.forecast ? `약 ${c.forecast.est_days}일 (일 ${fmtNum(c.forecast.daily_capa)})` : ""}
+                              {c.forecast ? `약 ${c.forecast.est_days}일 (일 ${fmtNum(roundUpThousand(c.forecast.daily_capa))})` : ""}
                             </td>
                           </tr>
                         );
