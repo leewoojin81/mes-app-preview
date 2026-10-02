@@ -105,6 +105,12 @@ const DIVIDER = "2px solid #475569";
 function weekEdge(dateStr: string): React.CSSProperties {
   return weekdayOf(dateStr) === 1 ? { borderLeft: DIVIDER } : {};
 }
+/** 두 날짜(YYYY-MM-DD) 사이 일수 */
+function daysBetweenStr(a: string, b: string): number {
+  const [y1, m1, d1] = a.split("-").map(Number);
+  const [y2, m2, d2] = b.split("-").map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+}
 function mmdd(dateStr: string): string {
   return `${Number(dateStr.slice(5, 7))}/${Number(dateStr.slice(8, 10))}`;
 }
@@ -708,10 +714,20 @@ function ScheduleTab() {
                                 );
                               }
                               if (readOnly) {
+                                // 납기 지연 — 계획 날짜가 납기일보다 늦으면 납기일 칸을 색으로 채운다(2026-10-02 사용자 요청)
+                                const dueStr = f === "due_date" ? (drafts[key3(line.key, d, "due_date")] ?? "").trim() : "";
+                                const lateDays = dueStr && /^\d{4}-\d{2}-\d{2}$/.test(dueStr) && d > dueStr ? daysBetweenStr(dueStr, d) : 0;
                                 return (
                                   <td
                                     key={d}
-                                    style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge, color: FIELD_TEXT_COLOR[f] }}
+                                    title={lateDays > 0 ? `납기 지연 ${lateDays}일 (납기 ${dueStr} · 계획 ${d})` : undefined}
+                                    style={{
+                                      ...dayFill(d, calendar),
+                                      ...weekEdge(d),
+                                      ...blockEdge,
+                                      color: FIELD_TEXT_COLOR[f],
+                                      ...(lateDays > 0 ? { backgroundColor: "#FF7C80", color: "#FFFFFF", fontWeight: 600 } : {}),
+                                    }}
                                     className={`border border-slate-200 px-1.5 py-1 text-xs text-slate-700 ${
                                       f === "plan_qty" ? "text-right font-mono" : "text-center"
                                     }`}
