@@ -580,7 +580,16 @@ interface SoLineStat {
   so: string;
   line_key: string;
   reps: Set<string>;
+  /** 전체 포장량(주간+야간) — 물량 구간을 정하는 데 쓴다 */
   qty: number;
+  /** 주간 근무에서 포장한 양 — 일CAPA는 현재 근무(주간만)에 맞춰 주간 실적으로만 계산한다 */
+  dayQty: number;
+  /** 개입수(포장단위수량) — 포장량이 가장 많은 품목의 값 */
+  pk: number | null;
+  /** 수주에 들어 있는 품목 수(수주등록의 서로 다른 품목코드 수) */
+  itemCount: number;
+  /** LOT SIZE = (전체 포장량 ÷ 품목 수) ÷ 개입수 — 품목 하나당 팩 수 */
+  lot: number | null;
   /** 작업일수 */
   days: number;
   /** 설비 하루 생산량 중 이 수주가 차지한 몫을 날짜별로 더한 "설비 일수 환산"(같은 날 여러 수주를 번갈아 포장해도 하루가 겹쳐 세어지지 않는다) */
@@ -599,19 +608,27 @@ function p410Learn(db: DatabaseSync) {
   if (hit && Date.now() - hit.at < 600_000) return hit;
   const rows = db
     .prepare(
-      `SELECT json_extract(detail, '$."수주번호"') so, item_code, json_extract(detail, '$."라인"') l, work_date d, COUNT(*) n,
+      `SELECT json_extract(detail, '$."수주번호"') so, item_code, json_extract(detail, '$."라인"') l, work_date d,
+              json_extract(detail, '$."구분"') g, COUNT(*) n,
               SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) q
          FROM daily_work_status WHERE process_code = 'P410' AND item_code IS NOT NULL
-        GROUP BY so, item_code, l, work_date`
+        GROUP BY so, item_code, l, work_date, g`
     )
-    .all() as { so: string | null; item_code: string; l: string | null; d: string; n: number; q: number | null }[];
+    .all() as { so: string | null; item_code: string; l: string | null; d: string; g: string | null; n: number; q: number | null }[];
+  // 품목별 개입수
+  const pkByItem = new Map<string, number>();
+  for (const r of db.prepare(`SELECT item_code, json_extract(detail, '$."포장단위수량"') pk FROM items`).all() as { item_code: string; pk: number | string | null }[]) {
+    const n = Number(r.pk);
+    if (Number.isFinite(n) && n > 0) pkByItem.set(r.item_code, n);
+  }
   const repLines = new Map<string, Map<string, EquipmentUse>>();
-  const soMap = new Map<string, { stat: SoLineStat; dates: Set<string>; byDate: Map<string, number> }>();
-  // 설비·날짜별 전체 생산량 — 수주가 하루에서 차지한 몫을 구하는 데 쓴다
+  const soMap = new Map<string, { stat: SoLineStat; dates: Set<string>; byDate: Map<string, number>; pks: Map<number, number> }>();
+  // 설비·날짜별 주간 생산량 — 수주가 하루에서 차지한 몫을 구하는 데 쓴다. 예전에는 주간·야간으로 근무했지만 지금은 주간만
+  // 하므로(2026-10-05 사용자 설명) 일CAPA 계산에는 주간 실적만 쓴다.
   const dayTotals = new Map<string, number>();
   for (const r of rows) {
     const k = lineKeyOfEquipment(r.l);
-    if (k) dayTotals.set(`${k}|${r.d}`, (dayTotals.get(`${k}|${r.d}`) ?? 0) + (r.q ?? 0));
+    if (k && r.g === "주간") dayTotals.set(`${k}|${r.d}`, (dayTotals.get(`${k}|${r.d}`) ?? 0) + (r.q ?? 0));
   }
   for (const r of rows) {
     const key = lineKeyOfEquipment(r.l);
@@ -627,16 +644,29 @@ function p410Learn(db: DatabaseSync) {
       const sk = `${r.so}|${key}`;
       const e =
         soMap.get(sk) ?? {
-          stat: { so: r.so, line_key: key, reps: new Set<string>(), qty: 0, days: 0, machineDays: 0 },
+          stat: { so: r.so, line_key: key, reps: new Set<string>(), qty: 0, dayQty: 0, pk: null as number | null, itemCount: 0, lot: null as number | null, days: 0, machineDays: 0 },
           dates: new Set<string>(),
           byDate: new Map<string, number>(),
+          pks: new Map<number, number>(),
         };
       e.stat.qty += r.q ?? 0;
       e.stat.reps.add(rep);
-      e.dates.add(r.d);
-      e.byDate.set(r.d, (e.byDate.get(r.d) ?? 0) + (r.q ?? 0));
+      const pk = pkByItem.get(r.item_code);
+      if (pk) e.pks.set(pk, (e.pks.get(pk) ?? 0) + (r.q ?? 0));
+      if (r.g === "주간") {
+        e.stat.dayQty += r.q ?? 0;
+        e.dates.add(r.d);
+        e.byDate.set(r.d, (e.byDate.get(r.d) ?? 0) + (r.q ?? 0));
+      }
       soMap.set(sk, e);
     }
+  }
+  // 수주번호별 품목 수 — LOT SIZE 계산에 쓴다
+  const itemCountBySo = new Map<string, number>();
+  for (const r of db
+    .prepare(`SELECT json_extract(detail, '$."수주번호"') so, COUNT(DISTINCT item_code) n FROM sales_orders GROUP BY so`)
+    .all() as { so: string | null; n: number }[]) {
+    if (r.so) itemCountBySo.set(r.so, r.n);
   }
   const soStats = [...soMap.values()].map((e) => {
     let machineDays = 0;
@@ -644,7 +674,10 @@ function p410Learn(db: DatabaseSync) {
       const total = dayTotals.get(`${e.stat.line_key}|${d}`) ?? 0;
       machineDays += total > 0 ? q / total : 1;
     }
-    return { ...e.stat, days: e.dates.size, machineDays };
+    const pk = [...e.pks.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    const itemCount = itemCountBySo.get(e.stat.so) ?? 0;
+    const lot = pk && itemCount > 0 ? e.stat.qty / itemCount / pk : null;
+    return { ...e.stat, pk, itemCount, lot, days: e.dates.size, machineDays };
   });
   const out = { at: Date.now(), repLines, soStats };
   p410LearnCache.set(db, out);
@@ -674,23 +707,69 @@ export interface CapaForecast {
   /** 비슷한 물량 구간의 과거 평균 일CAPA */
   daily_capa: number;
   samples: number;
-  /** item = 같은 대표코드 이력 기준, equipment = 그 설비 전체 이력 기준 */
+  /** item = 같은 대표코드·같은 개입수 이력 기준, equipment = 그 설비의 같은 물량 구간 이력 기준 */
   basis: "item" | "equipment";
+  /** 개입수가 같은 이력만으로 계산했으면 true — 이력이 모자라 개입수 구분 없이 평균했으면 false */
+  pack_matched: boolean;
+  /** 이 수주의 개입수 */
+  pack_size: number | null;
+  /** 이 수주의 LOT SIZE((주문량 ÷ 품목 수) ÷ 개입수)와, LOT SIZE가 비슷한 이력만 썼을 때의 허용 범위(±30% 또는 ±50%) — 쓰지 않았으면 null */
+  lot_size: number | null;
+  lot_range: number | null;
+  /** 이 수주의 품목 수 */
+  item_count: number;
   /** 예상 소요일수 = 잔량 ÷ 일CAPA (올림) */
   est_days: number;
 }
-function forecastCapa(db: DatabaseSync, so: string, itemCodes: string[], lineKey: string, equipment: string, orderQty: number, remaining: number): CapaForecast | null {
+function forecastCapa(
+  db: DatabaseSync,
+  so: string,
+  itemCodes: string[],
+  lineKey: string,
+  equipment: string,
+  orderQty: number,
+  remaining: number,
+  packSize: number | null,
+  itemCount: number
+): CapaForecast | null {
   if (remaining <= 0) return null;
   const bin = volumeBin(orderQty);
   const reps = new Set(itemCodes.map(repCodeOf));
-  const same = p410Learn(db).soStats.filter((x) => x.so !== so && x.line_key === lineKey && x.machineDays > 0 && volumeBin(x.qty) === bin);
-  const pick = (list: SoLineStat[]) => (list.length ? list.reduce((a, x) => a + x.qty, 0) / list.reduce((a, x) => a + x.machineDays, 0) : 0);
-  const sameItem = same.filter((x) => [...x.reps].some((r) => reps.has(r)));
-  let list = sameItem;
-  let basis: "item" | "equipment" = "item";
-  if (list.length < 2) {
+  // 일CAPA는 주간 실적 기준(현재 근무) — 주간 실적이 없는 수주는 뺀다. 물량 구간은 야간 포함 전체 포장량으로 정한다.
+  const same = p410Learn(db).soStats.filter(
+    (x) => x.so !== so && x.line_key === lineKey && x.machineDays > 0 && x.dayQty > 0 && volumeBin(x.qty) === bin
+  );
+  const pick = (list: SoLineStat[]) =>
+    list.length ? list.reduce((a, x) => a + x.dayQty, 0) / list.reduce((a, x) => a + x.machineDays, 0) : 0;
+  // 비슷한 이력만 쓴다(2026-10-05 사용자 요청): 개입수가 같고, LOT SIZE((주문량 ÷ 품목 수) ÷ 개입수)가 비슷한 수주를 우선한다.
+  // ① 같은 품목 + 같은 개입수 + LOT ±20% 2건 이상 → ② 같은 품목 + 같은 개입수 2건 이상 → ③ 같은 개입수 + LOT ±20% 3건 이상
+  // → ④ 같은 개입수 + LOT ±50% 3건 이상 → ⑤ 같은 개입수 3건 이상 → ⑥ 개입수 구분 없이 같은 물량 구간 전체
+  const lot = packSize && itemCount > 0 ? orderQty / itemCount / packSize : null;
+  const within = (list: SoLineStat[], pct: number) => (lot ? list.filter((x) => x.lot != null && Math.abs(x.lot - lot) <= lot * pct) : []);
+  const samePack = packSize ? same.filter((x) => x.pk === packSize) : [];
+  const itemPack = samePack.filter((x) => [...x.reps].some((r) => reps.has(r)));
+  let list: SoLineStat[];
+  let basis: "item" | "equipment" = "equipment";
+  let packMatched = true;
+  let lotRange: number | null = null;
+  if (within(itemPack, 0.2).length >= 2) {
+    list = within(itemPack, 0.2);
+    basis = "item";
+    lotRange = 0.2;
+  } else if (itemPack.length >= 2) {
+    list = itemPack;
+    basis = "item";
+  } else if (within(samePack, 0.2).length >= 3) {
+    list = within(samePack, 0.2);
+    lotRange = 0.2;
+  } else if (within(samePack, 0.5).length >= 3) {
+    list = within(samePack, 0.5);
+    lotRange = 0.5;
+  } else if (samePack.length >= 3) {
+    list = samePack;
+  } else {
     list = same;
-    basis = "equipment";
+    packMatched = false;
   }
   if (list.length === 0) return null;
   const raw = pick(list);
@@ -702,6 +781,11 @@ function forecastCapa(db: DatabaseSync, so: string, itemCodes: string[], lineKey
     daily_capa: daily,
     samples: list.length,
     basis,
+    pack_matched: packMatched,
+    pack_size: packSize,
+    lot_size: lot,
+    lot_range: lotRange,
+    item_count: itemCount,
     est_days: Math.max(1, Math.ceil(remaining / daily)),
   };
 }
@@ -833,7 +917,7 @@ export function fetchPackagingCandidates(
     out.push({ so_no: r.sono, customer: r.cname, product_group: r.grp, order_qty: qty, packed_qty: done, due_date: r.due,
       pack_method: r.pm,
       recommend: rec,
-      forecast: forecastCapa(db, r.sono, ics, rec?.line_key ?? lineKey, rec?.equipment ?? PACKAGING_LINES.find((l) => l.key === lineKey)?.label ?? lineKey, qty, qty - done),
+      forecast: forecastCapa(db, r.sono, ics, rec?.line_key ?? lineKey, rec?.equipment ?? PACKAGING_LINES.find((l) => l.key === lineKey)?.label ?? lineKey, qty, qty - done, r.pk, ics.length),
     });
     if (out.length >= limit) break;
   }
@@ -995,7 +1079,9 @@ export function autoFillPackagingSoNos(
       rec?.line_key ?? lineKey,
       rec?.equipment ?? PACKAGING_LINES.find((l) => l.key === lineKey)?.label ?? lineKey,
       info.order_qty,
-      remaining
+      remaining,
+      pn > 0 ? pn : null,
+      ics.length
     );
     const daily = fc?.daily_capa ?? (cap && pn > 0 ? Math.round(cap.uph * cap.hours * pn) : 0);
     if (daily <= 0) {

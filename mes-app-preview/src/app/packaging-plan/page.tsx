@@ -922,8 +922,10 @@ function ScheduleTab() {
                               title={
                                 c.forecast
                                   ? `${c.forecast.equipment} · ${c.forecast.bin_label} 물량대 과거 평균 일CAPA ${fmtNum(roundUpThousand(c.forecast.daily_capa))}개(천 개 단위 올림, 실제 ${fmtNum(c.forecast.daily_capa)}) (${
-                                      c.forecast.basis === "item" ? "같은 품목" : "해당 설비 전체"
-                                    } 이력 ${c.forecast.samples}건) → 잔량 ${fmtNum(Math.max(0, c.order_qty - c.packed_qty))}개 ÷ 일CAPA = 약 ${c.forecast.est_days}일`
+                                      c.forecast.basis === "item" ? "같은 품목" : "해당 설비"
+                                    } ${c.forecast.pack_matched ? `개입수 ${c.forecast.pack_size}` : "개입수 구분 없음"}${
+                                      c.forecast.lot_range ? ` · LOT SIZE ${Math.round(c.forecast.lot_size ?? 0)} ±${c.forecast.lot_range * 100}%` : ""
+                                    } 이력 ${c.forecast.samples}건 · 주간 실적 기준 · 품목 ${c.forecast.item_count}개) → 잔량 ${fmtNum(Math.max(0, c.order_qty - c.packed_qty))}개 ÷ 일CAPA = 약 ${c.forecast.est_days}일`
                                   : "비슷한 물량대의 과거 이력이 없어 예상할 수 없습니다."
                               }
                             >
