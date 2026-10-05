@@ -135,6 +135,14 @@ export function ensurePackagingScheduleTable(db: DatabaseSync): void {
       PRIMARY KEY (plan_date, line_key)
     )
   `);
+  // 수주번호별 하루 계획 수량 — 팝업의 예상 소요(비슷한 물량대 과거 일CAPA, 천 개 단위 올림)로 배정한 값(2026-10-02 사용자 요청)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS packaging_so_capa (
+      so_no TEXT PRIMARY KEY,
+      daily_capa REAL NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    )
+  `);
 }
 
 export function addDays(dateStr: string, delta: number): string {
@@ -390,7 +398,7 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
       customer: merged.customer ?? c.customer,
       product_name: merged.product_name ?? c.product_name,
       // UPH가 없는 라인은 직접 입력해 저장한 계획을 그대로 쓴다
-      plan_qty: manualPlanLines.includes(c.line_key) ? c.plan_qty : planned && planned > 0 ? planned : null,
+      plan_qty: planned && planned > 0 ? planned : manualPlanLines.includes(c.line_key) ? c.plan_qty : null,
       order_qty: merged.order_qty > 0 ? merged.order_qty : null,
       order_qty_first:
         splitSoNos(c.so_no)
@@ -685,12 +693,13 @@ function forecastCapa(db: DatabaseSync, so: string, itemCodes: string[], lineKey
     basis = "equipment";
   }
   if (list.length === 0) return null;
-  const daily = pick(list);
-  if (daily <= 0) return null;
+  const raw = pick(list);
+  if (raw <= 0) return null;
+  const daily = Math.ceil(raw / 1000) * 1000; // 천 개 단위 올림(엑셀 ROUNDUP(x,-3)) — 계획 수량으로 그대로 쓴다
   return {
     equipment,
     bin_label: VOLUME_BINS[bin].label,
-    daily_capa: Math.round(daily),
+    daily_capa: daily,
     samples: list.length,
     basis,
     est_days: Math.max(1, Math.ceil(remaining / daily)),
@@ -850,6 +859,10 @@ function allocateCellPlans(
   const orderMap = fetchOrderRowsByTokens(db, tokens);
   const remaining = new Map<string, number>();
   const cellPlan = new Map<string, number>();
+  ensurePackagingScheduleTable(db);
+  const soCapa = new Map(
+    (db.prepare("SELECT so_no, daily_capa FROM packaging_so_capa").all() as { so_no: string; daily_capa: number }[]).map((r) => [r.so_no, r.daily_capa])
+  );
   for (const c of cells) {
     if (skip?.(c.plan_date, c.line_key)) continue;
     const toks = splitSoNos(c.so_no);
@@ -866,7 +879,7 @@ function allocateCellPlans(
       }
     }
     const cap = capa.get(c.line_key);
-    if (!cap) {
+    if (!cap && !toks.some((t) => soCapa.has(t))) {
       // UPH가 없는 라인 — 직접 입력한 계획만큼 첫 수주번호의 남은 양에서 뺀다
       const manual = c.plan_qty ?? 0;
       if (manual > 0) {
@@ -885,9 +898,10 @@ function allocateCellPlans(
       if (!rows) continue;
       const tp = summarizeOrder(rows).pack_size;
       const pn = tp && /^\d+$/.test(tp.trim()) ? Number(tp) : 0;
-      if (pn <= 0) continue;
+      // 팝업 예상 소요로 배정한 수주는 그 하루 수량을, 아니면 포장기 UPH × 작업시간 × 개입수를 쓴다
+      const daily = soCapa.get(t) ?? (cap && pn > 0 ? Math.round(cap.uph * cap.hours * pn) : 0);
+      if (daily <= 0) continue;
       computed = true;
-      const daily = Math.round(cap.uph * cap.hours * pn);
       const room = Math.max(0, remaining.get(t) ?? 0);
       const take = Math.min(room, daily * fraction);
       remaining.set(t, (remaining.get(t) ?? 0) - take);
@@ -961,14 +975,37 @@ export function autoFillPackagingSoNos(
       continue;
     }
     const pn = info.pack_size && /^\d+$/.test(info.pack_size.trim()) ? Number(info.pack_size) : 0;
-    const daily = cap && pn > 0 ? Math.round(cap.uph * cap.hours * pn) : 0;
+    // 이미 다른 칸(이 라인 시작일 이후는 제외)에서 계획돼 남은 양이 있으면 그것에서, 없으면 수주량 − 시작일 전날까지의 실적에서 시작
+    const alloc = allocateCellPlans(db, (d, l) => l === lineKey && d >= startDate).remainingAfter;
+    const remaining = alloc.has(so) ? (alloc.get(so) ?? 0) : info.order_qty - packedQty(db, so, startDate);
+    // 하루 계획 = 팝업의 예상 소요 일 수량(비슷한 물량대 과거 평균 일CAPA, 천 개 단위 올림) — 이력이 없으면 UPH × 작업시간 × 개입수
+    const ics = (
+      db
+        .prepare(
+          `SELECT DISTINCT item_code FROM sales_orders
+            WHERE json_extract(detail, '$."수주번호"') = ? OR substr(so_no, 1, CASE WHEN instr(so_no, '-') > 0 THEN instr(so_no, '-') - 1 ELSE length(so_no) END) = ?`
+        )
+        .all(so, so) as { item_code: string }[]
+    ).map((r) => r.item_code);
+    const rec = recommendEquipment(db, ics);
+    const fc = forecastCapa(
+      db,
+      so,
+      ics,
+      rec?.line_key ?? lineKey,
+      rec?.equipment ?? PACKAGING_LINES.find((l) => l.key === lineKey)?.label ?? lineKey,
+      info.order_qty,
+      remaining
+    );
+    const daily = fc?.daily_capa ?? (cap && pn > 0 ? Math.round(cap.uph * cap.hours * pn) : 0);
     if (daily <= 0) {
       singles.push(so); // 하루 계획을 못 구하면 한 칸에 하나씩만
       continue;
     }
-    // 이미 다른 칸(이 라인 시작일 이후는 제외)에서 계획돼 남은 양이 있으면 그것에서, 없으면 수주량 − 시작일 전날까지의 실적에서 시작
-    const alloc = allocateCellPlans(db, (d, l) => l === lineKey && d >= startDate).remainingAfter;
-    const remaining = alloc.has(so) ? (alloc.get(so) ?? 0) : info.order_qty - packedQty(db, so, startDate);
+    db.prepare(
+      `INSERT INTO packaging_so_capa (so_no, daily_capa, updated_at) VALUES (?, ?, datetime('now','localtime'))
+       ON CONFLICT(so_no) DO UPDATE SET daily_capa = excluded.daily_capa, updated_at = excluded.updated_at`
+    ).run(so, daily);
     items.push({ so, daily, remaining, dates: [] });
   }
   const free = (d: string): boolean => {

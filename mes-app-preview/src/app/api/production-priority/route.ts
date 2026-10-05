@@ -48,9 +48,20 @@ export async function GET(req: NextRequest) {
        ${where}`
     )
     .get(...args) as { order_qty_sum: number | null; issued_qty_sum: number | null };
+  // 계획제외로 체크된 건수 — 화면 아래에 "계획제외 미표시 / 계획제외 / 전체"로 보여준다
+  const excludedTotal = (
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM sales_orders so
+         JOIN customers c ON c.customer_code = so.customer_code
+         JOIN items it ON it.item_code = so.item_code
+         ${where} ${where ? "AND" : "WHERE"} json_extract(so.detail, '$."계획제외"') = 'Y'`
+      )
+      .get(...args) as { c: number }
+  ).c;
   const orderQtySum = sumsRow.order_qty_sum ?? 0;
   const issuedQtySum = sumsRow.issued_qty_sum ?? 0;
   const totals = { 수주수량: orderQtySum, 작지수량: issuedQtySum, 지시잔량: orderQtySum - issuedQtySum };
 
-  return NextResponse.json({ rows, total, page, pageSize, totals });
+  return NextResponse.json({ rows, total, page, pageSize, totals, excludedTotal });
 }

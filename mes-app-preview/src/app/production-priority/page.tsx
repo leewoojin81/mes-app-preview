@@ -32,6 +32,9 @@ export default function ProductionPriorityPage() {
   const [rows, setRows] = useState<PriorityRow[]>([]);
   const [total, setTotal] = useState(0);
   const [totals, setTotals] = useState<Record<string, number>>({});
+  const [excludedTotal, setExcludedTotal] = useState(0);
+  // 마지막 엑셀 업로드 결과 — 파일 건수와 MES에 반영된 건수를 비교해 보여준다
+  const [uploadSummary, setUploadSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
@@ -61,6 +64,7 @@ export default function ProductionPriorityPage() {
     setRows(data.rows);
     setTotal(data.total);
     setTotals(data.totals ?? {});
+    setExcludedTotal(data.excludedTotal ?? 0);
     setLoading(false);
   }
 
@@ -158,13 +162,14 @@ export default function ProductionPriorityPage() {
         setToast(data.error ?? "업로드에 실패했습니다.");
         return;
       }
-      setToast(
-        `업로드 완료 — 반영 ${data.updated.toLocaleString()}건` +
-          (data.skippedNotFound > 0
-            ? `, 건너뜀(수주번호 없음) ${data.skippedNotFound.toLocaleString()}건`
-            : "") +
-          (data.skippedInvalid > 0 ? `, 건너뜀(값 오류) ${data.skippedInvalid.toLocaleString()}건` : "")
-      );
+      const detail =
+        `파일 ${data.fileTotal.toLocaleString()}건(계획제외 미표시 ${data.fileNotExcluded.toLocaleString()} · 계획제외 ${data.fileExcluded.toLocaleString()}) 중 ` +
+        `MES 반영 ${data.updated.toLocaleString()}건` +
+        (data.noOrderNo > 0 ? ` · 수주번호 없는 줄 ${data.noOrderNo.toLocaleString()}건 제외` : "") +
+        (data.skippedNotFound > 0 ? ` · MES에 없는 수주 ${data.skippedNotFound.toLocaleString()}건 제외` : "") +
+        (data.skippedInvalid > 0 ? ` · 값 오류 ${data.skippedInvalid.toLocaleString()}건 제외` : "");
+      setToast(`업로드 완료 — 반영 ${data.updated.toLocaleString()}건`);
+      setUploadSummary(detail);
       setShowUpload(false);
       setUploadFile(null);
       loadRows();
@@ -210,6 +215,15 @@ export default function ProductionPriorityPage() {
           </button>
         </div>
       </div>
+
+      {uploadSummary && (
+        <div className="flex items-start justify-between gap-3 px-4 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-900">
+          <span>업로드 결과 — {uploadSummary}</span>
+          <button onClick={() => setUploadSummary(null)} className="text-xs text-amber-700 hover:underline shrink-0">
+            닫기
+          </button>
+        </div>
+      )}
 
       <div className="bg-white border border-slate-200 rounded-lg p-4 flex items-center gap-4 flex-wrap shadow-sm">
         <div className="flex items-center gap-1.5">
@@ -408,8 +422,8 @@ export default function ProductionPriorityPage() {
 
         <div className="flex items-center justify-between flex-wrap gap-3 px-4 py-3 border-t border-slate-100 bg-slate-50">
           <p className="text-xs text-slate-500">
-            전체 {total.toLocaleString()}건 중 {rangeStart.toLocaleString()}-
-            {rangeEnd.toLocaleString()}건 표시
+            계획제외 미표시 {(total - excludedTotal).toLocaleString()}건 · 계획제외 {excludedTotal.toLocaleString()}건 · 전체{" "}
+            {total.toLocaleString()}건 중 {rangeStart.toLocaleString()}-{rangeEnd.toLocaleString()}건 표시
           </p>
           <div className="flex items-center gap-2">
             <button

@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
   const iLineSeq = header.indexOf("순번");
   const iPriority = header.indexOf("작업순서");
   const iExclude = header.indexOf("계획제외");
+  const iNo = header.indexOf("No.");
 
   if (iOrderNo === -1 || iPriority === -1) {
     return NextResponse.json(
@@ -61,13 +62,26 @@ export async function POST(req: NextRequest) {
   let updated = 0;
   let skippedNotFound = 0;
   let skippedInvalid = 0;
+  // 파일 자체의 집계 — 수주번호가 비어 있어 MES 수주와 짝지을 수 없는 줄도 포함해 보여주려고 따로 센다
+  let fileTotal = 0;
+  let fileExcluded = 0;
+  let noOrderNo = 0;
+  const isExcludedValue = (v: string | number | null): boolean => {
+    const t = str(v);
+    return t != null && ["Y", "1", "TRUE", "예"].includes(t.toUpperCase());
+  };
 
   db.exec("BEGIN");
   try {
     for (const r of rows.slice(1)) {
       const orderNo = str(r[iOrderNo]);
+      // 완전히 빈 줄(No.·수주번호·작업순서 모두 없음)은 파일 건수에서 뺀다
+      // (No. 칸이 비고 수주번호도 없는 줄은 합계·여백 줄로 보고 파일 건수에서 뺀다)
+      if (!orderNo && (r.every((v) => v == null || String(v).trim() === "") || (iNo !== -1 && str(r[iNo]) == null))) continue;
+      fileTotal++;
+      if (iExclude !== -1 && isExcludedValue(r[iExclude])) fileExcluded++;
       if (!orderNo) {
-        skippedInvalid++;
+        noOrderNo++;
         continue;
       }
       const lineSeq = iLineSeq !== -1 ? str(r[iLineSeq]) : null;
@@ -84,7 +98,8 @@ export async function POST(req: NextRequest) {
         continue;
       }
       const excludeRaw = iExclude !== -1 ? str(r[iExclude]) : null;
-      const exclude = excludeRaw === "Y" ? "Y" : "N";
+      // 계획제외 값은 이 화면이 내려주는 양식에서는 Y/N, 원본(ERP) 수주생산순위지정 파일에서는 0/1이다 — 1(또는 Y)이면 제외로 본다
+      const exclude = excludeRaw != null && ["Y", "1", "TRUE", "예"].includes(excludeRaw.toUpperCase()) ? "Y" : "N";
 
       const existingDetail = bySoNo.get(soNo);
       const detail = existingDetail
@@ -101,5 +116,13 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
-  return NextResponse.json({ updated, skippedNotFound, skippedInvalid });
+  return NextResponse.json({
+    updated,
+    skippedNotFound,
+    skippedInvalid,
+    noOrderNo,
+    fileTotal,
+    fileExcluded,
+    fileNotExcluded: fileTotal - fileExcluded,
+  });
 }
