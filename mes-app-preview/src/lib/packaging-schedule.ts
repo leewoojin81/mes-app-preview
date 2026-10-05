@@ -707,8 +707,8 @@ export interface CapaForecast {
   /** 비슷한 물량 구간의 과거 평균 일CAPA */
   daily_capa: number;
   samples: number;
-  /** item = 같은 대표코드·같은 개입수 이력 기준, equipment = 그 설비의 같은 물량 구간 이력 기준 */
-  basis: "item" | "equipment";
+  /** item = 같은 대표코드·같은 개입수 이력 기준, equipment = 그 설비의 같은 물량 구간 이력 기준, uph = 개입수가 같은 이력이 없어 설비 UPH × 작업시간 × 개입수로 계산 */
+  basis: "item" | "equipment" | "uph";
   /** 개입수가 같은 이력만으로 계산했으면 true — 이력이 모자라 개입수 구분 없이 평균했으면 false */
   pack_matched: boolean;
   /** 이 수주의 개입수 */
@@ -749,7 +749,7 @@ function forecastCapa(
   const samePack = packSize ? same.filter((x) => x.pk === packSize) : [];
   const itemPack = samePack.filter((x) => [...x.reps].some((r) => reps.has(r)));
   let list: SoLineStat[];
-  let basis: "item" | "equipment" = "equipment";
+  let basis: "item" | "equipment" | "uph" = "equipment";
   let packMatched = true;
   let lotRange: number | null = null;
   if (within(itemPack, 0.2).length >= 2) {
@@ -768,8 +768,24 @@ function forecastCapa(
   } else if (samePack.length >= 3) {
     list = samePack;
   } else {
-    list = same;
-    packMatched = false;
+    // 개입수가 같은 이력이 모자라면 개입수가 다른 이력을 섞어 평균하지 않고, 그 라인의 설비 UPH × 하루 작업시간 × 개입수로 예상한다
+    // (2026-10-05 사용자 요청). UPH가 없는 라인이나 개입수를 모르는 수주는 예상하지 않는다.
+    const cap = loadCapaByLine(db).get(lineKey);
+    if (!cap || !packSize) return null;
+    const uphDaily = Math.ceil((cap.uph * cap.hours * packSize) / 1000) * 1000;
+    return {
+      equipment,
+      bin_label: VOLUME_BINS[bin].label,
+      daily_capa: uphDaily,
+      samples: 0,
+      basis: "uph",
+      pack_matched: true,
+      pack_size: packSize,
+      lot_size: lot,
+      lot_range: null,
+      item_count: itemCount,
+      est_days: Math.max(1, Math.ceil(remaining / uphDaily)),
+    };
   }
   if (list.length === 0) return null;
   const raw = pick(list);

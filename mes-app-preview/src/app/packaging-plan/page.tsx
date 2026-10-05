@@ -921,12 +921,14 @@ function ScheduleTab() {
                               className="px-2 py-1 text-center whitespace-nowrap text-slate-600"
                               title={
                                 c.forecast
-                                  ? `${c.forecast.equipment} · ${c.forecast.bin_label} 물량대 과거 평균 일CAPA ${fmtNum(roundUpThousand(c.forecast.daily_capa))}개(천 개 단위 올림, 실제 ${fmtNum(c.forecast.daily_capa)}) (${
-                                      c.forecast.basis === "item" ? "같은 품목" : "해당 설비"
-                                    } ${c.forecast.pack_matched ? `개입수 ${c.forecast.pack_size}` : "개입수 구분 없음"}${
-                                      c.forecast.lot_range ? ` · LOT SIZE ${Math.round(c.forecast.lot_size ?? 0)} ±${c.forecast.lot_range * 100}%` : ""
-                                    } 이력 ${c.forecast.samples}건 · 주간 실적 기준 · 품목 ${c.forecast.item_count}개) → 잔량 ${fmtNum(Math.max(0, c.order_qty - c.packed_qty))}개 ÷ 일CAPA = 약 ${c.forecast.est_days}일`
-                                  : "비슷한 물량대의 과거 이력이 없어 예상할 수 없습니다."
+                                  ? c.forecast.basis === "uph"
+                                    ? `${c.forecast.equipment} · 개입수 ${c.forecast.pack_size}가 같은 과거 이력이 부족해 설비 UPH 기준으로 계산 (UPH × 하루 작업시간 × 개입수 = 일 ${fmtNum(c.forecast.daily_capa)}개, 천 개 단위 올림) → 잔량 ${fmtNum(Math.max(0, c.order_qty - c.packed_qty))}개 ÷ 일CAPA = 약 ${c.forecast.est_days}일`
+                                    : `${c.forecast.equipment} · ${c.forecast.bin_label} 물량대 과거 평균 일CAPA ${fmtNum(roundUpThousand(c.forecast.daily_capa))}개(천 개 단위 올림, 실제 ${fmtNum(c.forecast.daily_capa)}) (${
+                                        c.forecast.basis === "item" ? "같은 품목" : "해당 설비"
+                                      } ${c.forecast.pack_matched ? `개입수 ${c.forecast.pack_size}` : "개입수 구분 없음"}${
+                                        c.forecast.lot_range ? ` · LOT SIZE ${Math.round(c.forecast.lot_size ?? 0)} ±${c.forecast.lot_range * 100}%` : ""
+                                      } 이력 ${c.forecast.samples}건 · 주간 실적 기준 · 품목 ${c.forecast.item_count}개) → 잔량 ${fmtNum(Math.max(0, c.order_qty - c.packed_qty))}개 ÷ 일CAPA = 약 ${c.forecast.est_days}일`
+                                  : "예상할 수 없습니다 (비슷한 이력이 없고 이 라인에는 설비 UPH가 없습니다)."
                               }
                             >
                               {c.forecast ? `약 ${c.forecast.est_days}일 (일 ${fmtNum(roundUpThousand(c.forecast.daily_capa))})` : ""}
