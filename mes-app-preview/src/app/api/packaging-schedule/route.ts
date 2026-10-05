@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { invalidateRecommendCache } from "@/lib/packaging-recommend";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
 import {
   autoFillPackagingSoNos,
   fetchPackagingSchedule,
   getManualPlanLines,
   PACKAGING_LINES,
+  savePackagingCellPlan,
   savePackagingPlanQty,
   savePackagingSoNo,
   splitSoNos,
@@ -33,6 +35,8 @@ interface PatchBody {
   soNo?: string | null;
   /** UPH가 없는 라인의 계획 직접 입력 */
   planQty?: number | string | null;
+  /** 팝업에서 수주번호를 고르고 입력한 수주번호별 계획수량(빈 배열이면 직접 입력한 값을 지우고 자동 계산) — soNo와 함께 보낸다 */
+  cellPlans?: { so: string; qty: number | string }[];
   /** true면 수주번호들의 잔량이 다 계획될 때까지 그 날짜부터 근무일마다 자동으로 채운다 */
   autoFill?: boolean;
 }
@@ -40,6 +44,7 @@ interface PatchBody {
 // 한 칸(라인·일자)의 수주번호를 저장한다 — 직접 입력하는 값은 수주번호뿐이다(2026-10-02 사용자 요청). 번호를 지우면
 // 그 칸의 읽어 온 값도 함께 지워진다.
 export async function PATCH(req: NextRequest) {
+  invalidateRecommendCache(getDb()); // 일정이 바뀌므로 신규 수주 추천 결과를 다시 계산하게 한다
   const body = (await req.json().catch(() => null)) as PatchBody | null;
   const planDate = body?.planDate?.trim();
   const lineKey = body?.lineKey?.trim();
@@ -61,6 +66,11 @@ export async function PATCH(req: NextRequest) {
   }
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
   const soTokens = splitSoNos(body.soNo ?? "");
+  if (Array.isArray(body.cellPlans)) {
+    const plans = body.cellPlans.map((p) => ({ so: String(p.so ?? "").trim(), qty: Number(String(p.qty ?? "").replace(/,/g, "")) }));
+    savePackagingCellPlan(getDb(), planDate, lineKey, soTokens, plans, session?.u ?? null);
+    return NextResponse.json({ ok: true });
+  }
   if (body.autoFill && soTokens.length > 0) {
     const r = autoFillPackagingSoNos(getDb(), planDate, lineKey, soTokens, session?.u ?? null);
     return NextResponse.json({ ok: true, ...r });

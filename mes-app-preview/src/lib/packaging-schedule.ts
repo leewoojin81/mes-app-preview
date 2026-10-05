@@ -41,6 +41,10 @@ export interface PackagingCell {
   order_qty_first?: number | null;
   /** 팩방법 — 제품정보(BASE-01) 포장방법(저장하지 않고 수주번호로 읽어 온다) */
   pack_method: string | null;
+  /** 팝업에서 계획수량을 직접 입력해 저장한 칸이면 true */
+  plan_manual?: boolean;
+  /** 직접 입력한 수주번호별 계획수량 */
+  plan_by_so?: Record<string, number>;
 }
 
 /** 한 라인·한 날짜의 실적 — 그 라인에 계획한 수주번호들의 그날 출하포장 양품수량 */
@@ -63,7 +67,7 @@ interface P410Row {
   q: number;
 }
 const p410Cache = new WeakMap<DatabaseSync, { at: number; bySo: Map<string, P410Row[]> }>();
-function p410BySo(db: DatabaseSync): Map<string, P410Row[]> {
+export function p410BySo(db: DatabaseSync): Map<string, P410Row[]> {
   const hit = p410Cache.get(db);
   if (hit && Date.now() - hit.at < 30_000) return hit.bySo;
   const rows = db
@@ -135,6 +139,29 @@ export function ensurePackagingScheduleTable(db: DatabaseSync): void {
       PRIMARY KEY (plan_date, line_key)
     )
   `);
+  // 칸별·수주번호별 계획수량 직접 입력 — 수주번호 우클릭 팝업에서 수주번호를 고르고 수주번호마다 계획수량을 넣어 저장한 값
+  // (2026-10-05 사용자 요청). 있으면 자동 계산(UPH·예상 소요 하루 수량)보다 우선한다. 칸에서 수주번호가 빠지거나 바뀌면 함께 지운다.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS packaging_cell_so_plan (
+      plan_date TEXT NOT NULL,
+      line_key TEXT NOT NULL,
+      so_no TEXT NOT NULL,
+      plan_qty REAL NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      PRIMARY KEY (plan_date, line_key, so_no)
+    )
+  `);
+  // 칸 하나에 수량 하나만 두던 이전 표가 있으면 수주번호가 하나인 칸만 옮기고 지운다
+  const oldTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'packaging_cell_plan'").get();
+  if (oldTable) {
+    db.exec(`
+      INSERT OR IGNORE INTO packaging_cell_so_plan (plan_date, line_key, so_no, plan_qty)
+        SELECT p.plan_date, p.line_key, TRIM(s.so_no), p.plan_qty
+          FROM packaging_cell_plan p JOIN packaging_schedule s ON s.plan_date = p.plan_date AND s.line_key = p.line_key
+         WHERE s.so_no IS NOT NULL AND instr(TRIM(s.so_no), ',') = 0 AND instr(TRIM(s.so_no), ' ') = 0;
+      DROP TABLE packaging_cell_plan;
+    `);
+  }
   // 수주번호별 하루 계획 수량 — 팝업의 예상 소요(비슷한 물량대 과거 일CAPA, 천 개 단위 올림)로 배정한 값(2026-10-02 사용자 요청)
   db.exec(`
     CREATE TABLE IF NOT EXISTS packaging_so_capa (
@@ -385,6 +412,16 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
     for (const t of splitSoNos(r.so_no)) if (!firstCellOfSo.has(t)) firstCellOfSo.set(t, `${r.plan_date}|${r.line_key}`);
   }
   const manualPlanLines = getManualPlanLines(db);
+  const manualBySo = new Map<string, Record<string, number>>();
+  for (const r of db.prepare("SELECT plan_date, line_key, so_no, plan_qty FROM packaging_cell_so_plan").all() as {
+    plan_date: string;
+    line_key: string;
+    so_no: string;
+    plan_qty: number;
+  }[]) {
+    const k = `${r.plan_date}|${r.line_key}`;
+    (manualBySo.get(k) ?? manualBySo.set(k, {}).get(k)!)[r.so_no] = r.plan_qty;
+  }
   const filledCells = cells.map((c) => {
     const infos = splitSoNos(c.so_no)
       .map((t) => orderMap.get(t))
@@ -399,6 +436,8 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
       product_name: merged.product_name ?? c.product_name,
       // UPH가 없는 라인은 직접 입력해 저장한 계획을 그대로 쓴다
       plan_qty: planned && planned > 0 ? planned : manualPlanLines.includes(c.line_key) ? c.plan_qty : null,
+      plan_manual: manualBySo.has(`${c.plan_date}|${c.line_key}`),
+      plan_by_so: manualBySo.get(`${c.plan_date}|${c.line_key}`),
       order_qty: merged.order_qty > 0 ? merged.order_qty : null,
       order_qty_first:
         splitSoNos(c.so_no)
@@ -500,7 +539,9 @@ export function savePackagingSoNo(
   user: string | null
 ): void {
   const soNo = cleanText(soNoRaw, 80);
+  ensurePackagingScheduleTable(db);
   if (!soNo) {
+    db.prepare("DELETE FROM packaging_cell_so_plan WHERE plan_date = ? AND line_key = ?").run(planDate, lineKey);
     upsertPackagingCell(
       db,
       planDate,
@@ -514,6 +555,11 @@ export function savePackagingSoNo(
   // 수주번호가 바뀌면 직접 입력했던 계획은 지운다(같은 번호를 다시 저장할 때는 그대로 둔다)
   const prevSo = (db.prepare("SELECT so_no FROM packaging_schedule WHERE plan_date = ? AND line_key = ?").get(planDate, lineKey) as { so_no: string | null } | undefined)?.so_no ?? null;
   const planReset = prevSo !== soNo ? { plan_qty: null } : {};
+  // 칸에서 빠진 수주번호의 직접 입력 계획수량은 지운다
+  const keep = splitSoNos(soNo);
+  for (const r of db.prepare("SELECT so_no FROM packaging_cell_so_plan WHERE plan_date = ? AND line_key = ?").all(planDate, lineKey) as { so_no: string }[]) {
+    if (!keep.includes(r.so_no)) db.prepare("DELETE FROM packaging_cell_so_plan WHERE plan_date = ? AND line_key = ? AND so_no = ?").run(planDate, lineKey, r.so_no);
+  }
   upsertPackagingCell(
     db,
     planDate,
@@ -532,6 +578,29 @@ export function savePackagingSoNo(
   );
 }
 
+/**
+ * 수주번호 우클릭 팝업에서 고른 수주번호(들)와 수주번호별 계획수량을 그 칸 하나에 저장한다 — 자동 배정(여러 날)이 아니라 이 칸만 바꾼다.
+ * plans가 비어 있으면 직접 입력한 계획수량을 모두 지워 자동 계산으로 돌아간다.
+ */
+export function savePackagingCellPlan(
+  db: DatabaseSync,
+  planDate: string,
+  lineKey: string,
+  soNos: string[],
+  plans: { so: string; qty: number }[],
+  user: string | null
+): void {
+  savePackagingSoNo(db, planDate, lineKey, soNos.join(", "), user);
+  db.prepare("DELETE FROM packaging_cell_so_plan WHERE plan_date = ? AND line_key = ?").run(planDate, lineKey);
+  if (soNos.length === 0) return;
+  const insert = db.prepare(
+    `INSERT INTO packaging_cell_so_plan (plan_date, line_key, so_no, plan_qty, updated_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))`
+  );
+  for (const p of plans) {
+    if (soNos.includes(p.so) && Number.isFinite(p.qty) && p.qty > 0) insert.run(planDate, lineKey, p.so, p.qty);
+  }
+}
+
 /** UPH가 없는 라인(manualPlanLines)의 계획을 직접 저장한다 */
 export function savePackagingPlanQty(db: DatabaseSync, planDate: string, lineKey: string, qty: unknown, user: string | null): void {
   upsertPackagingCell(db, planDate, lineKey, { plan_qty: qty }, user);
@@ -548,6 +617,10 @@ export interface PackagingCandidate {
   packed_qty: number;
   due_date: string | null;
   pack_method: string | null;
+  /** 개입수(포장단위수량) */
+  pack_size: number | null;
+  /** 계획할 수 있는 잔량 = 수주량 − 생산실적 − 일정에 이미 계획된 수량(지금 고치는 칸의 계획은 제외) — 직접 입력한 계획수량도 빼서 보여준다 */
+  plan_remaining: number;
   /** PROD-10 과거 설비 사용 비율이 가장 높은 설비(1순위 추천) — 이력이 없는 신규 품목이면 null */
   recommend: EquipmentRecommendation | null;
   /** 비슷한 물량 구간의 과거 평균 일CAPA와 예상 소요일수(추천 설비 기준, 이력이 없으면 클릭한 라인의 설비 기준) */
@@ -707,8 +780,8 @@ export interface CapaForecast {
   /** 비슷한 물량 구간의 과거 평균 일CAPA */
   daily_capa: number;
   samples: number;
-  /** item = 같은 대표코드·같은 개입수 이력 기준, equipment = 그 설비의 같은 물량 구간 이력 기준, uph = 개입수가 같은 이력이 없어 설비 UPH × 작업시간 × 개입수로 계산 */
-  basis: "item" | "equipment" | "uph";
+  /** item = 같은 대표코드·같은 개입수 이력 기준, equipment = 그 설비의 같은 물량 구간 이력 기준 */
+  basis: "item" | "equipment";
   /** 개입수가 같은 이력만으로 계산했으면 true — 이력이 모자라 개입수 구분 없이 평균했으면 false */
   pack_matched: boolean;
   /** 이 수주의 개입수 */
@@ -749,7 +822,7 @@ function forecastCapa(
   const samePack = packSize ? same.filter((x) => x.pk === packSize) : [];
   const itemPack = samePack.filter((x) => [...x.reps].some((r) => reps.has(r)));
   let list: SoLineStat[];
-  let basis: "item" | "equipment" | "uph" = "equipment";
+  let basis: "item" | "equipment" = "equipment";
   let packMatched = true;
   let lotRange: number | null = null;
   if (within(itemPack, 0.2).length >= 2) {
@@ -768,24 +841,8 @@ function forecastCapa(
   } else if (samePack.length >= 3) {
     list = samePack;
   } else {
-    // 개입수가 같은 이력이 모자라면 개입수가 다른 이력을 섞어 평균하지 않고, 그 라인의 설비 UPH × 하루 작업시간 × 개입수로 예상한다
-    // (2026-10-05 사용자 요청). UPH가 없는 라인이나 개입수를 모르는 수주는 예상하지 않는다.
-    const cap = loadCapaByLine(db).get(lineKey);
-    if (!cap || !packSize) return null;
-    const uphDaily = Math.ceil((cap.uph * cap.hours * packSize) / 1000) * 1000;
-    return {
-      equipment,
-      bin_label: VOLUME_BINS[bin].label,
-      daily_capa: uphDaily,
-      samples: 0,
-      basis: "uph",
-      pack_matched: true,
-      pack_size: packSize,
-      lot_size: lot,
-      lot_range: null,
-      item_count: itemCount,
-      est_days: Math.max(1, Math.ceil(remaining / uphDaily)),
-    };
+    list = same;
+    packMatched = false;
   }
   if (list.length === 0) return null;
   const raw = pick(list);
@@ -930,10 +987,14 @@ export function fetchPackagingCandidates(
     if (qty > 0 && remainingAfter.has(r.sono) && (remainingAfter.get(r.sono) ?? 0) <= 0) continue;
     const ics = (r.ics ?? "").split(",").filter(Boolean);
     const rec = recommendEquipment(db, ics);
+    // 일정에 계획이 이미 잡힌 수주는 그만큼 뺀 값이 계획할 잔량이다(계획이 없으면 수주량 − 생산실적)
+    const planRemaining = Math.max(0, remainingAfter.has(r.sono) ? (remainingAfter.get(r.sono) ?? 0) : qty - done);
     out.push({ so_no: r.sono, customer: r.cname, product_group: r.grp, order_qty: qty, packed_qty: done, due_date: r.due,
       pack_method: r.pm,
+      pack_size: r.pk,
+      plan_remaining: planRemaining,
       recommend: rec,
-      forecast: forecastCapa(db, r.sono, ics, rec?.line_key ?? lineKey, rec?.equipment ?? PACKAGING_LINES.find((l) => l.key === lineKey)?.label ?? lineKey, qty, qty - done, r.pk, ics.length),
+      forecast: forecastCapa(db, r.sono, ics, rec?.line_key ?? lineKey, rec?.equipment ?? PACKAGING_LINES.find((l) => l.key === lineKey)?.label ?? lineKey, qty, planRemaining, r.pk, ics.length),
     });
     if (out.length >= limit) break;
   }
@@ -963,6 +1024,16 @@ function allocateCellPlans(
   const soCapa = new Map(
     (db.prepare("SELECT so_no, daily_capa FROM packaging_so_capa").all() as { so_no: string; daily_capa: number }[]).map((r) => [r.so_no, r.daily_capa])
   );
+  const cellManual = new Map<string, Map<string, number>>();
+  for (const r of db.prepare("SELECT plan_date, line_key, so_no, plan_qty FROM packaging_cell_so_plan").all() as {
+    plan_date: string;
+    line_key: string;
+    so_no: string;
+    plan_qty: number;
+  }[]) {
+    const k = `${r.plan_date}|${r.line_key}`;
+    (cellManual.get(k) ?? cellManual.set(k, new Map()).get(k)!).set(r.so_no, r.plan_qty);
+  }
   for (const c of cells) {
     if (skip?.(c.plan_date, c.line_key)) continue;
     const toks = splitSoNos(c.so_no);
@@ -977,6 +1048,18 @@ function allocateCellPlans(
         const packed = packedQty(db, t, c.plan_date);
         remaining.set(t, rows.reduce((sum, r) => sum + (r.order_qty ?? 0), 0) - packed);
       }
+    }
+    // 팝업에서 수주번호별 계획수량을 직접 입력한 칸 — 그 수량을 그대로 계획으로 보고 각 수주의 남은 양에서 뺀다
+    const manualMap = cellManual.get(`${c.plan_date}|${c.line_key}`);
+    if (manualMap && manualMap.size > 0) {
+      let total = 0;
+      for (const [so, qty] of manualMap) {
+        if (!toks.includes(so)) continue;
+        remaining.set(so, (remaining.get(so) ?? 0) - qty);
+        total += qty;
+      }
+      if (total > 0) cellPlan.set(`${c.plan_date}|${c.line_key}`, total);
+      continue;
     }
     const cap = capa.get(c.line_key);
     if (!cap && !toks.some((t) => soCapa.has(t))) {

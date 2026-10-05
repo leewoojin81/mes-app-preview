@@ -5,11 +5,13 @@ import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
 import PackagingSummaryTab from "./PackagingSummaryTab";
+import type { ManualMeta } from "@/lib/packaging-manual-schedule";
 import {
   addDays,
   PACKAGING_FIELDS,
   splitSoNos,
   type PackagingCandidate,
+  type PackagingCell,
   type PackagingField,
   type PackagingScheduleResult,
 } from "@/lib/packaging-schedule";
@@ -165,6 +167,10 @@ function soOnly(drafts: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(drafts).filter(([k]) => k.endsWith("|so_no")));
 }
 
+function anyPlan(p: { text: string; plans: Record<string, string> }): boolean {
+  return splitSoNos(p.text).some((t) => (p.plans[t] ?? "").replace(/,/g, "").trim() !== "");
+}
+
 function ScheduleTab() {
   const [from, setFrom] = useTabState("pkFrom", today);
   const [days, setDays] = useTabState("pkDays", 28);
@@ -310,6 +316,23 @@ function ScheduleTab() {
     await reloadAfterSave("");
   }
 
+  // 팝업에서 고른 수주번호(들)와 수주번호별 계획수량을 이 칸에만 저장한다(자동 배정 아님) — plans가 비어 있으면 직접 입력한 계획수량을 지우고 자동 계산으로 돌아간다
+  async function saveCellPlan(line: string, date: string, soNos: string[], plans: { so: string; qty: number }[]) {
+    const res = await fetch("/api/packaging-schedule", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ planDate: date, lineKey: line, soNo: soNos.join(", "), cellPlans: plans }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setToast(data.error ?? "저장에 실패했습니다.");
+      return;
+    }
+    await reloadAfterSave(soNos.join(", "));
+    const total = plans.reduce((sum, p) => sum + p.qty, 0);
+    setToast(plans.length > 0 ? `계획수량 저장 — ${date} ${line} · ${plans.length}종 합계 ${fmtNum(total)}` : "계획수량을 지우고 자동 계산으로 돌렸습니다.");
+  }
+
   // 팝업에서 고른 수주번호의 잔량이 다 계획될 때까지 그 날짜부터 근무일마다 자동으로 채운다(서버가 휴일을 건너뛴다)
   async function autoFillSo(line: string, date: string, soNos: string[]) {
     const res = await fetch("/api/packaging-schedule", {
@@ -332,7 +355,7 @@ function ScheduleTab() {
   }
 
   // 수주번호 칸을 오른쪽 클릭하면 여러 수주번호를 한 줄에 하나씩 넣는 창을 연다
-  const [soPopup, setSoPopup] = useState<{ line: string; date: string; text: string; auto: boolean } | null>(null);
+  const [soPopup, setSoPopup] = useState<{ line: string; date: string; text: string; auto: boolean; plans: Record<string, string>; hadPlan: boolean } | null>(null);
   const [soFocus, setSoFocus] = useState<string | null>(null);
   const soDrag = useDraggableModal();
   // 팝업을 열면 그 라인에서 포장할 수 있는 수주 후보(납기일 빠른 순)를 불러온다
@@ -354,12 +377,36 @@ function ScheduleTab() {
       alive = false;
     };
   }, [popupLine, popupDate]);
+  // 신규 수주 추천 — 팝업을 열면 수주별 추천 라인·시작일도 따로 불러온다(계산에 몇 초 걸릴 수 있어 목록과 따로 받는다)
+  const [recMap, setRecMap] = useState<Record<string, RecommendRow> | null>(null);
+  useEffect(() => {
+    if (!popupLine) {
+      setRecMap(null);
+      return;
+    }
+    let alive = true;
+    setRecMap(null);
+    fetch("/api/packaging-schedule/recommend", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: { rows?: RecommendRow[] }) => alive && setRecMap(Object.fromEntries((d.rows ?? []).map((x) => [x.so_no, x]))))
+      .catch(() => alive && setRecMap({}));
+    return () => {
+      alive = false;
+    };
+  }, [popupLine, popupDate]);
   function toggleCandidate(so: string) {
     setSoPopup((p) => {
       if (!p) return p;
       const cur = splitSoNos(p.text);
       const next = cur.includes(so) ? cur.filter((x) => x !== so) : [...cur, so];
-      return { ...p, text: next.join("\n") };
+      // 이미 일정에 계획이 잡혀 있는 수주는 그만큼 뺀 잔량을 계획수량 칸에 미리 채워 준다(2026-10-05 사용자 요청)
+      const c = (candidates ?? []).find((x) => x.so_no === so);
+      const plans = { ...p.plans };
+      if (cur.includes(so)) delete plans[so];
+      else if (c && c.plan_remaining > 0 && c.plan_remaining < c.order_qty - c.packed_qty && !plans[so]) {
+        plans[so] = Math.round(c.plan_remaining).toLocaleString("ko-KR");
+      }
+      return { ...p, text: next.join("\n"), plans };
     });
   }
 
@@ -451,7 +498,7 @@ function ScheduleTab() {
         </p>
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap pb-1 [&>*]:shrink-0">
         <label className="text-xs font-medium text-slate-500 shrink-0">시작일</label>
         <DateSegmentInput value={from} onChange={setFrom} />
         <button
@@ -483,14 +530,12 @@ function ScheduleTab() {
             </option>
           ))}
         </select>
-      </div>
 
-      <div className="flex items-center gap-x-4 gap-y-1.5 flex-wrap">
-        <span className="text-xs font-medium text-slate-500 shrink-0">표시 항목</span>
+        <span className="text-xs font-medium text-slate-500 shrink-0 ml-4">표시 항목</span>
         {ROW_LAYOUT.map((r) => {
           const id = rowId(r);
           return (
-            <label key={id} className="flex items-center gap-1.5 text-sm text-slate-600 select-none cursor-pointer">
+            <label key={id} className="flex items-center gap-1 text-xs text-slate-600 select-none cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={shownRows.includes(id)}
@@ -505,18 +550,18 @@ function ScheduleTab() {
         })}
         <button
           onClick={() => setShownRows(ALL_ROW_IDS)}
-          className="px-2.5 py-1 rounded-md text-xs border border-slate-300 bg-white hover:border-navy"
+          className="px-2.5 py-1 rounded-md text-xs border border-slate-300 bg-white hover:border-navy shrink-0"
         >
           전체
         </button>
         <button
           onClick={() => setShownRows([])}
-          className="px-2.5 py-1 rounded-md text-xs border border-slate-300 bg-white hover:border-navy"
+          className="px-2.5 py-1 rounded-md text-xs border border-slate-300 bg-white hover:border-navy shrink-0"
         >
           해제
         </button>
         {!shownRows.includes("so_no") && shownRows.length > 0 && (
-          <span className="text-xs text-amber-600">수주번호 행을 숨기면 수주번호를 입력할 수 없습니다.</span>
+          <span className="text-xs text-amber-600 shrink-0">수주번호 행을 숨기면 수주번호를 입력할 수 없습니다.</span>
         )}
       </div>
 
@@ -762,7 +807,16 @@ function ScheduleTab() {
                                       if (f !== "so_no") return;
                                       e.preventDefault();
                                       soDrag.reset();
-                                      setSoPopup({ line: line.key, date: d, auto: true, text: splitSoNos(drafts[key3(line.key, d, "so_no")]).join("\n") });
+                                      const pc = result.cells.find((x) => x.line_key === line.key && x.plan_date === d);
+                                      const manual = !!pc?.plan_manual && !!pc.plan_by_so;
+                                      setSoPopup({
+                                        line: line.key,
+                                        date: d,
+                                        auto: !manual,
+                                        plans: Object.fromEntries(Object.entries(pc?.plan_by_so ?? {}).map(([k, v]) => [k, Number(v).toLocaleString("ko-KR")])),
+                                        hadPlan: manual,
+                                        text: splitSoNos(drafts[key3(line.key, d, "so_no")]).join("\n"),
+                                      });
                                     }}
                                     onKeyDown={(e) => {
                                       if (e.key !== "Enter") return;
@@ -843,7 +897,7 @@ function ScheduleTab() {
           // 제목 줄을 끌다가 창 밖에서 놓아도 닫히지 않도록, 바깥 영역을 직접 누를 때만 닫는다
           onMouseDown={(e) => e.target === e.currentTarget && setSoPopup(null)}
         >
-          <div className="bg-white rounded-lg shadow-xl w-[1240px] max-w-[96vw] p-4 space-y-3" style={soDrag.style}>
+          <div className="bg-white rounded-lg shadow-xl w-[1480px] max-w-[96vw] p-4 space-y-3" style={soDrag.style}>
             <div className="text-sm font-semibold text-slate-700 cursor-move select-none" onMouseDown={soDrag.onMouseDown} title="끌어서 창 위치를 옮길 수 있습니다">
               수주번호 입력
               <span className="ml-2 font-normal text-xs text-slate-400">
@@ -851,7 +905,7 @@ function ScheduleTab() {
               </span>
             </div>
             <div className="flex gap-3 items-stretch">
-              <div className="w-[230px] shrink-0 flex flex-col gap-1.5">
+              <div className="w-[300px] shrink-0 flex flex-col gap-1.5">
                 <textarea
                   autoFocus
                   value={soPopup.text}
@@ -861,10 +915,40 @@ function ScheduleTab() {
                   className="w-full flex-1 border border-slate-300 rounded-md px-2.5 py-2 text-sm font-mono focus:outline-none focus:border-navy"
                 />
                 <div className="text-xs text-slate-400">{splitSoNos(soPopup.text).length}종 · 비우면 이 칸의 수주번호가 지워집니다.</div>
+                {splitSoNos(soPopup.text).length > 0 && (
+                  <div className="mt-1 space-y-1">
+                    <div className="text-xs font-medium text-slate-600">수주번호별 계획수량</div>
+                    {splitSoNos(soPopup.text).map((t) => (
+                      <label key={t} className="flex items-center gap-1.5 text-[11px] text-slate-600">
+                        <span className="font-mono w-[104px] shrink-0 truncate" title={t}>
+                          {t}
+                        </span>
+                        <input
+                          value={soPopup.plans[t] ?? ""}
+                          onChange={(e) => {
+                            const raw = e.target.value.replace(/[^\d]/g, "");
+                            setSoPopup({ ...soPopup, plans: { ...soPopup.plans, [t]: raw ? Number(raw).toLocaleString("ko-KR") : "" } });
+                          }}
+                          placeholder="비우면 자동"
+                          className="flex-1 min-w-0 border border-slate-300 rounded-md px-1.5 py-0.5 text-xs text-right font-mono focus:outline-none focus:border-navy"
+                        />
+                      </label>
+                    ))}
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 border-t border-slate-300 pt-1">
+                      <span className="w-[104px] shrink-0">합계 ({splitSoNos(soPopup.text).length}종)</span>
+                      <span className="flex-1 min-w-0 text-right font-mono text-sm text-navy pr-1.5">
+                        {fmtNum(splitSoNos(soPopup.text).reduce((sum, t) => sum + (Number((soPopup.plans[t] ?? "").replace(/,/g, "")) || 0), 0))}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 leading-snug">
+                      수량을 넣고 저장하면 이 칸 하나에 수주번호별 수량으로 저장합니다(여러 날 자동 배정 안 함). 하나라도 넣으면 모든 수주번호에 넣어야 합니다.
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex-1 min-w-0 border border-slate-200 rounded-md overflow-hidden flex flex-col">
                 <div className="px-2.5 py-1.5 bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                  이 라인에서 포장할 수 있는 수주 <span className="text-slate-400">(납기일 빠른 순 · 품목별 PROD-10 작업 설비 이력으로 라인 구분 · 추천 설비 = 과거 사용 비율 1순위 · 이력 없으면 라인 타입(먼슬리/원데이/바이알)으로 선택 · 예상 소요 = 잔량 ÷ 비슷한 물량대 과거 평균 일CAPA · 눌러서 추가/해제)</span>
+                  이 라인에서 포장할 수 있는 수주 <span className="text-slate-400">(납기일 빠른 순 · 품목별 PROD-10 작업 설비 이력으로 라인 구분 · 추천 설비 = 과거 사용 비율 1순위 · 이력 없으면 라인 타입(먼슬리/원데이/바이알)으로 선택 · 예상 소요 = 잔량 ÷ 비슷한 물량대 과거 평균 일CAPA · 추천 라인·일정 = 개입수로 라인을 정해 납기 순으로 이어 붙인 신규 수주 추천 · 눌러서 추가/해제)</span>
                 </div>
                 <div className="overflow-auto max-h-[330px]">
                   <table className="w-full text-xs">
@@ -876,22 +960,25 @@ function ScheduleTab() {
                         <th className="px-2 py-1.5 text-center font-semibold">수주번호</th>
                         <th className="px-2 py-1.5 text-center font-semibold">주문량</th>
                         <th className="px-2 py-1.5 text-center font-semibold">생산실적</th>
-                        <th className="px-2 py-1.5 text-center font-semibold">잔량</th>
+                        <th className="px-2 py-1.5 text-center font-semibold" title="수주량 − 생산실적 − 일정에 이미 계획된 수량">잔량</th>
                         <th className="px-2 py-1.5 text-center font-semibold">추천 설비</th>
                         <th className="px-2 py-1.5 text-center font-semibold">예상 소요</th>
+                        <th className="px-2 py-1.5 text-center font-semibold">추천 라인</th>
+                        <th className="px-2 py-1.5 text-center font-semibold">추천 일정</th>
+                        <th className="px-2 py-1.5 text-center font-semibold">납기 여유</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {candidates == null && (
                         <tr>
-                          <td colSpan={9} className="py-6 text-center text-slate-400">
+                          <td colSpan={12} className="py-6 text-center text-slate-400">
                             불러오는 중…
                           </td>
                         </tr>
                       )}
                       {candidates != null && candidates.length === 0 && (
                         <tr>
-                          <td colSpan={9} className="py-6 text-center text-slate-400">
+                          <td colSpan={12} className="py-6 text-center text-slate-400">
                             포장할 수 있는 수주가 없습니다.
                           </td>
                         </tr>
@@ -910,7 +997,12 @@ function ScheduleTab() {
                             <td className="px-2 py-1 text-center font-mono whitespace-nowrap">{c.so_no}</td>
                             <td className="px-2 py-1 text-right font-mono">{fmtNum(c.order_qty)}</td>
                             <td className="px-2 py-1 text-right font-mono text-emerald-700">{c.packed_qty > 0 ? fmtNum(c.packed_qty) : ""}</td>
-                            <td className="px-2 py-1 text-right font-mono font-semibold">{fmtNum(Math.max(0, c.order_qty - c.packed_qty))}</td>
+                            <td
+                              className="px-2 py-1 text-right font-mono font-semibold"
+                              title={`수주량 ${fmtNum(c.order_qty)} − 생산실적 ${fmtNum(c.packed_qty)} − 일정에 계획됨 ${fmtNum(Math.max(0, c.order_qty - c.packed_qty - c.plan_remaining))} = 계획할 잔량 ${fmtNum(c.plan_remaining)}`}
+                            >
+                              {fmtNum(c.plan_remaining)}
+                            </td>
                             <td
                               className={`px-2 py-1 text-center whitespace-nowrap ${c.recommend && c.recommend.line_key === soPopup.line ? "font-semibold text-emerald-700" : "text-slate-500"}`}
                               title={c.recommend ? `PROD-10 과거 출하포장 실적 기준 ${c.recommend.equipment} ${c.recommend.ratio}% (${fmtNum(c.recommend.qty)}개)` : "PROD-10에 이 품목의 출하포장 이력이 없습니다. 라인 타입(먼슬리/원데이/바이알)을 보고 선택해 주세요."}
@@ -921,18 +1013,36 @@ function ScheduleTab() {
                               className="px-2 py-1 text-center whitespace-nowrap text-slate-600"
                               title={
                                 c.forecast
-                                  ? c.forecast.basis === "uph"
-                                    ? `${c.forecast.equipment} · 개입수 ${c.forecast.pack_size}가 같은 과거 이력이 부족해 설비 UPH 기준으로 계산 (UPH × 하루 작업시간 × 개입수 = 일 ${fmtNum(c.forecast.daily_capa)}개, 천 개 단위 올림) → 잔량 ${fmtNum(Math.max(0, c.order_qty - c.packed_qty))}개 ÷ 일CAPA = 약 ${c.forecast.est_days}일`
-                                    : `${c.forecast.equipment} · ${c.forecast.bin_label} 물량대 과거 평균 일CAPA ${fmtNum(roundUpThousand(c.forecast.daily_capa))}개(천 개 단위 올림, 실제 ${fmtNum(c.forecast.daily_capa)}) (${
-                                        c.forecast.basis === "item" ? "같은 품목" : "해당 설비"
-                                      } ${c.forecast.pack_matched ? `개입수 ${c.forecast.pack_size}` : "개입수 구분 없음"}${
-                                        c.forecast.lot_range ? ` · LOT SIZE ${Math.round(c.forecast.lot_size ?? 0)} ±${c.forecast.lot_range * 100}%` : ""
-                                      } 이력 ${c.forecast.samples}건 · 주간 실적 기준 · 품목 ${c.forecast.item_count}개) → 잔량 ${fmtNum(Math.max(0, c.order_qty - c.packed_qty))}개 ÷ 일CAPA = 약 ${c.forecast.est_days}일`
-                                  : "예상할 수 없습니다 (비슷한 이력이 없고 이 라인에는 설비 UPH가 없습니다)."
+                                  ? `${c.forecast.equipment} · ${c.forecast.bin_label} 물량대 과거 평균 일CAPA ${fmtNum(roundUpThousand(c.forecast.daily_capa))}개(천 개 단위 올림, 실제 ${fmtNum(c.forecast.daily_capa)}) (${
+                                      c.forecast.basis === "item" ? "같은 품목" : "해당 설비"
+                                    } ${c.forecast.pack_matched ? `개입수 ${c.forecast.pack_size}` : "개입수 구분 없음"}${
+                                      c.forecast.lot_range ? ` · LOT SIZE ${Math.round(c.forecast.lot_size ?? 0)} ±${c.forecast.lot_range * 100}%` : ""
+                                    } 이력 ${c.forecast.samples}건 · 주간 실적 기준 · 품목 ${c.forecast.item_count}개) → 계획할 잔량 ${fmtNum(c.plan_remaining)}개 ÷ 일CAPA = 약 ${c.forecast.est_days}일`
+                                  : "비슷한 물량대의 과거 이력이 없어 예상할 수 없습니다."
                               }
                             >
                               {c.forecast ? `약 ${c.forecast.est_days}일 (일 ${fmtNum(roundUpThousand(c.forecast.daily_capa))})` : ""}
                             </td>
+                            {(() => {
+                              const rr = recMap?.[c.so_no];
+                              const dash = recMap == null ? "계산 중…" : "-";
+                              return (
+                                <>
+                                  <td
+                                    className={`px-2 py-1 text-center whitespace-nowrap ${rr && rr.line_key === soPopup.line ? "font-semibold text-emerald-700" : "text-slate-600"}`}
+                                    title={rr ? `추천 근거: ${rr.reason}` : "추천 대상이 아닙니다(이미 계획됨·하루 수량을 구할 수 없음)"}
+                                  >
+                                    {rr ? rr.line_label : dash}
+                                  </td>
+                                  <td className="px-2 py-1 text-center whitespace-nowrap text-slate-600" title={rr ? `${rr.start_date} ~ ${rr.end_date} (${rr.work_days}일)` : undefined}>
+                                    {rr ? `${mmdd(rr.start_date)}~${mmdd(rr.end_date)} (${rr.work_days}일)` : dash}
+                                  </td>
+                                  <td className={`px-2 py-1 text-center whitespace-nowrap font-semibold ${rr?.late ? "text-red-600" : "text-slate-600"}`}>
+                                    {rr && rr.slack_days != null ? (rr.late ? `${-rr.slack_days}일 지연` : `${rr.slack_days}일 여유`) : ""}
+                                  </td>
+                                </>
+                              );
+                            })()}
                           </tr>
                         );
                       })}
@@ -942,7 +1052,7 @@ function ScheduleTab() {
               </div>
             </div>
             <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
-              <input type="checkbox" checked={soPopup.auto} onChange={(e) => setSoPopup({ ...soPopup, auto: e.target.checked })} />
+              <input type="checkbox" checked={soPopup.auto && !anyPlan(soPopup)} disabled={anyPlan(soPopup)} onChange={(e) => setSoPopup({ ...soPopup, auto: e.target.checked })} />
               잔량이 다 계획될 때까지 이 날짜부터 근무일마다 자동 배정 (하루 계획 = UPH × 작업시간 × 개입수 · 휴일은 건너뜀 · 여러 개면 순서대로 이어서)
             </label>
             <div className="flex justify-end gap-2">
@@ -951,10 +1061,23 @@ function ScheduleTab() {
               </button>
               <button
                 onClick={() => {
-                  const { line, date, text, auto } = soPopup;
-                  setSoPopup(null);
+                  const { line, date, text, auto, plans, hadPlan } = soPopup;
                   const tokens = splitSoNos(text);
-                  if (auto && tokens.length > 0) void autoFillSo(line, date, tokens);
+                  const filled = tokens.filter((t) => (plans[t] ?? "").replace(/,/g, "").trim() !== "");
+                  if (filled.length > 0 && filled.length < tokens.length) {
+                    setToast("계획수량을 넣을 때는 모든 수주번호에 넣어 주세요(자동 계산하려면 모두 비웁니다).");
+                    return;
+                  }
+                  setSoPopup(null);
+                  if (tokens.length > 0 && filled.length > 0) {
+                    void saveCellPlan(
+                      line,
+                      date,
+                      tokens,
+                      tokens.map((t) => ({ so: t, qty: Number((plans[t] ?? "").replace(/,/g, "")) }))
+                    );
+                  } else if (tokens.length > 0 && hadPlan) void saveCellPlan(line, date, tokens, []);
+                  else if (auto && tokens.length > 0) void autoFillSo(line, date, tokens);
                   else void saveSoValue(line, date, tokens.join(", "));
                 }}
                 className="px-3 py-1.5 rounded-md text-sm font-medium bg-navy text-white hover:opacity-90"
@@ -975,11 +1098,306 @@ function ScheduleTab() {
   );
 }
 
+// 신규 수주 추천 — 수주번호 칸 우클릭 팝업의 후보 목록에 수주별 추천 라인·시작일을 함께 보여준다(2026-10-05 사용자 요청).
+// 일정(수기) 분석으로 얻은 계획 수립 방법: 수주 한 건이 계획 단위, 개입수로 라인 결정(10·20·30P=2 Line, 1·2·6P=1·3 Line), 라인 안에서는
+// 납기 빠른 순으로 빈 날 없이 이어 붙이고, 소요일은 잔량 ÷ 비슷한 이력의 하루 처리량(주간 실적 기준)으로 구한다.
+interface RecommendRow {
+  so_no: string;
+  customer: string | null;
+  product_group: string | null;
+  pack_size: number | null;
+  order_qty: number;
+  remaining: number;
+  due_date: string | null;
+  line_key: string;
+  line_label: string;
+  start_date: string;
+  end_date: string;
+  work_days: number;
+  daily_capa: number;
+  slack_days: number | null;
+  late: boolean;
+  eligible_lines: string[];
+  reason: string;
+}
+
+// 일정(수기) — 담당자가 엑셀("2026년 포장" 1번 시트)에 직접 적은 포장 일정을 업로드해서 그대로 보여준다(2026-10-05 사용자 요청).
+// 값은 엑셀에 적힌 그대로(수주번호로 다시 계산하지 않음)이고, 실적만 일일작업현황(PROD-10) 출하포장에서 칸의 수주번호로 읽어 온다.
+const MANUAL_ROWS: { id: string; label: string; field: "product_name" | "plan_qty" | "pack_size" | "customer" | "due_date" | "so_no" | "actual" }[] = [
+  { id: "customer", label: "고객사", field: "customer" },
+  { id: "so_no", label: "수주번호", field: "so_no" },
+  { id: "product_name", label: "품목군", field: "product_name" },
+  { id: "plan_qty", label: "계획", field: "plan_qty" },
+  { id: "actual", label: "실적", field: "actual" },
+  { id: "pack_size", label: "개입수", field: "pack_size" },
+  { id: "due_date", label: "납기일", field: "due_date" },
+];
+
+function ManualTab() {
+  const [from, setFrom] = useTabState("pkMFrom", today);
+  const [days, setDays] = useTabState("pkMDays", 28);
+  const [data, setData] = useState<{ result: PackagingScheduleResult; meta: ManualMeta | null } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
+  const [showUpload, setShowUpload] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadDrag = useDraggableModal();
+
+  const load = useCallback(() => {
+    if (!from) return;
+    setLoading(true);
+    fetch(`/api/packaging-schedule/manual?from=${from}&days=${days}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        setData(d);
+        setLoading(false);
+      })
+      .catch(() => {
+        setToast("불러오기에 실패했습니다.");
+        setLoading(false);
+      });
+  }, [from, days]);
+  useEffect(load, [load]);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const dates = useMemo(() => Array.from({ length: days }, (_, i) => addDays(from, i)), [from, days]);
+  const result = data?.result ?? null;
+  const calendar = useMemo<DayCalendar>(
+    () => ({ holidays: new Set(result?.holidays ?? []), workDays: new Set(result?.workDays ?? []) }),
+    [result]
+  );
+  const cellMap = useMemo(() => {
+    const m = new Map<string, PackagingCell>();
+    for (const c of result?.cells ?? []) m.set(`${c.line_key}|${c.plan_date}`, c);
+    return m;
+  }, [result]);
+
+  async function handleUpload() {
+    if (!uploadFile) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.set("file", uploadFile);
+      const res = await fetch("/api/packaging-schedule/manual", { method: "POST", body: fd });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setToast(d.error ?? "업로드에 실패했습니다.");
+        return;
+      }
+      setToast(`업로드 완료 — ${d.dateFrom} ~ ${d.dateTo}, ${Number(d.inserted).toLocaleString()}칸 반영 (기존 ${Number(d.deleted).toLocaleString()}칸 교체)`);
+      setShowUpload(false);
+      setUploadFile(null);
+      if (d.dateFrom) setFrom(d.dateFrom);
+      load();
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const thBase = "px-2 py-1.5 text-center font-semibold border border-slate-300 bg-[#D9E1F2] text-slate-600 text-xs";
+  const meta = data?.meta ?? null;
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-slate-500 mt-1">
+        PLAN-03 · 담당자가 엑셀(&quot;2026년 포장&quot; 1번 시트)에 직접 적은 포장 일정을 업로드해서 그대로 보여줍니다. 품목군·계획·개입수·고객사·납기일·수주번호는 엑셀에 적힌 값 그대로이고,
+        실적은 일일작업현황(PROD-10) 출하포장 중 칸에 적힌 수주번호의 양품수량을 실제 포장한 날짜에 맞춰 보여줍니다. 업로드하면 파일에 들어 있는 날짜 구간의 기존 수기 일정이 새 내용으로 바뀝니다.
+      </p>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className="text-xs font-medium text-slate-500 shrink-0">시작일</label>
+        <DateSegmentInput value={from} onChange={setFrom} />
+        <button onClick={() => setFrom(addDays(from, -7))} className="px-2.5 py-1.5 rounded-md text-sm border border-slate-300 bg-white hover:border-navy">
+          ◀ 1주
+        </button>
+        <button onClick={() => setFrom(addDays(from, 7))} className="px-2.5 py-1.5 rounded-md text-sm border border-slate-300 bg-white hover:border-navy">
+          1주 ▶
+        </button>
+        <button onClick={() => setFrom(today())} className="px-2.5 py-1.5 rounded-md text-sm border border-slate-300 bg-white hover:border-navy">
+          오늘
+        </button>
+        <select
+          value={days}
+          onChange={(e) => setDays(Number(e.target.value))}
+          className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white text-slate-600"
+        >
+          {[14, 28, 42, 62].map((d) => (
+            <option key={d} value={d}>
+              {d}일 표시
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={() => {
+            setUploadFile(null);
+            uploadDrag.reset();
+            setShowUpload(true);
+          }}
+          className="ml-auto px-3.5 py-1.5 rounded-md text-sm font-medium bg-navy text-white hover:opacity-90"
+        >
+          엑셀 업로드
+        </button>
+      </div>
+      {meta?.uploaded_at && (
+        <div className="text-xs text-slate-500">
+          마지막 업로드: {meta.uploaded_at.slice(0, 16)} · {meta.file_name} · {meta.date_from} ~ {meta.date_to} · {Number(meta.cell_count ?? 0).toLocaleString()}칸
+          {meta.uploaded_by ? ` · ${meta.uploaded_by}` : ""}
+        </div>
+      )}
+
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+        <div className="overflow-auto max-h-[calc(100vh-19rem)]">
+          <table className="text-xs border-collapse">
+            <thead>
+              <tr>
+                <th rowSpan={2} className={`${thBase} sticky left-0 top-0 z-30 min-w-28`}>
+                  설비
+                </th>
+                <th rowSpan={2} style={{ borderLeft: DIVIDER, borderRight: DIVIDER }} className={`${thBase} sticky left-28 top-0 z-30 min-w-20 whitespace-nowrap`}>
+                  구분
+                </th>
+                {dates.map((d) => (
+                  <th key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d) }} className={`${thBase} sticky top-0 z-20 min-w-28 ${dayTextColor(d, calendar)}`}>
+                    {DAY_NAMES[weekdayOf(d)]}요일
+                  </th>
+                ))}
+              </tr>
+              <tr>
+                {dates.map((d) => (
+                  <th key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d) }} className={`${thBase} sticky top-[1.9rem] z-20 ${dayTextColor(d, calendar)}`}>
+                    {mmdd(d)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr>
+                  <td colSpan={2 + dates.length} className="text-center py-10 text-slate-400">
+                    불러오는 중...
+                  </td>
+                </tr>
+              )}
+              {!loading && result && !meta && (
+                <tr>
+                  <td colSpan={2 + dates.length} className="text-center py-10 text-slate-400">
+                    아직 업로드한 수기 일정이 없습니다. 오른쪽 위 &quot;엑셀 업로드&quot;로 올려 주세요.
+                  </td>
+                </tr>
+              )}
+              {!loading &&
+                result &&
+                meta &&
+                result.lines.map((line) =>
+                  MANUAL_ROWS.map((row, ri) => {
+                    const blockEdge: React.CSSProperties = ri === 0 ? { borderTop: DIVIDER } : ri === MANUAL_ROWS.length - 1 ? { borderBottom: DIVIDER } : {};
+                    return (
+                      <tr key={`${line.key}-${row.id}`} className="h-7">
+                        {ri === 0 && (
+                          <td
+                            rowSpan={MANUAL_ROWS.length}
+                            style={{ borderTop: DIVIDER, borderBottom: DIVIDER, borderLeft: DIVIDER }}
+                            className="sticky left-0 z-10 bg-white border border-slate-300 px-2 text-center align-middle font-semibold text-slate-700"
+                          >
+                            {line.label}
+                            {line.sub && <div className="text-[10px] font-normal text-slate-400">{line.sub}</div>}
+                          </td>
+                        )}
+                        <td
+                          style={{ borderLeft: DIVIDER, borderRight: DIVIDER, ...blockEdge }}
+                          className="sticky left-28 z-10 bg-[#EEF2F9] border border-slate-300 px-2 text-center whitespace-nowrap font-medium text-slate-600"
+                        >
+                          {row.label}
+                        </td>
+                        {dates.map((d) => {
+                          const c = cellMap.get(`${line.key}|${d}`);
+                          let content: React.ReactNode = "";
+                          const style: React.CSSProperties = { ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge };
+                          let cls = "border border-slate-200 px-1.5 py-1 text-center text-slate-700";
+                          let title: string | undefined;
+                          if (row.field === "actual") {
+                            const a = result.lineActuals[`${line.key}|${d}`];
+                            content = a && a.total > 0 ? fmtNum(a.total) : "";
+                            cls = "border border-slate-200 px-1.5 py-1 text-right font-mono text-emerald-700";
+                            if (a) title = a.details.map((x) => `${x.so} · ${x.line} ${fmtNum(x.qty)}`).join("\n");
+                          } else if (row.field === "plan_qty") {
+                            content = c?.plan_qty != null ? fmtNum(c.plan_qty) : "";
+                            cls = "border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-700";
+                          } else {
+                            const v = c?.[row.field] ?? "";
+                            content = v;
+                            if (row.field === "customer") style.color = "#002060";
+                            if (row.field === "product_name") style.color = "#0070C0";
+                            if (row.field === "due_date") {
+                              style.color = "#FF0000";
+                              // 납기 지연 — 계획 날짜가 납기일보다 늦으면 납기일 칸을 색으로 채운다
+                              const due = String(v);
+                              if (/^\d{4}-\d{2}-\d{2}$/.test(due) && d > due) {
+                                style.backgroundColor = "#FF7C80";
+                                style.color = "#FFFFFF";
+                                style.fontWeight = 600;
+                                title = `납기 지연 ${daysBetweenStr(due, d)}일 (납기 ${due} · 계획 ${d})`;
+                              }
+                            }
+                          }
+                          return (
+                            <td key={d} style={style} title={title} className={cls}>
+                              {content}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })
+                )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {showUpload && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onMouseDown={(e) => e.target === e.currentTarget && setShowUpload(false)}>
+          <div className="bg-white rounded-lg shadow-xl w-[460px] max-w-[95vw] p-4 space-y-3" style={uploadDrag.style}>
+            <div className="text-sm font-semibold text-slate-700 cursor-move select-none" onMouseDown={uploadDrag.onMouseDown}>
+              일정(수기) 엑셀 업로드
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              &quot;2026년 포장&quot; 엑셀의 <b>1번 시트</b>(없으면 첫 시트)를 읽습니다. 머리글 줄의 &quot;설비·구분&quot;과 그 오른쪽 날짜 열, 설비별 품명·계획·개입수·고객사·납기일·수주번호 줄을 가져오며,
+              파일에 들어 있는 날짜 구간의 기존 수기 일정은 새 내용으로 바뀝니다. 실적·단상자·팩수 줄과 &quot;기타&quot; 설비는 가져오지 않습니다.
+            </p>
+            <input type="file" accept=".xlsx,.xls" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} className="text-sm w-full" />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowUpload(false)} className="px-3 py-1.5 rounded-md text-sm border border-slate-300 bg-white text-slate-600 hover:border-navy">
+                취소
+              </button>
+              <button
+                onClick={handleUpload}
+                disabled={!uploadFile || uploading}
+                className="px-3 py-1.5 rounded-md text-sm font-medium bg-navy text-white hover:opacity-90 disabled:opacity-40"
+              >
+                {uploading ? "업로드 중..." : "업로드"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && <div className="fixed bottom-6 right-6 z-[60] bg-navy text-white text-sm px-4 py-3 rounded-md shadow-lg">{toast}</div>}
+    </div>
+  );
+}
+
 export default function PackagingPlanPage() {
-  const [tab, setTab] = useTabState<"schedule" | "plan">("pkTab", "plan");
+  const [tab, setTab] = useTabState<"schedule" | "plan" | "manual">("pkTab", "plan");
   const tabs = [
     { id: "plan", label: "생산계획" },
-    { id: "schedule", label: "일정" },
+    { id: "schedule", label: "일정(계획)" },
+    { id: "manual", label: "일정(수기)" },
   ] as const;
   return (
     <div className="w-full px-4 sm:px-6 pb-6 space-y-5">
@@ -1001,7 +1419,7 @@ export default function PackagingPlanPage() {
       </div>
       <div id="pk-sticky-slot" />
       </div>
-      {tab === "schedule" ? <ScheduleTab /> : <PackagingSummaryTab />}
+      {tab === "schedule" ? <ScheduleTab /> : tab === "manual" ? <ManualTab /> : <PackagingSummaryTab />}
     </div>
   );
 }
