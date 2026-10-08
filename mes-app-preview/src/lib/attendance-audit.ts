@@ -32,7 +32,8 @@ import {
 //   카드를 찍고 나가는 게 아니라 출퇴근 카드 사이에 자리를 비우는 것이라 세콤 재계산이
 //   그 시간까지 전부 정상으로 잡아버림). 지원시간만 세콤에 대응되는 시간대 자체가 없어
 //   계속 제외한다 — 지원시간을 실제로 쓴 날은 이 항목만 항상 차이가 남을 수 있다(의도된
-//   동작).
+//   동작). 단, 지원시간 중 정상 8시간을 넘는 부분(잔업 시간대 지원)은 세콤 재계산 잔업 범위 안에서
+//   세콤 근로시간에 더해 비교한다(2026-10-08 사용자 요청, 아래 supportOvertimeExtra).
 // - 참고 표시 전용 4개: 중교, 조퇴, 외출, 지원시간 — PSN-01 값만 그대로 인정하고
 //   일치/불일치 판정에서 뺀다(종합상태 판정에도 포함 안 함). 중교/외출/지원시간은 세콤에
 //   근거 데이터 자체가 없어(외출은 기존부터, 중교/지원시간도 마찬가지) 세콤 값을 항상
@@ -567,7 +568,20 @@ export function fetchAttendanceAudit(
       // 재계산(deriveNormalHours)이 그 시간을 휴게시간으로 보고 일괄로 빼버려 중교를 쓴
       // 날마다 근로시간만 항상 차이가 나던 문제를 없앤다). 지원시간은 세콤에 근거 자체가
       // 없어(중교와 달리 대응되는 세콤 시간대 자체가 없음) 계속 제외한다.
-      const totalPsn02 = normalPsn02 + earlyStartForTotal + overtimeForTotal + lunchShiftHours;
+      // 지원시간 중 정상 8시간을 넘는 부분(잔업 시간대에 지원한 시간)은 PSN-01에서 잔업이 아니라 지원으로
+      // 저장돼, 세콤 쪽에는 대응 항목이 없어 근로시간만 그만큼 항상 차이가 났다(2026-10-08 사용자 요청,
+      // 전지연 10/7 사례 — 지원 10:20, 정상 0/잔업 0, 세콤 06:37~18:31이라 정상 8.00 + 잔업 2.33인데
+      // 근로시간 10.33 vs 8.00 불일치). 그 초과분 중 PSN-01 잔업으로 이미 잡힌 만큼은 빼고(이중 계산 방지),
+      // 세콤 재계산 잔업을 넘지 않는 범위까지만 세콤 쪽 근로시간에 더한다. 지원이 8시간 이하이거나 잔업이
+      // 이미 그 초과분을 채운 날은 0이라 기존 계산과 같다.
+      const supportOvertimeExtra =
+        derivedOvertimeAfterOuting != null
+          ? Math.max(
+              0,
+              Math.min(supportHours - NORMAL_BASE_HOURS - overtimeForTotal, derivedOvertimeAfterOuting - overtimeForTotal)
+            )
+          : 0;
+      const totalPsn02 = normalPsn02 + earlyStartForTotal + overtimeForTotal + lunchShiftHours + supportOvertimeExtra;
 
       items = {
         total: buildItem(totalHours, totalPsn02),
