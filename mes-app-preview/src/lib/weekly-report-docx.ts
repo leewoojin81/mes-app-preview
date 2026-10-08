@@ -5,6 +5,8 @@ import {
   WEEKLY_DEFECT_TABLE1,
   WEEKLY_DEFECT_TABLE2,
   WEEKLY_YIELD_PROCESSES,
+  type WeeklyPackagingBlock,
+  type WeeklyPackagingRow,
   type WeeklyPlanBlock,
   type WeeklyPrintingBlock,
   type WeeklyReportResult,
@@ -160,6 +162,42 @@ function planTable(b: WeeklyPlanBlock, monthNo: number): string {
     ...m.rate.map((v) => ({ t: pct(v, 2), bold: true, fill: SUM_FILL })),
   ]);
   return table(grid, rows);
+}
+
+// 출하공정.JPG(포장계획.JPG) 표 — 주차별 기초계획(월)·포장 실적·계획대비실적·달성률을 팩수/수량으로(화면과 동일).
+// 0이면 "-", 아직 시작하지 않은 주차(null)는 빈칸.
+function dashQty(n: number | null): string {
+  if (n == null) return "";
+  const r = Math.round(n);
+  return r === 0 ? "-" : r.toLocaleString("ko-KR");
+}
+function packagingTable(b: WeeklyPackagingBlock): string {
+  // 7자리 수량("1,250,540")이 8pt에서 한 줄에 들어가도록 숫자 열을 같은 폭으로 잡는다.
+  const grid = [680, 1250, ...new Array<number>(8).fill(980)];
+  const groups = ["기초계획(월)", "포장 실적", "계획대비실적", "달성률(%)"];
+  const rows: Cell[][] = [
+    [head("주차별", { vm: "r" }), head("기간", { vm: "r" }), ...groups.map((g) => head(g, { span: 2 }))],
+    [head("", { vm: "c" }), head("", { vm: "c" }), ...groups.flatMap(() => [head("팩수"), head("수량")])],
+  ];
+  const line = (w: WeeklyPackagingRow, fill?: string): Cell[] => {
+    const bold = !!fill;
+    const diff = (n: number | null): Cell => ({ ...signedCell(n, fill), t: dashQty(n), bold });
+    return [
+      { t: w.weekLabel, bold: true, fill },
+      { t: w.rangeLabel, bold, fill },
+      { t: dashQty(w.planPacks), bold, fill },
+      { t: dashQty(w.planQty), bold, fill },
+      { t: dashQty(w.actualPacks), bold, fill },
+      { t: dashQty(w.actualQty), bold, fill },
+      diff(w.diffPacks),
+      diff(w.diffQty),
+      { t: pct(w.ratePacks, 1), bold, fill },
+      { t: pct(w.rateQty, 1), bold, fill },
+    ];
+  };
+  for (const w of b.weeks) rows.push(line(w));
+  rows.push(line(b.month, PRINT_FILL));
+  return table(grid, rows, { sz: 16, mar: 30 });
 }
 
 const PRINT_FILL = "FCE4D6";
@@ -337,10 +375,9 @@ export async function buildWeeklyReportDocx(r: WeeklyReportResult): Promise<Buff
     if (note) parts.push(para(run(note, { size: 24 }), { before: 40 }));
   };
   const injection = r.plan.find((b) => b.key === "injection");
-  const shipping = r.plan.find((b) => b.key === "shipping");
   if (injection) block("사출", planTable(injection, monthNo), progressLine(injection));
   block("인쇄", printingTable(r.printing));
-  if (shipping) block("출하", planTable(shipping, monthNo));
+  block("출하", packagingTable(r.packaging));
 
   // 2. 생산공정 수율부터는 Word 2페이지에서 시작한다(2026-10-02 사용자 요청)
   parts.push(para(run("2. 생산공정 수율", { size: 28, bold: true }), { pageBreakBefore: true }));
