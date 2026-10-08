@@ -70,5 +70,38 @@ export async function GET() {
     }
   }
 
-  return NextResponse.json({ items, cells });
+  // 엑셀 "보호구 지급" 시트 형태의 작업자 1행 — 사이즈/입사일/부서/직무/특이사항과 품목×차수별
+  // 지급일(issueDates["PPE-01|1"] = 해당 품목 1차 지급일)을 함께 내려준다.
+  const profiles = db
+    .prepare(
+      `SELECT employee_no, hire_date, work_group AS dept, duty,
+              COALESCE(uniform_size, vest_size) AS cloth_size,
+              COALESCE(shoe_size, safety_shoe_size) AS shoe_size, remark, status
+       FROM workers WHERE use_yn = 'Y'`
+    )
+    .all() as unknown as {
+    employee_no: string;
+    hire_date: string | null;
+    dept: string | null;
+    duty: string | null;
+    cloth_size: string | null;
+    shoe_size: string | null;
+    remark: string | null;
+    status: string | null;
+  }[];
+  const issueRows = db
+    .prepare("SELECT employee_no, item_code, issue_seq, issue_date FROM ppe_issuances")
+    .all() as unknown as { employee_no: string; item_code: string; issue_seq: number; issue_date: string }[];
+  const issueDatesByWorker = new Map<string, Record<string, string>>();
+  for (const r of issueRows) {
+    const m = issueDatesByWorker.get(r.employee_no) ?? {};
+    m[`${r.item_code}|${r.issue_seq}`] = r.issue_date;
+    issueDatesByWorker.set(r.employee_no, m);
+  }
+  const profileRows = profiles.map((p) => ({
+    ...p,
+    issue_dates: issueDatesByWorker.get(p.employee_no) ?? {},
+  }));
+
+  return NextResponse.json({ items, cells, profiles: profileRows });
 }
