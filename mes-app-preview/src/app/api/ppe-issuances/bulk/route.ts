@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import type { PpeItem } from "@/lib/types";
 import { nextDueDateAfterIssuance } from "@/lib/ppe";
+import { COOKIE_NAME, verifySession } from "@/lib/auth";
+import { ENTITY_TYPE_WORKER, logFieldChanges, WORKER_TRACKED_FIELDS } from "@/lib/master-data-history";
 
 export const runtime = "nodejs";
 
@@ -54,7 +56,9 @@ export async function POST(req: NextRequest) {
   const ins = db.prepare(
     "INSERT INTO ppe_issuances (employee_no, item_code, issue_date, issue_seq, next_due_date, received_yn) VALUES (?, ?, ?, ?, ?, 'Y')"
   );
+  const getRemark = db.prepare("SELECT remark FROM workers WHERE employee_no = ?");
   const setRemark = db.prepare("UPDATE workers SET remark = ? WHERE employee_no = ?");
+  const changedBy = verifySession(req.cookies.get(COOKIE_NAME)?.value)?.u ?? null;
 
   let workerCount = 0;
   let skipped = 0;
@@ -71,7 +75,19 @@ export async function POST(req: NextRequest) {
         const due = nextDueDateAfterIssuance(items.get(code)!, v);
         if (upd.run(v, due, no, code, seq).changes === 0) ins.run(no, code, v, seq, due);
       }
-      if (remark) setRemark.run(remark, no);
+      if (remark) {
+        const before = (getRemark.get(no) as { remark: string | null } | undefined)?.remark ?? null;
+        setRemark.run(remark, no);
+        // 특이사항 변경은 기준정보 변경이력(BASE-10)에 남긴다
+        logFieldChanges(db, {
+          entityType: ENTITY_TYPE_WORKER,
+          entityId: no,
+          trackedFields: WORKER_TRACKED_FIELDS,
+          before: { remark: before },
+          after: { remark },
+          changedBy,
+        });
+      }
       workerCount++;
     }
     db.exec("COMMIT");

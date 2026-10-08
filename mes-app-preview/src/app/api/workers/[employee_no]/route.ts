@@ -14,6 +14,13 @@ interface TrackedSnapshot {
   duty: string | null;
   contractor: string | null;
   use_yn: string | null;
+  uniform_size: string | null;
+  shoe_size: string | null;
+  vest_size: string | null;
+  safety_shoe_size: string | null;
+  bus_route: string | null;
+  bus_stop: string | null;
+  remark: string | null;
 }
 
 // PATCH 본문 중 work_group·process_code를 뺀 나머지 전부 — 조장이 "공정이동"(다른 조장
@@ -25,16 +32,9 @@ interface FullWorkerRow extends TrackedSnapshot {
   process_code: string | null;
   phone: string | null;
   hire_date: string | null;
-  bus_route: string | null;
-  bus_stop: string | null;
-  uniform_size: string | null;
-  shoe_size: string | null;
-  vest_size: string | null;
-  safety_shoe_size: string | null;
   status: string | null;
   resign_date: string | null;
   resign_reason: string | null;
-  remark: string | null;
 }
 
 // 작업자 수정
@@ -163,13 +163,27 @@ export async function PATCH(
       employeeNo
     );
 
-    // 기준정보 변경이력(BASE-10) — 추적 대상 6개 필드 중 바뀐 것만 자동 기록.
+    // 기준정보 변경이력(BASE-10) — 추적 대상 필드(WORKER_TRACKED_FIELDS) 중 바뀐 것만 자동 기록.
     logFieldChanges(db, {
       entityType: ENTITY_TYPE_WORKER,
       entityId: employeeNo,
       trackedFields: WORKER_TRACKED_FIELDS,
       before: existing,
-      after: { work_group: workGroup, team, shift_group: shiftGroup, duty, contractor, use_yn: useYn },
+      after: {
+        work_group: workGroup,
+        team,
+        shift_group: shiftGroup,
+        duty,
+        contractor,
+        use_yn: useYn,
+        uniform_size: uniformSize,
+        shoe_size: shoeSize,
+        vest_size: vestSize,
+        safety_shoe_size: safetyShoeSize,
+        bus_route: busRoute,
+        bus_stop: busStop,
+        remark,
+      },
       changedBy: session?.u ?? null,
     });
     db.exec("COMMIT");

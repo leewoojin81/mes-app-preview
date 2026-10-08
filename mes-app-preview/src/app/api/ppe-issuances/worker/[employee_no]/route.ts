@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import type { PpeItem } from "@/lib/types";
 import { nextDueDateAfterIssuance } from "@/lib/ppe";
+import { COOKIE_NAME, verifySession } from "@/lib/auth";
+import { ENTITY_TYPE_WORKER, logFieldChanges, WORKER_TRACKED_FIELDS } from "@/lib/master-data-history";
 
 export const runtime = "nodejs";
 
@@ -59,9 +61,20 @@ export async function PUT(
       }
     }
     if (typeof body.remark === "string") {
-      db.prepare("UPDATE workers SET remark = ? WHERE employee_no = ?").run(
-        body.remark.trim() || null, employeeNo
-      );
+      const before = db.prepare("SELECT remark FROM workers WHERE employee_no = ?").get(employeeNo) as
+        | { remark: string | null }
+        | undefined;
+      const after = body.remark.trim() || null;
+      db.prepare("UPDATE workers SET remark = ? WHERE employee_no = ?").run(after, employeeNo);
+      // 특이사항 변경은 기준정보 변경이력(BASE-10)에 남긴다
+      logFieldChanges(db, {
+        entityType: ENTITY_TYPE_WORKER,
+        entityId: employeeNo,
+        trackedFields: WORKER_TRACKED_FIELDS,
+        before: { remark: before?.remark ?? null },
+        after: { remark: after },
+        changedBy: verifySession(req.cookies.get(COOKIE_NAME)?.value)?.u ?? null,
+      });
     }
     db.exec("COMMIT");
   } catch (e) {
