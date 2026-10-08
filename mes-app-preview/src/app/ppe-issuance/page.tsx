@@ -60,6 +60,8 @@ export default function PpeIssuancePage() {
   const [showUpload, setShowUpload] = useState(false);
   const [editTarget, setEditTarget] = useState<WorkerOption | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showBulk, setShowBulk] = useState(false);
 
   const removeAll = async (employeeNo: string) => {
     await fetch(`/api/ppe-issuances/worker/${encodeURIComponent(employeeNo)}`, { method: "DELETE" });
@@ -125,6 +127,26 @@ export default function PpeIssuancePage() {
     });
   }, [workers, profileMap, q, fProc, fCloth, fShoe, fInsole]);
 
+  // 선택은 사번 기준으로 유지(필터를 바꿔도 선택이 남는다). 전체 선택 체크박스는 지금 보이는 목록만 대상
+  const allVisibleChecked =
+    visibleWorkers.length > 0 && visibleWorkers.every((w) => selected.has(w.employee_no));
+  const toggleOne = (no: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(no)) next.delete(no);
+      else next.add(no);
+      return next;
+    });
+  const toggleAllVisible = () =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const w of visibleWorkers) {
+        if (allVisibleChecked) next.delete(w.employee_no);
+        else next.add(w.employee_no);
+      }
+      return next;
+    });
+
   return (
     <div className="w-full px-4 py-4 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -135,6 +157,22 @@ export default function PpeIssuancePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {selected.size > 0 && (
+            <>
+              <button
+                onClick={() => setSelected(new Set())}
+                className="px-3 py-2 rounded-md text-sm border border-slate-300 bg-white text-slate-600"
+              >
+                선택 해제
+              </button>
+              <button
+                onClick={() => setShowBulk(true)}
+                className="px-3.5 py-2 rounded-md text-sm font-medium bg-emerald-600 text-white hover:opacity-90 transition-opacity"
+              >
+                선택 {selected.size.toLocaleString()}명 일괄 입력
+              </button>
+            </>
+          )}
           <button
             onClick={() => setShowUpload(true)}
             className="px-3.5 py-2 rounded-md text-sm font-medium border border-navy text-navy bg-white hover:bg-slate-50 transition-colors"
@@ -238,6 +276,14 @@ export default function PpeIssuancePage() {
               <table className="w-full text-sm whitespace-nowrap border-collapse [&_th]:border [&_td]:border [&_th]:border-slate-300 [&_td]:border-slate-300">
                 <thead className="bg-[#D9D9D9] text-slate-500 text-xs">
                   <tr>
+                    <th className={th} style={NAVY_HEAD}>
+                      <input
+                        type="checkbox"
+                        checked={allVisibleChecked}
+                        onChange={toggleAllVisible}
+                        aria-label="보이는 작업자 전체 선택"
+                      />
+                    </th>
                     <th className={th} style={NAVY_HEAD}>관리</th>
                     {COLS.map((c, i) => (
                       <th key={c} className={th} style={i < 8 || i >= 14 ? NAVY_HEAD : i < 11 ? BLUE_HEAD : i < 14 ? YELLOW_HEAD : undefined}>
@@ -249,14 +295,14 @@ export default function PpeIssuancePage() {
                 <tbody className="divide-y divide-slate-100">
                   {loading && (
                     <tr>
-                      <td colSpan={COLS.length + 1} className="text-center py-10 text-slate-400">
+                      <td colSpan={COLS.length + 2} className="text-center py-10 text-slate-400">
                         불러오는 중...
                       </td>
                     </tr>
                   )}
                   {!loading && visibleWorkers.length === 0 && (
                     <tr>
-                      <td colSpan={COLS.length + 1} className="text-center py-10 text-slate-400">
+                      <td colSpan={COLS.length + 2} className="text-center py-10 text-slate-400">
                         조건에 맞는 작업자가 없습니다.
                       </td>
                     </tr>
@@ -269,7 +315,18 @@ export default function PpeIssuancePage() {
                       const insole = insoleSize(p?.shoe_size ?? null);
                       const td = "px-3 py-2.5 text-center";
                       return (
-                        <tr key={w.employee_no} className="hover:bg-slate-50">
+                        <tr
+                          key={w.employee_no}
+                          className={selected.has(w.employee_no) ? "bg-emerald-50 hover:bg-emerald-100" : "hover:bg-slate-50"}
+                        >
+                          <td className={td}>
+                            <input
+                              type="checkbox"
+                              checked={selected.has(w.employee_no)}
+                              onChange={() => toggleOne(w.employee_no)}
+                              aria-label={`${w.worker_name} 선택`}
+                            />
+                          </td>
                           <td className={td}>
                             {deleteTarget === w.employee_no ? (
                               <span className="inline-flex items-center gap-1.5">
@@ -330,6 +387,7 @@ export default function PpeIssuancePage() {
               {visibleWorkers.length === workers.length
                 ? `전체 ${workers.length.toLocaleString()}명`
                 : `${visibleWorkers.length.toLocaleString()}명 / 전체 ${workers.length.toLocaleString()}명`}
+              {selected.size > 0 && ` · 선택 ${selected.size.toLocaleString()}명`}
             </div>
           </div>
 
@@ -349,6 +407,19 @@ export default function PpeIssuancePage() {
         <UploadModal
           onClose={() => setShowUpload(false)}
           onImported={load}
+        />
+      )}
+
+      {showBulk && (
+        <BulkEditModal
+          employeeNos={Array.from(selected)}
+          names={workers.filter((w) => selected.has(w.employee_no)).map((w) => w.worker_name)}
+          onClose={() => setShowBulk(false)}
+          onSaved={() => {
+            setShowBulk(false);
+            setSelected(new Set());
+            load();
+          }}
         />
       )}
 
@@ -494,6 +565,111 @@ const EDIT_SLOTS: { key: string; label: string }[] = [
   { key: "PPE-03|2", label: "깔창 2차 지급" },
   { key: "PPE-03|3", label: "깔창 3차 지급" },
 ];
+
+function BulkEditModal({
+  employeeNos,
+  names,
+  onClose,
+  onSaved,
+}: {
+  employeeNos: string[];
+  names: string[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [dates, setDates] = useState<Record<string, string>>({});
+  const [remark, setRemark] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const drag = useDraggableModal();
+
+  const canSave = EDIT_SLOTS.some((sl) => dates[sl.key]) || remark.trim() !== "";
+
+  const submit = async () => {
+    setSaving(true);
+    setError(null);
+    // 1차는 방진복·방진화 공통 입력 — 두 품목 1차 이력에 같은 날짜로 저장한다.
+    const slots: Record<string, string> = { ...dates };
+    if (dates["PPE-01|1"]) slots["PPE-02|1"] = dates["PPE-01|1"];
+    const res = await fetch("/api/ppe-issuances/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ employee_nos: employeeNos, slots, remark }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) {
+      setError(data.error ?? "저장에 실패했습니다.");
+      return;
+    }
+    onSaved();
+  };
+
+  const inputCls = "mt-1 w-full border border-slate-300 rounded-md px-2.5 py-2 text-sm";
+  const preview = names.slice(0, 8).join(", ") + (names.length > 8 ? ` 외 ${names.length - 8}명` : "");
+
+  return (
+    <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col" style={drag.style}>
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0 cursor-move"
+          onMouseDown={drag.onMouseDown}
+        >
+          <h2 className="text-base font-bold text-navy">
+            선택 일괄 입력 — {employeeNos.length.toLocaleString()}명
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600 text-xl leading-none"
+            aria-label="닫기"
+          >
+            ×
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-3 overflow-y-auto">
+          <p className="text-xs text-slate-500">{preview}</p>
+          <div className="grid grid-cols-2 gap-3">
+            {EDIT_SLOTS.map((sl) => (
+              <label key={sl.key} className="block text-sm">
+                <span className="text-slate-600">{sl.label}</span>
+                <input
+                  type="date"
+                  value={dates[sl.key] ?? ""}
+                  onChange={(e) => setDates((prev) => ({ ...prev, [sl.key]: e.target.value }))}
+                  className={inputCls}
+                />
+              </label>
+            ))}
+          </div>
+          <label className="block text-sm">
+            <span className="text-slate-600">특이사항</span>
+            <input value={remark} onChange={(e) => setRemark(e.target.value)} className={inputCls} />
+          </label>
+          <p className="text-[11px] text-slate-400">
+            입력한 차수만 선택한 모든 작업자에게 반영됩니다(이미 지급일이 있으면 이 날짜로 바뀝니다). 비워 둔
+            차수와 특이사항은 기존 값을 그대로 둡니다.
+          </p>
+          {error && <p className="text-sm text-rose-600">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="px-3.5 py-2 rounded-md text-sm border border-slate-300 bg-white text-slate-600"
+            >
+              취소
+            </button>
+            <button
+              onClick={submit}
+              disabled={saving || !canSave}
+              className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white disabled:opacity-40"
+            >
+              {saving ? "저장 중..." : `${employeeNos.length.toLocaleString()}명에 저장`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function EditModal({
   target,
