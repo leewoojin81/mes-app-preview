@@ -4,8 +4,9 @@ import { formatBizName } from "@/lib/biz-import";
 // PSN-05 "특근일" 탭 그리드(2026-09-26 사용자 요청) — 양식 "2026년 09월 일요일근무.xlsx"
 // ("■ 주말근무자 세부 List")처럼 작업자 1명당 4행(출근시간/퇴근시간/기본근무 계/연장근무 계)을
 // 쓰고 선택한 특근일을 가로 열로 펼친다. 값의 출처:
-//  - 기본/연장: PSN-01 그날 총근무시간(work_hours_daily.total_hours)에서 기본=min(총,8),
-//    연장=max(총-8,0) — 특근일 다운로드(export-special)와 같은 규칙이라 두 결과가 일치한다
+//  - 기본/연장: PSN-01 기준(2026-10-06 사용자 요청) — 기본=그날 정상근무(work_hours_daily.normal_hours),
+//    연장=총근무시간(total_hours)에서 기본을 뺀 나머지(잔업·조출·중교·지원). 특근일 다운로드(export-special)도
+//    이 함수를 쓰므로 두 결과가 일치한다
 //  - 출근/퇴근시각: PSN-02 카드(attendance_card_status). 카드 사원번호는 비즈 사번이라
 //    workers.biz_employee_no로 잇는다(없으면 우리 사번). 카드가 없으면 빈칸
 //  - 야간 근무일 수(night_days): 카드 출근시각이 20:00 이후인 날의 수. 다운로드의 야간식대는
@@ -71,7 +72,7 @@ export function fetchSpecialWorkGrid(
 
   const dailyRows = db
     .prepare(
-      `SELECT employee_no, work_date, total_hours, early_start_hours, overtime_hours, lunch_shift_hours,
+      `SELECT employee_no, work_date, total_hours, normal_hours, early_start_hours, overtime_hours, lunch_shift_hours,
               late_hours, early_leave_hours, outing_hours
        FROM work_hours_daily
        WHERE employee_no IN (${empPh}) AND work_date IN (${datePh})`
@@ -80,6 +81,7 @@ export function fetchSpecialWorkGrid(
     employee_no: string;
     work_date: string;
     total_hours: number;
+    normal_hours: number;
     early_start_hours: number;
     overtime_hours: number;
     lunch_shift_hours: number;
@@ -123,8 +125,8 @@ export function fetchSpecialWorkGrid(
       const total = daily?.total_hours ?? 0;
       if (total <= 0) continue;
       const card = cardByKey.get(`${bizNo}|${date}`) ?? cardByKey.get(`${w.employee_no}|${date}`);
-      const base = Math.min(total, 8);
-      const overtime = Math.max(total - 8, 0);
+      const base = Math.min(daily?.normal_hours ?? 0, total);
+      const overtime = Math.max(total - base, 0);
       cells[date] = {
         in_time: card?.in_time ?? "",
         out_time: card?.out_time ?? "",
