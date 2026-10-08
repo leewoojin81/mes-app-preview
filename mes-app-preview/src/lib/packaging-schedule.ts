@@ -934,6 +934,9 @@ function lineAcceptsItems(db: DatabaseSync, lineKey: string, itemCodes: string[]
     if (!lines) continue;
     withHistory++;
     if (lines.has(lineKey)) return true;
+    // 이력이 수동 라인(4·5 Line)뿐이어도 포장방법상 그 자동 라인에서 포장할 수 있으면 후보로 본다(2026-10-06 사용자 요청 —
+    // 예: 사각 품목이 소량이라 5호기에서만 포장한 이력이 있어도 1호기 팝업에 보여준다)
+    if ([...lines].every((l) => l === "line4" || l === "line5") && fallback && lineKey !== "line4" && lineKey !== "line5") return true;
   }
   return withHistory === 0 || withHistory < itemCodes.length ? fallback : false;
 }
@@ -979,12 +982,17 @@ export function fetchPackagingCandidates(
     exceptCell ? (d, l) => d === exceptCell.date && l === exceptCell.line : undefined
   ).remainingAfter;
   const out: PackagingCandidate[] = [];
+  // 오늘 이전 날짜 칸은 이미 실적이 끝난 수주도 다시 넣을 수 있게 완료/계획 완료 수주를 빼지 않는다(2026-10-07 사용자 요청 —
+  // 과거 일정을 지웠다가 다시 넣을 때 실적이 완료된 수주번호가 후보에 안 보임)
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const pastCell = !!exceptCell && exceptCell.date < todayStr;
   for (const r of eligible) {
     const qty = r.qty ?? 0;
     const done = packed.get(r.sono) ?? 0;
-    if (qty > 0 && done >= qty) continue;
+    if (!pastCell && qty > 0 && done >= qty) continue;
     // 수주량만큼 일정에 계획이 이미 잡힌 수주는 뺀다(2026-10-02 사용자 요청)
-    if (qty > 0 && remainingAfter.has(r.sono) && (remainingAfter.get(r.sono) ?? 0) <= 0) continue;
+    if (!pastCell && qty > 0 && remainingAfter.has(r.sono) && (remainingAfter.get(r.sono) ?? 0) <= 0) continue;
     const ics = (r.ics ?? "").split(",").filter(Boolean);
     const rec = recommendEquipment(db, ics);
     // 일정에 계획이 이미 잡힌 수주는 그만큼 뺀 값이 계획할 잔량이다(계획이 없으면 수주량 − 생산실적)

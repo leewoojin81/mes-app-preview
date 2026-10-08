@@ -13,9 +13,16 @@ export async function GET(req: NextRequest) {
   // 납기가 한 달 넘게 지난 수주는 오래된 것으로 보고 뺀다
   const d = new Date();
   d.setDate(d.getDate() - 30);
-  const since = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const fmt = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
   // date는 지금 고치는 칸의 날짜 — 그 칸 자신의 계획은 "이미 계획됨"에서 뺀다
   const date = req.nextUrl.searchParams.get("date");
+  // 과거 칸이면 그 날짜 기준 한 달 전까지 납기인 수주를 후보로 본다
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const c = new Date(`${date}T00:00:00`);
+    c.setDate(c.getDate() - 30);
+    if (c < d) d.setTime(c.getTime());
+  }
+  const since = fmt(d);
   const except = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? { date, line } : undefined;
   return NextResponse.json({ rows: fetchPackagingCandidates(getDb(), line, since, except) });
 }
