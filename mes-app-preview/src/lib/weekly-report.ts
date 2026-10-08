@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ensureLineCapaPlanTable } from "./production-plan-lines";
+import { fetchPackagingSchedule } from "./packaging-schedule";
 import { moldSum, processSum } from "./production-status";
 import {
   WEEKLY_DEFECT_PROCESSES,
@@ -7,6 +8,8 @@ import {
   WEEKLY_DEFECT_TABLE2,
   WEEKLY_YIELD_PROCESSES,
   type WeeklyDefectRow,
+  type WeeklyPackagingBlock,
+  type WeeklyPackagingRow,
   type WeeklyPlanBlock,
   type WeeklyPlanRow,
   type WeeklyPrintingBlock,
@@ -297,6 +300,95 @@ function buildPlanBlock(
   };
 }
 
+// 출하공정 표(포장계획.JPG, 2026-10-08 사용자 요청) — 기초계획(월)은 계획정보(PLAN-03) 포장 일정의 칸별
+// 계획수량(수량)과 그 칸의 개입수로 나눈 팩수, 포장 실적은 출하포장(P410) 양품수량(수량)과 품목정보의
+// 포장단위수량(개입수)으로 나눈 팩수다. 개입수가 없는 건은 수량에만 들어가고 팩수에서는 빠진다. 주차 행은
+// 금~목이고 첫 주는 전월 금요일부터, 마지막 주는 월말까지 보여준다(PLAN-03 생산계획 탭 3번 표와 같은 기준).
+function daysBetweenStr(a: string, b: string): number {
+  const [y1, m1, d1] = a.split("-").map(Number);
+  const [y2, m2, d2] = b.split("-").map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+}
+
+function computePackaging(db: DatabaseSync, yearMonth: string, weekEnd: string): WeeklyPackagingBlock {
+  const monthStart = `${yearMonth}-01`;
+  const monthEnd = monthEndOf(yearMonth);
+  const firstWs = weekStartOf(monthStart);
+
+  const planByDate = new Map<string, { qty: number; packs: number }>();
+  const schedule = fetchPackagingSchedule(db, firstWs, daysBetweenStr(firstWs, monthEnd) + 1);
+  for (const c of schedule.cells) {
+    const qty = c.plan_qty ?? 0;
+    if (qty <= 0) continue;
+    const pk = Number((c.pack_size ?? "").split(",")[0]);
+    const cur = planByDate.get(c.plan_date) ?? { qty: 0, packs: 0 };
+    cur.qty += qty;
+    if (pk > 0) cur.packs += qty / pk;
+    planByDate.set(c.plan_date, cur);
+  }
+
+  const actualByDate = new Map<string, { qty: number; packs: number }>();
+  const actualRows = db
+    .prepare(
+      `SELECT work_date, SUM(q) AS qty, SUM(CASE WHEN pk > 0 THEN q / pk ELSE 0 END) AS packs FROM (
+         SELECT d.work_date AS work_date,
+                CAST(json_extract(d.detail, '$."양품수량"') AS REAL) AS q,
+                CAST(json_extract(it.detail, '$."포장단위수량"') AS REAL) AS pk
+           FROM daily_work_status d
+           LEFT JOIN items it ON it.item_code = json_extract(d.detail, '$."품목코드"')
+          WHERE d.process_code = 'P410' AND d.work_date BETWEEN ? AND ?
+       ) GROUP BY work_date`
+    )
+    .all(firstWs, monthEnd) as { work_date: string; qty: number | null; packs: number | null }[];
+  for (const r of actualRows) actualByDate.set(r.work_date, { qty: r.qty ?? 0, packs: r.packs ?? 0 });
+
+  const sum = (map: Map<string, { qty: number; packs: number }>, from: string, to: string) => {
+    let qty = 0;
+    let packs = 0;
+    for (let d = from; d <= to; d = addDays(d, 1)) {
+      const v = map.get(d);
+      if (v) {
+        qty += v.qty;
+        packs += v.packs;
+      }
+    }
+    return { qty, packs };
+  };
+  const rowOf = (label: string, range: string, from: string, to: string, started: boolean): WeeklyPackagingRow => {
+    const p = sum(planByDate, from, to);
+    const a = started ? sum(actualByDate, from, to < weekEnd ? to : weekEnd) : null;
+    return {
+      weekLabel: label,
+      rangeLabel: range,
+      planPacks: p.packs,
+      planQty: p.qty,
+      actualPacks: a ? a.packs : null,
+      actualQty: a ? a.qty : null,
+      diffPacks: a ? a.packs - p.packs : null,
+      diffQty: a ? a.qty - p.qty : null,
+      ratePacks: a && p.packs > 0 ? a.packs / p.packs : null,
+      rateQty: a && p.qty > 0 ? a.qty / p.qty : null,
+    };
+  };
+
+  const weeks: WeeklyPackagingRow[] = [];
+  for (let ws = firstWs; ws <= monthEnd; ws = addDays(ws, 7)) {
+    const we = addDays(ws, 6);
+    const to = we < monthEnd ? we : monthEnd;
+    weeks.push(rowOf(`${weekNoOf(ws)} 주차`, `${mmdd(ws)}~${mmdd(to)}`, ws, to, ws <= weekEnd));
+  }
+
+  const month = rowOf(`${Number(yearMonth.slice(5, 7))} 월`, `${mmdd(monthStart)}~${mmdd(monthEnd)}`, monthStart, monthEnd, monthStart <= weekEnd);
+  // 월 합계의 계획대비는 주차별 차이의 합(첫 주의 전월 구간 포함)
+  const diffSum = (pick: (w: WeeklyPackagingRow) => number | null) => {
+    const vals = weeks.map(pick).filter((v): v is number => v != null);
+    return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) : null;
+  };
+  month.diffPacks = diffSum((w) => w.diffPacks);
+  month.diffQty = diffSum((w) => w.diffQty);
+  return { weeks, month };
+}
+
 interface DefectAgg {
   good: number;
   bad: number;
@@ -386,6 +478,7 @@ export function computeWeeklyReport(db: DatabaseSync, anyDate: string): WeeklyRe
     .all(yearMonth) as { line_key: string; daily_capa: number | null }[];
   const dailyCapaByLine = new Map(capaRows.map((r) => [r.line_key, r.daily_capa]));
   const plan = PLAN_LINES.map((spec) => buildPlanBlock(db, spec, yearMonth, weekEnd, dailyCapaByLine));
+  const packaging = computePackaging(db, yearMonth, weekEnd);
 
   const current = yieldRow(db, weekStart);
   const previous = yieldRow(db, addDays(weekStart, -7));
@@ -429,6 +522,7 @@ export function computeWeeklyReport(db: DatabaseSync, anyDate: string): WeeklyRe
     reportDate: addDays(weekEnd, 4),
     yearMonth,
     plan,
+    packaging,
     printing: computePrinting(db, weekStart),
     yield: { current, previous, diffPct, diffPctExInjection },
     defect,

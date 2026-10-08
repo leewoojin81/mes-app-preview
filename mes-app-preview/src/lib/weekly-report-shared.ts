@@ -66,6 +66,28 @@ export interface WeeklyPlanBlock {
   capaMissing: boolean;
 }
 
+/** 출하공정 표(포장계획.JPG) — 주차별 기초계획(월)·포장 실적·계획대비실적·달성률을 팩수/수량 두 열로 */
+export interface WeeklyPackagingRow {
+  /** "40 주" 또는 월 합계 행의 "10 월" */
+  weekLabel: string;
+  /** "09/25~10/01" */
+  rangeLabel: string;
+  planPacks: number;
+  planQty: number;
+  /** 아직 시작 안 한 주차는 null */
+  actualPacks: number | null;
+  actualQty: number | null;
+  diffPacks: number | null;
+  diffQty: number | null;
+  ratePacks: number | null;
+  rateQty: number | null;
+}
+export interface WeeklyPackagingBlock {
+  weeks: WeeklyPackagingRow[];
+  /** 월 합계 행(계획·실적은 그 달 1일~말일 날짜만, 계획대비는 주차별 차이의 합) */
+  month: WeeklyPackagingRow;
+}
+
 export interface WeeklyPrintingRow {
   /** 수동인쇄기 / 자동인쇄기 / 합계 */
   label: string;
@@ -117,6 +139,7 @@ export interface WeeklyReportResult {
   reportDate: string; // 구간 종료 다음 월요일
   yearMonth: string;
   plan: WeeklyPlanBlock[];
+  packaging: WeeklyPackagingBlock;
   printing: WeeklyPrintingBlock;
   yield: { current: WeeklyYieldRow; previous: WeeklyYieldRow; diffPct: number | null; diffPctExInjection: number | null };
   defect: WeeklyDefectRow[];

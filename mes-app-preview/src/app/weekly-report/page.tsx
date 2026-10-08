@@ -5,6 +5,7 @@ import {
   WEEKLY_DEFECT_TABLE1,
   WEEKLY_DEFECT_TABLE2,
   WEEKLY_YIELD_PROCESSES,
+  type WeeklyPackagingBlock,
   type WeeklyPlanBlock,
   type WeeklyPrintingBlock,
   type WeeklyReportResult,
@@ -149,11 +150,7 @@ export default function WeeklyReportPage() {
                 <PlanTable key={b.key} block={b} monthNo={Number(result.yearMonth.slice(5, 7))} showProgress />
               ))}
             <PrintingTable block={result.printing} />
-            {result.plan
-              .filter((b) => b.key === "shipping")
-              .map((b) => (
-                <PlanTable key={b.key} block={b} monthNo={Number(result.yearMonth.slice(5, 7))} />
-              ))}
+            <PackagingTable block={result.packaging} />
           </section>
 
           <section className="space-y-3">
@@ -224,6 +221,56 @@ function PlanTable({ block: b, monthNo, showProgress }: { block: WeeklyPlanBlock
           : `☞ 근무일(${b.totalWorkDays}일)수 대비 ${b.elapsedWorkDays}일 경과_ 계획 진도율: ${fmtPct(b.progressRate, 1)},  달성율 ${fmtPct(b.achievementRate, 1)}`}
       </p>
       )}
+    </div>
+  );
+}
+
+// 출하공정 표(포장계획.JPG) — 주차별 기초계획(월)·포장 실적·계획대비실적·달성률을 팩수/수량 두 열로 보여준다.
+// 0이면 "-", 아직 시작하지 않은 주차(null)는 빈칸.
+function dashQty(n: number | null): string {
+  if (n == null) return "";
+  const r = Math.round(n);
+  return r === 0 ? "-" : r.toLocaleString("ko-KR");
+}
+function PackagingTable({ block: b }: { block: WeeklyPackagingBlock }) {
+  const groups = ["기초계획(월)", "포장 실적", "계획대비실적", "달성률(%)"];
+  const row = (w: WeeklyPackagingBlock["month"], sum: boolean) => (
+    <tr key={w.weekLabel} className={sum ? "bg-orange-50 font-bold" : ""}>
+      <td className={`${tdCls} font-bold`}>{w.weekLabel}</td>
+      <td className={tdCls}>{w.rangeLabel}</td>
+      <td className={tdCls}>{dashQty(w.planPacks)}</td>
+      <td className={tdCls}>{dashQty(w.planQty)}</td>
+      <td className={tdCls}>{dashQty(w.actualPacks)}</td>
+      <td className={tdCls}>{dashQty(w.actualQty)}</td>
+      <td className={`${tdCls} ${negClass(w.diffPacks)}`}>{dashQty(w.diffPacks)}</td>
+      <td className={`${tdCls} ${negClass(w.diffQty)}`}>{dashQty(w.diffQty)}</td>
+      <td className={tdCls}>{fmtPct(w.ratePacks, 1)}</td>
+      <td className={tdCls}>{fmtPct(w.rateQty, 1)}</td>
+    </tr>
+  );
+  return (
+    <div className="space-y-1.5">
+      <p className="text-sm font-semibold text-slate-700">□ 출하공정</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr>
+              <th className={thCls} rowSpan={2}>주차별</th>
+              <th className={thCls} rowSpan={2}>기간</th>
+              {groups.map((g) => (
+                <th key={g} className={thCls} colSpan={2}>{g}</th>
+              ))}
+            </tr>
+            <tr>
+              {groups.flatMap((g) => ["팩수", "수량"].map((c) => <th key={`${g}-${c}`} className={thCls}>{c}</th>))}
+            </tr>
+          </thead>
+          <tbody>
+            {b.weeks.map((w) => row(w, false))}
+            {row(b.month, true)}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
