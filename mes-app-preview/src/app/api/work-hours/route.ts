@@ -39,6 +39,7 @@ interface WorkHoursDailyRow {
   early_leave_hours: number;
   outing_hours: number;
   total_hours: number;
+  remark: string | null;
 }
 
 interface SupportDetailRow {
@@ -105,7 +106,7 @@ export async function GET(req: NextRequest) {
   const dailyRows = db
     .prepare(
       `SELECT employee_no, leave_type, normal_hours, overtime_hours, overtime_input_hours, early_start_hours,
-              lunch_shift_hours, late_hours, early_leave_hours, outing_hours, total_hours
+              lunch_shift_hours, late_hours, early_leave_hours, outing_hours, total_hours, remark
        FROM work_hours_daily WHERE work_date = ?`
     )
     .all(date) as unknown as WorkHoursDailyRow[];
@@ -180,6 +181,7 @@ export async function GET(req: NextRequest) {
       }),
       support_work_group: supportWorkGroup,
       support_hours: supportHours,
+      remark: d?.remark ?? null,
     };
   });
 
@@ -229,8 +231,8 @@ export async function PUT(req: NextRequest) {
   const upsertDaily = db.prepare(
     `INSERT INTO work_hours_daily
        (work_date, employee_no, process_code, leave_type, normal_hours, overtime_hours, overtime_input_hours,
-        early_start_hours, lunch_shift_hours, late_hours, early_leave_hours, outing_hours, total_hours, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+        early_start_hours, lunch_shift_hours, late_hours, early_leave_hours, outing_hours, total_hours, remark, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
      ON CONFLICT(work_date, employee_no) DO UPDATE SET
        process_code=excluded.process_code, leave_type=excluded.leave_type,
        normal_hours=excluded.normal_hours,
@@ -238,7 +240,9 @@ export async function PUT(req: NextRequest) {
        early_start_hours=excluded.early_start_hours,
        lunch_shift_hours=excluded.lunch_shift_hours, late_hours=excluded.late_hours,
        early_leave_hours=excluded.early_leave_hours, outing_hours=excluded.outing_hours,
-       total_hours=excluded.total_hours, updated_at=datetime('now','localtime')`
+       total_hours=excluded.total_hours,
+       remark=CASE WHEN ? THEN excluded.remark ELSE work_hours_daily.remark END,
+       updated_at=datetime('now','localtime')`
   );
   const upsertSupport = db.prepare(
     `INSERT INTO work_support_detail (work_date, employee_no, support_work_group, support_hours, updated_at)
@@ -258,6 +262,9 @@ export async function PUT(req: NextRequest) {
     if (leaderEmployeeNos && !leaderEmployeeNos.has(employeeNo)) continue;
 
     const leaveType = strOrNull(r.leave_type);
+    // 비고는 보낸 경우에만 덮어쓴다 — 비고를 모르는 호출부가 보낸 저장이 기존 비고를 지우지 않게.
+    const remarkSent = Object.prototype.hasOwnProperty.call(r, "remark");
+    const remark = remarkSent ? strOrNull(r.remark) : null;
     // 잔업 신청값은 반드시 overtime_input_hours로 받는다 — overtime_hours(계산 결과)를
     // 신청값으로 다시 받으면 저장할 때마다 지각/조퇴/외출 차감이 중복 적용된다(2026-09-15
     // 발견·수정, work-hours/page.tsx의 수정 팝업도 이 필드를 편집 대상으로 쓰도록 맞춤).
@@ -297,7 +304,9 @@ export async function PUT(req: NextRequest) {
       lateHours,
       earlyLeaveHours,
       outingHours,
-      totalHours
+      totalHours,
+      remark,
+      remarkSent ? 1 : 0
     );
 
     if (supportWorkGroup) {

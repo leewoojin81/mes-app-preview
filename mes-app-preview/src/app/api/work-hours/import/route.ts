@@ -74,6 +74,8 @@ export async function POST(req: NextRequest) {
   const iOuting = header.indexOf("외출");
   const iSupportGroup = header.indexOf("지원공정");
   const iSupportHours = header.indexOf("지원시간");
+  // 비고 열이 있는 파일(다운로드로 받은 파일)만 비고를 반영한다 — 없으면 기존 비고를 그대로 둔다.
+  const iRemark = header.indexOf("비고");
 
   const db = getDb();
   const workers = db
@@ -88,8 +90,8 @@ export async function POST(req: NextRequest) {
   const upsertDaily = db.prepare(
     `INSERT INTO work_hours_daily
        (work_date, employee_no, process_code, leave_type, normal_hours, overtime_hours, overtime_input_hours,
-        early_start_hours, lunch_shift_hours, late_hours, early_leave_hours, outing_hours, total_hours, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+        early_start_hours, lunch_shift_hours, late_hours, early_leave_hours, outing_hours, total_hours, remark, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
      ON CONFLICT(work_date, employee_no) DO UPDATE SET
        process_code=excluded.process_code, leave_type=excluded.leave_type,
        normal_hours=excluded.normal_hours,
@@ -97,7 +99,9 @@ export async function POST(req: NextRequest) {
        early_start_hours=excluded.early_start_hours,
        lunch_shift_hours=excluded.lunch_shift_hours, late_hours=excluded.late_hours,
        early_leave_hours=excluded.early_leave_hours, outing_hours=excluded.outing_hours,
-       total_hours=excluded.total_hours, updated_at=datetime('now','localtime')`
+       total_hours=excluded.total_hours,
+       remark=CASE WHEN ? THEN excluded.remark ELSE work_hours_daily.remark END,
+       updated_at=datetime('now','localtime')`
   );
   const upsertSupport = db.prepare(
     `INSERT INTO work_support_detail (work_date, employee_no, support_work_group, support_hours, updated_at)
@@ -162,7 +166,9 @@ export async function POST(req: NextRequest) {
         lateHours,
         earlyLeaveHours,
         outingHours,
-        totalHours
+        totalHours,
+        iRemark === -1 ? null : strOrNull(r[iRemark]),
+        iRemark === -1 ? 0 : 1
       );
 
       if (supportWorkGroup) {

@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
   const dailyRows = db
     .prepare(
       `SELECT employee_no, leave_type, normal_hours, overtime_hours, overtime_input_hours, early_start_hours,
-              lunch_shift_hours, late_hours, early_leave_hours, outing_hours
+              lunch_shift_hours, late_hours, early_leave_hours, outing_hours, remark
        FROM work_hours_daily WHERE work_date = ?`
     )
     .all(date) as {
@@ -68,6 +68,7 @@ export async function GET(req: NextRequest) {
     late_hours: number;
     early_leave_hours: number;
     outing_hours: number;
+    remark: string | null;
   }[];
   const dailyByEmployee = new Map(dailyRows.map((r) => [r.employee_no, r]));
 
@@ -137,6 +138,7 @@ export async function GET(req: NextRequest) {
       외출: outing,
       지원공정: support?.support_work_group ?? null,
       지원시간: supportHours,
+      비고: d?.remark ?? null,
     };
   });
 

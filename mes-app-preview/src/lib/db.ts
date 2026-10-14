@@ -1275,6 +1275,15 @@ function migrate(db: DatabaseSync) {
     db.exec("ALTER TABLE work_hours_daily ADD COLUMN leave_type TEXT");
   }
 
+  // work_hours_daily: 비고 컬럼 추가(2026-10-14 사용자 요청 — 매번 바뀌는 알바카드 1~13의 실제 이름을
+  // 그날그날 적어 두는 용도의 자유 메모). 근무시간 계산과는 무관하다.
+  if (
+    workHoursDailyCols.length > 0 &&
+    !workHoursDailyCols.some((c) => c.name === "remark")
+  ) {
+    db.exec("ALTER TABLE work_hours_daily ADD COLUMN remark TEXT");
+  }
+
   // 휴가 드롭다운 "결근"을 "휴무"로 이름 변경(2026-09-08 사용자 요청) — 이미 저장된
   // 값도 함께 바꿔야 화면 드롭다운(work-hours-leave.ts LEAVE_TYPE_OPTIONS)과 어긋나지
   // 않는다. 다시 실행돼도 남은 '결근' 행이 없으면 그냥 0건 UPDATE라 안전하다.

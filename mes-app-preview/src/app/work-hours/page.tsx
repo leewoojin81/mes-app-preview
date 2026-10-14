@@ -449,6 +449,9 @@ export default function WorkHoursPage() {
                 <th colSpan={2} className={thCls}>
                   지원공정
                 </th>
+                <th rowSpan={2} className={`${thCls} w-48`}>
+                  비고
+                </th>
               </tr>
               <tr>
                 <th className={`${thCls} ${wCls}`}>정상</th>
@@ -464,14 +467,14 @@ export default function WorkHoursPage() {
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={13 + HOUR_FIELDS.length + 2} className="text-center py-10 text-slate-400">
+                  <td colSpan={13 + HOUR_FIELDS.length + 3} className="text-center py-10 text-slate-400">
                     불러오는 중...
                   </td>
                 </tr>
               )}
               {!loading && visibleRows.length === 0 && (
                 <tr>
-                  <td colSpan={13 + HOUR_FIELDS.length + 2} className="text-center py-10 text-slate-400">
+                  <td colSpan={13 + HOUR_FIELDS.length + 3} className="text-center py-10 text-slate-400">
                     표시할 조원이 없습니다. (필터를 확인하거나 작업자등록에서 먼저 등록하세요)
                   </td>
                 </tr>
@@ -536,6 +539,9 @@ export default function WorkHoursPage() {
                     <td className={`px-2 py-1.5 text-right font-mono text-slate-600 ${wCls}`}>
                       {formatHoursClock(r.support_hours)}
                     </td>
+                    <td className="px-2 py-1.5 text-slate-600 w-48 max-w-[12rem] truncate" title={r.remark ?? ""}>
+                      {r.remark ?? ""}
+                    </td>
                   </tr>
                 ))}
             </tbody>
@@ -568,7 +574,8 @@ type ModalField =
   | { key: "leave_type"; label: string; kind: "leave" }
   | { key: HourField; label: string; kind: "hour" }
   | { key: "support_work_group"; label: string; kind: "support_group" }
-  | { key: "support_hours"; label: string; kind: "support_hours" };
+  | { key: "support_hours"; label: string; kind: "support_hours" }
+  | { key: "remark"; label: string; kind: "remark" };
 
 const MODAL_FIELDS: ModalField[] = [
   { key: "team", label: "근무조", kind: "team" },
@@ -576,6 +583,7 @@ const MODAL_FIELDS: ModalField[] = [
   ...HOUR_FIELDS.map((f) => ({ ...f, kind: "hour" as const })),
   { key: "support_work_group", label: "지원공정", kind: "support_group" },
   { key: "support_hours", label: "지원시간", kind: "support_hours" },
+  { key: "remark", label: "비고", kind: "remark" },
 ];
 
 // 행 수정 겸 선택 일괄수정 팝업 — 출퇴근카드등록(PSN-02)과 동일한 패턴이다. rows가 1개면
@@ -612,6 +620,7 @@ function WorkHoursEditModal({
   );
   const [supportGroup, setSupportGroup] = useState<string>(single?.support_work_group ?? "");
   const [supportHours, setSupportHours] = useState<number>(single ? single.support_hours : 0);
+  const [remark, setRemark] = useState<string>(single?.remark ?? "");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -738,6 +747,7 @@ function WorkHoursEditModal({
           ? hourValues.early_leave_hours || 0
           : r.early_leave_hours,
         outing_hours: enabled.outing_hours ? hourValues.outing_hours || 0 : r.outing_hours,
+        remark: enabled.remark ? remark.trim() || null : r.remark,
         support_work_group: enabled.support_work_group ? supportGroup || null : r.support_work_group,
         support_hours: enabled.support_work_group
           ? supportGroup
@@ -801,7 +811,7 @@ function WorkHoursEditModal({
           )}
           <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
             {MODAL_FIELDS.map((f) => (
-              <div key={f.key} className="flex items-center gap-2">
+              <div key={f.key} className={`flex items-center gap-2${f.kind === "remark" ? " col-span-2" : ""}`}>
                 {isBulk && (
                   <input
                     type="checkbox"
@@ -864,6 +874,15 @@ function WorkHoursEditModal({
                       </optgroup>
                     ))}
                   </select>
+                ) : f.kind === "remark" ? (
+                  <input
+                    value={remark}
+                    onChange={(e) => setRemark(e.target.value)}
+                    disabled={isBulk && !enabled.remark}
+                    maxLength={100}
+                    placeholder="예: 홍길동 (그날 실제 근무자)"
+                    className={inputCls.replace("text-right", "")}
+                  />
                 ) : (
                   <HourMinuteInput
                     value={supportHours}

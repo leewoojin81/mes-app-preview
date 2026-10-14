@@ -95,6 +95,15 @@ export function splitSecomName(raw: string): { prefix: string; name: string } {
 // 변환된 사번으로 매칭된 workers 행의 성명/도급사와, 세콤 이름의 접두사/이름이 서로
 // 일치하는지 확인한다(오매칭 방지용 이름 교차검증) — 접두사가 없으면 도급사는
 // "메디오스"로 간주(contractorPrefix가 빈 문자열을 돌려줌).
+// 카드 사원번호 -> 작업자 사번. 13자리 비즈사번은 변환 공식으로, 알바카드처럼 13자리가 아니라
+// 카드 번호(예: 880223) 자체가 작업자 사번으로 등록된 경우는 그 번호를 그대로 쓴다(2026-10-14
+// 사용자 확인 — 알바카드 1~13이 변환 실패로 카드없음 처리돼 출퇴근 시각이 안 보였음).
+function cardEmployeeNoToWorkerNo(cardEmployeeNo: string, workerNos: Set<string>): string | null {
+  const converted = convertBizEmployeeNo(cardEmployeeNo);
+  if (converted) return converted;
+  return workerNos.has(cardEmployeeNo) ? cardEmployeeNo : null;
+}
+
 export function secomNameMatchesWorker(
   workerName: string,
   contractor: string | null | undefined,
@@ -102,7 +111,8 @@ export function secomNameMatchesWorker(
 ): boolean {
   const expected = contractorPrefix(contractor);
   const { prefix, name } = splitSecomName(secomRawName);
-  return prefix === expected && name === workerName.trim();
+  // 공백은 무시하고 비교한다 — 작업자 성명이 "알바카드 11"처럼 띄어쓰기가 있어도 카드의 "알바카드11"과 같은 사람이다.
+  return prefix === expected && name.replace(/\s+/g, "") === workerName.replace(/\s+/g, "");
 }
 
 export interface AttendanceAuditItem {
@@ -389,8 +399,9 @@ export function fetchAttendanceAudit(
     .all(params.dateFrom, params.dateTo) as unknown as CardRow[];
 
   const cardByKey = new Map<string, { worker_name: string | null; team: string | null; detail: Record<string, unknown> }>();
+  const workerNoSet = new Set(employeeNos);
   for (const r of cardRows) {
-    const converted = convertBizEmployeeNo(r.employee_no);
+    const converted = cardEmployeeNoToWorkerNo(r.employee_no, workerNoSet);
     if (!converted) continue;
     const key = `${converted}|${r.work_date}`;
     // 사번 변환 공식이 원본 13자리 중 일부(순번 앞자리)를 버리므로 이론상 같은 날 같은
@@ -706,7 +717,7 @@ export function fetchAttendanceAudit(
     .all(params.dateFrom, params.dateTo) as { employee_no: string; work_date: string; edited: number }[];
   const editCounts = new Map<string, CardEditCount>();
   for (const r of cardCountRows) {
-    const converted = convertBizEmployeeNo(r.employee_no);
+    const converted = cardEmployeeNoToWorkerNo(r.employee_no, workerNoSet);
     const w = converted ? workerByNo.get(converted) : undefined;
     if (!converted || !w) continue;
     const workGroup = resolveFieldAsOf(workGroupHistory, converted, r.work_date, w.work_group) ?? "미지정";

@@ -210,6 +210,8 @@ export interface WorkHoursRow {
   total_hours: number;
   support_work_group: string | null;
   support_hours: number;
+  /** 비고 — 그날 그 작업자에 대한 자유 메모(예: 알바카드의 실제 이름). 근무시간 계산과 무관. */
+  remark: string | null;
 }
 export interface WorkHoursResponse {
   date: string;
