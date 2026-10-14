@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import { isKrPublicHoliday } from "@/lib/kr-holidays";
 import { formatBizName } from "@/lib/biz-import";
 import type { CalendarDayType } from "@/lib/types";
+import type { BizPerson } from "@/lib/biz-attendance";
 
 // 근무시간조회(PSN-05) "공정별 주간 근태" 다운로드(2026-09-26 사용자 요청) — 실제 제출용
 // 서식 "공정별 주간 근태_26.09.01~09.06.xlsx"(templates/weekly-attendance.xlsx)를 그대로
@@ -315,6 +316,51 @@ export function buildWeeklyBlocks(
       shift: shiftCount["2조"] > shiftCount["1조"] ? "2조" : shiftCount["2조"] === shiftCount["1조"] && registeredShift === "2조" ? "2조" : "1조",
       name: displayName(w),
       position,
+      lines,
+    });
+  }
+  blocks.sort((a, b) => a.bizNo.localeCompare(b.bizNo));
+  return blocks;
+}
+
+// PSN-05 비즈 탭 엑셀 다운로드(2026-10-14 사용자 요청) — 같은 서식에 MES 값이 아니라 업로드해 둔 비즈
+// "기간별 근무관리" 값을 그대로 채운다. 비즈 원본이 이미 서식 칸(정근/연장/야간/특근 등) 단위라
+// 변환 없이 칸에 그대로 옮기고, 부서는 비즈 부서명(서식 시트의 부서와 같은 이름)으로 시트를
+// 찾는다. 타임은 비즈 값 그대로, 시트(주/야)는 그 기간에 더 많이 나온 조로 정한다.
+export function bizPersonsToBlocks(persons: BizPerson[]): WorkerBlock[] {
+  const blocks: WorkerBlock[] = [];
+  for (const p of persons) {
+    if (p.rows.length === 0) continue;
+    const shiftCount = { "1조": 0, "2조": 0 };
+    const lines: DayLine[] = p.rows.map((d) => {
+      if (d.shift === "1조" || d.shift === "2조") shiftCount[d.shift]++;
+      return {
+        date: d.work_date,
+        timeLabel: d.shift ?? "",
+        inDate: d.work_date,
+        inTime: d.in_time ?? "",
+        outDate: d.out_time ? (d.out_date ?? "") : "",
+        outTime: d.out_time ?? "",
+        lateMin: d.late ?? 0,
+        earlyLeaveMin: d.early_leave ?? 0,
+        earlyStartMin: d.early_start ?? 0,
+        lunchMin: d.lunch_shift ?? 0,
+        overtimeMin: d.overtime ?? 0,
+        normalMin: d.normal ?? 0,
+        extMin: d.extension ?? 0,
+        nightMin: d.night ?? 0,
+        specialMin: d.special ?? 0,
+        specialHolidayMin: d.special_holiday ?? 0,
+        specialSatMin: d.special_sat ?? 0,
+        note: d.note ?? "",
+      };
+    });
+    blocks.push({
+      bizNo: p.employee_no,
+      dept: (p.dept ?? "").trim(),
+      shift: shiftCount["2조"] > shiftCount["1조"] ? "2조" : "1조",
+      name: p.worker_name ?? "",
+      position: p.position ?? "",
       lines,
     });
   }

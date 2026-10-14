@@ -246,6 +246,18 @@ export function fetchBizAudit(
       early_leave: makeItem(n(bz?.early_leave_min), toMin(ms?.early_leave_hours)),
     };
 
+    // 비즈 비고에 "정근포함"(예: "연장정근포함", "연장10정근포함")이 있으면 담당자가 연장을 정근 칸에
+    // 합쳐 적은 것이라 정근/연장을 따로 비교하면 한쪽은 부족하고 한쪽은 남아 항상 불일치가 된다
+    // (김은경2·김은미 10/6). 이 경우 둘을 합친 값으로 비교해, 합계가 허용 오차 안이면 두 항목 모두
+    // 일치로 본다. 표시되는 비즈/MES 값은 그대로 두고 판정만 바꾼다.
+    if (bz?.note?.includes("정근포함")) {
+      const combined = makeItem(items.normal.biz + items.extension.biz, items.normal.mes + items.extension.mes);
+      if (!combined.mismatch) {
+        items.normal = { ...items.normal, mismatch: false };
+        items.extension = { ...items.extension, mismatch: false };
+      }
+    }
+
     let status: BizAuditStatus;
     const causes: string[] = [];
     if (bizHas && !mesHas) {
