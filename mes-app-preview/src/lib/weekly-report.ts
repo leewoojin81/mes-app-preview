@@ -441,9 +441,7 @@ function injectionYield(db: DatabaseSync, from: string, to: string): number | nu
   return Math.max(0, (received - (row.s ?? 0)) / received);
 }
 
-function yieldRow(db: DatabaseSync, weekStart: string): WeeklyYieldRow {
-  const from = weekStart;
-  const to = addDays(weekStart, 6);
+function yieldBetween(db: DatabaseSync, from: string, to: string): Omit<WeeklyYieldRow, "weekLabel"> {
   const yields = WEEKLY_YIELD_PROCESSES.map((p) => {
     const a = aggregateYieldOnly(db, p, from, to);
     return a.good + a.bad > 0 ? a.good / (a.good + a.bad) : null;
@@ -451,12 +449,79 @@ function yieldRow(db: DatabaseSync, weekStart: string): WeeklyYieldRow {
   const injection = injectionYield(db, from, to);
   const present = yields.filter((y): y is number => y != null);
   return {
-    weekLabel: `${weekNoOf(weekStart)} W`,
     injection,
     yields,
     total:
       present.length > 0 ? present.reduce((p, y) => p * y, injection ?? 1) : null,
     totalExInjection: present.length > 0 ? present.reduce((p, y) => p * y, 1) : null,
+  };
+}
+
+function yieldRow(db: DatabaseSync, weekStart: string): WeeklyYieldRow {
+  return { weekLabel: `${weekNoOf(weekStart)} W`, ...yieldBetween(db, weekStart, addDays(weekStart, 6)) };
+}
+
+// ── 요약 보고서(Word "요약 다운로드") ─────────────────────────────────────────────
+// 서식 "생산팀 주간 업무_41W_요약.docx" — 1. 생산실적(상·하몰드/인쇄/출하 생산수량), 2. 생산공정 수율 추이
+// 차트(사출포함·사출제외), 3. 주요이슈(수기). 이슈 칸은 사람이 쓰는 내용이라 비워 둔다.
+export interface SummaryYieldPoint {
+  label: string;
+  kind: "quarter" | "month" | "week";
+  total: number | null;
+  exInjection: number | null;
+}
+export interface WeeklySummary {
+  upperQty: number;
+  lowerQty: number;
+  printQty: number;
+  shipQty: number;
+  yieldTrend: SummaryYieldPoint[];
+}
+
+// 차트 구간 규칙(41주차 서식에서 읽은 규칙): 마지막으로 끝난 분기보다 앞선 분기는 분기(1Q, 2Q)로,
+// 마지막으로 끝난 분기의 첫 달부터 보고 주차가 속한 달까지는 월로(보고 월은 보고 주차 종료일까지의
+// 누계), 마지막에 직전 주차와 보고 주차를 주차 번호로 붙인다. 수율 공정 중 하나라도 데이터가 없는 구간은 이름만 두고 값은 비운다.
+export function computeWeeklySummary(db: DatabaseSync, r: WeeklyReportResult): WeeklySummary {
+  const { weekStart, weekEnd } = r;
+  const printTotal = r.printing.rows.find((x) => x.label === "합계");
+
+  const year = Number(weekEnd.slice(0, 4));
+  const curMonth = Number(weekEnd.slice(5, 7));
+  const curQuarter = Math.ceil(curMonth / 3);
+  const lastDoneQuarter = curQuarter - 1; // 올해 안에서 마지막으로 끝난 분기(0이면 없음)
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const points: SummaryYieldPoint[] = [];
+  const add = (label: string, kind: SummaryYieldPoint["kind"], from: string, to: string) => {
+    const y = yieldBetween(db, from, to);
+    // 공정 중 하나라도 데이터가 없으면 곱이 실제보다 높게 나온다(예: 한 공정만 올라온 달이 99.7%) — 구간 이름은
+    // 그대로 두고 값만 비운다(차트에는 빈 칸으로 보임).
+    const incomplete = y.yields.some((v) => v == null) || (y.total == null && y.totalExInjection == null);
+    points.push({
+      label,
+      kind,
+      total: incomplete ? null : y.total,
+      exInjection: incomplete ? null : y.totalExInjection,
+    });
+  };
+  for (let q = 1; q < lastDoneQuarter; q++) {
+    const m1 = (q - 1) * 3 + 1;
+    add(`${q}Q`, "quarter", `${year}-${pad(m1)}-01`, monthEndOf(`${year}-${pad(m1 + 2)}`));
+  }
+  const firstMonth = lastDoneQuarter >= 1 ? (lastDoneQuarter - 1) * 3 + 1 : 1;
+  for (let m = firstMonth; m <= curMonth; m++) {
+    const ym = `${year}-${pad(m)}`;
+    add(`${m}월`, "month", `${ym}-01`, m === curMonth ? weekEnd : monthEndOf(ym));
+  }
+  const prevStart = addDays(weekStart, -7);
+  add(`${weekNoOf(prevStart)}W`, "week", prevStart, addDays(prevStart, 6));
+  add(`${weekNoOf(weekStart)}W`, "week", weekStart, weekEnd);
+
+  return {
+    upperQty: moldSum(db, "상몰드", weekStart, weekEnd),
+    lowerQty: moldSum(db, "하몰드", weekStart, weekEnd),
+    printQty: printTotal?.totalQty ?? 0,
+    shipQty: processSum(db, ["P410"], weekStart, weekEnd),
+    yieldTrend: points,
   };
 }
 

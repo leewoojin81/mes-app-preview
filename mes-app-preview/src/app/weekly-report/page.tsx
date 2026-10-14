@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTabState } from "@/lib/use-tab-state";
 import {
   WEEKLY_DEFECT_TABLE1,
   WEEKLY_DEFECT_TABLE2,
@@ -10,6 +11,7 @@ import {
   type WeeklyPrintingBlock,
   type WeeklyReportResult,
 } from "@/lib/weekly-report-shared";
+import type { WeeklySummary } from "@/lib/weekly-report";
 
 // PROD-11 주간업무보고 — 서식 "생산팀 주간 업무_38W.docx"와 같은 구성(1. 생산계획 및 실적 /
 // 2. 생산공정 수율 / 3. 주요공정 불량률)을 화면에서 미리 보고, Word(.docx)로 내려받는다.
@@ -61,6 +63,8 @@ export default function WeeklyReportPage() {
   const [date, setDate] = useState("");
   const [result, setResult] = useState<WeeklyReportResult | null>(null);
   const [loading, setLoading] = useState(true);
+  // 주간업무보고(전체 보고서 + Word 다운로드) / 요약(생산실적·수율 추이 + 요약 다운로드) 탭(2026-10-14 사용자 요청)
+  const [tab, setTab] = useTabState<"report" | "summary">("wrTab", "report");
 
   useEffect(() => {
     let cancelled = false;
@@ -120,20 +124,45 @@ export default function WeeklyReportPage() {
             )}
           </div>
           <a
-            href={result ? `/api/weekly-report/docx?date=${result.weekStart}` : undefined}
+            href={
+              result
+                ? `/api/weekly-report/${tab === "report" ? "docx" : "summary-docx"}?date=${result.weekStart}`
+                : undefined
+            }
             aria-disabled={!result}
             className={`px-4 py-2 rounded-lg text-sm font-semibold text-white bg-navy shadow-sm hover:opacity-90 ${
               result ? "" : "pointer-events-none opacity-40"
             }`}
           >
-            Word 다운로드
+            {tab === "report" ? "Word 다운로드" : "요약 다운로드"}
           </a>
         </div>
       </div>
 
+      <div className="flex items-center gap-1 border-b border-slate-200">
+        {(
+          [
+            { key: "report", label: "주간업무보고" },
+            { key: "summary", label: "요약" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2.5 -mb-px text-sm font-semibold border-b-2 transition-colors ${
+              tab === t.key ? "text-navy border-navy" : "text-slate-400 border-transparent hover:text-slate-600"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {loading && !result && <div className="text-center py-20 text-slate-400">불러오는 중...</div>}
 
-      {result && (
+      {result && tab === "summary" && <SummaryTab key={result.weekStart} result={result} dimmed={loading} />}
+
+      {result && tab === "report" && (
         <div className={`bg-white border border-slate-200 rounded-xl shadow-sm p-6 space-y-8 ${loading ? "opacity-60" : ""}`}>
           <div className="text-center">
             <h2 className="text-xl font-bold text-navy underline underline-offset-4">
@@ -466,5 +495,163 @@ function DefectSection({ result: r }: { result: WeeklyReportResult }) {
         집계기간 {r.weekStart} ~ {r.weekEnd} · YLD = 양품수 ÷ (양품수 + 불량수) · 불량률 = 유형별 불량수 ÷ 작업량 · 비고는 표에 없는 불량유형 중 가장 큰 항목
       </p>
     </>
+  );
+}
+
+// ── 요약 탭 ────────────────────────────────────────────────────────────────
+// Word "요약 다운로드"와 같은 값 — 1. 생산실적(상·하몰드/인쇄/출하 생산수량) / 2. 생산공정 수율 추이 차트.
+// 이슈·주요이슈는 사람이 쓰는 항목이라 화면에는 없고 Word에서 직접 쓴다.
+function SummaryTab({ result, dimmed }: { result: WeeklyReportResult; dimmed: boolean }) {
+  const [summary, setSummary] = useState<WeeklySummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/weekly-report/summary?date=${result.weekStart}`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { summary?: WeeklySummary; error?: string }) => {
+        if (cancelled) return;
+        if (data.summary) setSummary(data.summary);
+        else setError(data.error ?? "요약을 불러오지 못했습니다.");
+      })
+      .catch(() => !cancelled && setError("요약을 불러오지 못했습니다."));
+    return () => {
+      cancelled = true;
+    };
+  }, [result.weekStart]);
+
+  return (
+    <div className={`bg-white border border-slate-200 rounded-xl shadow-sm p-6 space-y-8 ${dimmed ? "opacity-60" : ""}`}>
+      <div className="text-center">
+        <h2 className="text-xl font-bold text-navy underline underline-offset-4">
+          {result.weekNo}주차 생산팀 주간 업무
+        </h2>
+        <p className="text-sm text-slate-500 text-right mt-1">보고일 {result.reportDate}</p>
+      </div>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {!summary && !error && <div className="text-center py-10 text-slate-400">불러오는 중...</div>}
+      {summary && (
+        <>
+          <section className="space-y-3">
+            <h3 className="font-bold text-navy">1. 생산실적</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr>
+                    <th className={thCls} rowSpan={2}>공정항목</th>
+                    <th className={thCls} colSpan={2}>사출공정</th>
+                    <th className={thCls} rowSpan={2}>인쇄공정</th>
+                    <th className={thCls} rowSpan={2}>출하공정</th>
+                  </tr>
+                  <tr>
+                    <th className={thCls}>상몰드</th>
+                    <th className={thCls}>하몰드</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className={`${tdCls} font-bold`}>생산수량</td>
+                    <td className={tdCls}>{fmtQty(summary.upperQty)}</td>
+                    <td className={tdCls}>{fmtQty(summary.lowerQty)}</td>
+                    <td className={tdCls}>{fmtQty(summary.printQty)}</td>
+                    <td className={tdCls}>{fmtQty(summary.shipQty)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-slate-400">
+              집계기간 {result.weekStart} ~ {result.weekEnd} · 이슈는 Word 다운로드 후 직접 작성합니다
+            </p>
+          </section>
+          <section className="space-y-3">
+            <h3 className="font-bold text-navy">2. 생산공정 수율</h3>
+            <YieldTrendChart points={summary.yieldTrend} />
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+// 사출포함(막대) · 사출제외(꺾은선) 수율 추이. 분기=연녹색, 월=파랑, 주차=노랑. 값 범위에 맞춰 세로축을 잡는다.
+function YieldTrendChart({ points }: { points: WeeklySummary["yieldTrend"] }) {
+  if (points.length === 0) {
+    return <p className="text-sm text-slate-400 py-6 text-center">수율 데이터가 있는 구간이 없습니다.</p>;
+  }
+  const W = 760;
+  const H = 300;
+  const padL = 44;
+  const padR = 16;
+  const padT = 24;
+  const padB = 36;
+  const vals = points.flatMap((p) => [p.total, p.exInjection]).filter((v): v is number => v != null);
+  if (vals.length === 0) {
+    return <p className="text-sm text-slate-400 py-6 text-center">수율 데이터가 있는 구간이 없습니다.</p>;
+  }
+  const lo = Math.floor((Math.min(...vals) - 0.02) * 50) / 50;
+  const hi = Math.ceil((Math.max(...vals) + 0.01) * 50) / 50;
+  const y = (v: number) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+  const slot = (W - padL - padR) / points.length;
+  const cx = (i: number) => padL + slot * (i + 0.5);
+  const barW = Math.min(48, slot * 0.55);
+  const fill = (k: "quarter" | "month" | "week") => (k === "quarter" ? "#A9D18E" : k === "week" ? "#FFC000" : "#4472C4");
+  const ticks = 5;
+  const line = points
+    .map((p, i) => (p.exInjection == null ? null : `${cx(i)},${y(p.exInjection)}`))
+    .filter((v): v is string => v != null)
+    .join(" ");
+  return (
+    <div className="space-y-2">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-3xl mx-auto" role="img" aria-label="생산공정 수율 추이">
+        {Array.from({ length: ticks + 1 }, (_, i) => {
+          const v = lo + ((hi - lo) * i) / ticks;
+          return (
+            <g key={i}>
+              <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} stroke="#e2e8f0" />
+              <text x={padL - 6} y={y(v) + 4} textAnchor="end" fontSize="11" fill="#64748b">
+                {(v * 100).toFixed(0)}%
+              </text>
+            </g>
+          );
+        })}
+        {points.map((p, i) =>
+          p.total == null ? (
+            <text key={p.label} x={cx(i)} y={H - padB - 6} textAnchor="middle" fontSize="11" fill="#94a3b8">
+              데이터 없음
+            </text>
+          ) : (
+            <g key={p.label}>
+              <rect x={cx(i) - barW / 2} y={y(p.total)} width={barW} height={H - padB - y(p.total)} fill={fill(p.kind)} />
+              <text x={cx(i)} y={y(p.total) - 5} textAnchor="middle" fontSize="11" fontWeight="600" fill="#1e293b">
+                {(p.total * 100).toFixed(1)}%
+              </text>
+            </g>
+          )
+        )}
+        <polyline points={line} fill="none" stroke="#ED7D31" strokeWidth="2.5" />
+        {points.map((p, i) =>
+          p.exInjection == null ? null : <circle key={p.label} cx={cx(i)} cy={y(p.exInjection)} r="4" fill="#ED7D31" />
+        )}
+        {points.map((p, i) => (
+          <text key={p.label} x={cx(i)} y={H - padB + 18} textAnchor="middle" fontSize="12" fill="#334155">
+            {p.label}
+          </text>
+        ))}
+      </svg>
+      <div className="flex items-center justify-center gap-4 text-xs text-slate-500">
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 bg-[#4472C4]" /> 사출포함(막대)
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-4 border-t-2 border-[#ED7D31]" /> 사출제외(선)
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 bg-[#FFC000]" /> 주차
+        </span>
+      </div>
+      <p className="text-xs text-slate-400 text-center">
+        수율 = 렌즈 공정 수율의 곱(사출포함은 사출 수율 포함) · 공정 중 하나라도 데이터가 없는 구간은 비워 둡니다(7월 등 불량종합현황이 올라오지 않은 달)
+      </p>
+    </div>
   );
 }

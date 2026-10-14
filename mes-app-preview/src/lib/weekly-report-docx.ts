@@ -343,7 +343,7 @@ function defectTables(r: WeeklyReportResult): string[] {
   return [table(grid1, rows1), table(grid2, rows2)];
 }
 
-function reportDateLabel(dateStr: string): string {
+export function reportDateLabel(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   const wd = ["일", "월", "화", "수", "목", "금", "토"][new Date(y, m - 1, d).getDay()];
   return `’${String(y).slice(2)}. ${String(m).padStart(2, "0")}. ${String(d).padStart(2, "0")} (${wd})`;
