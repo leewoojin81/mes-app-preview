@@ -78,6 +78,10 @@ export async function POST(req: NextRequest) {
   const shiftGroup = strOrNull(body.shift_group);
   const phone = strOrNull(body.phone);
   const hireDate = strOrNull(body.hire_date);
+  // 신규 등록은 입사일자가 필수(2026-10-14 사용자 요청) — 화면이 막지만 API로 직접 와도 거른다.
+  if (!hireDate || !/^\d{4}-\d{2}-\d{2}$/.test(hireDate)) {
+    return NextResponse.json({ error: "입사일자는 필수입니다(YYYY-MM-DD)." }, { status: 400 });
+  }
   const busRoute = strOrNull(body.bus_route);
   const busStop = strOrNull(body.bus_stop);
   const uniformSize = strOrNull(body.uniform_size);

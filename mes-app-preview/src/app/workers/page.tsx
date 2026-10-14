@@ -983,7 +983,9 @@ function WorkerFormModal({
           </div>
           <div className="grid grid-cols-3 gap-3">
             <label className="block text-sm">
-              <span className="text-slate-600">입사일</span>
+              <span className="text-slate-600">
+                입사일{!editing && <span className="text-rose-600"> *</span>}
+              </span>
               <input
                 value={form.hire_date}
                 onChange={(e) => set("hire_date", e.target.value)}
@@ -1125,7 +1127,7 @@ function WorkerFormModal({
             </button>
             <button
               onClick={submit}
-              disabled={saving || !form.employee_no.trim() || !form.worker_name.trim()}
+              disabled={saving || !form.employee_no.trim() || !form.worker_name.trim() || (!editing && !form.hire_date.trim())}
               className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white disabled:opacity-40"
             >
               {saving ? "저장 중..." : "저장"}
