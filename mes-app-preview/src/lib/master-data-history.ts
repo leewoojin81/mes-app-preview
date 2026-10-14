@@ -14,7 +14,8 @@ export const ENTITY_TYPE_WORKER = "작업자";
 
 // 작업자등록(BASE-09)에서 추적하는 필드 — team("근무조", 급여형태 구분)과
 // shift_group("교대조", A조/B조/고정)은 서로 다른 개념이라 둘 다 별도로 추적한다.
-// 방진복·방진화·조끼·안전화·버스·정류장·특이사항은 2026-10-08 사용자 요청으로 추가(그 전 변경분은 이력 없음).
+// 방진복·방진화·조끼·안전화·버스·정류장·특이사항은 2026-10-08, 근무상태·퇴사일자·퇴사사유는 2026-10-14 사용자 요청으로
+// 추가(그 전 변경분은 이력 없음).
 export const WORKER_TRACKED_FIELDS: { key: string; label: string }[] = [
   { key: "work_group", label: "공정" },
   { key: "team", label: "근무조" },
@@ -29,6 +30,9 @@ export const WORKER_TRACKED_FIELDS: { key: string; label: string }[] = [
   { key: "bus_route", label: "버스" },
   { key: "bus_stop", label: "정류장" },
   { key: "remark", label: "특이사항" },
+  { key: "status", label: "근무상태" },
+  { key: "resign_date", label: "퇴사일자" },
+  { key: "resign_reason", label: "퇴사사유" },
 ];
 
 function toLocalDateStr(d: Date): string {

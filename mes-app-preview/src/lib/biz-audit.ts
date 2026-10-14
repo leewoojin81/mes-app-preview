@@ -22,7 +22,8 @@ export * from "@/lib/biz-audit-shared";
 // 뜬다 — 그래서 아래 기준으로 정규화해 비교한다(모두 분 단위).
 //  - 정근: 비즈 정근 + 특근  ↔  MES 정상 + 지원(8시간 한도). 비즈는 휴일 근무를 "특근" 칸에 적고
 //    MES는 "정상"에 적으며, MES는 다른 공정 지원시간을 정상에서 빼서 따로 적는다.
-//  - 연장: 비즈 연장 + 특연(휴일/토요)  ↔  MES 잔업 + 조출 + 중교 + 지원 초과분(8시간 넘는 지원).
+//  - 연장: 비즈 연장 + 특연(휴일/토요)  ↔  MES 잔업 + 조출 + 중교 + 지원 초과분(8시간 넘는 지원, 잔업과
+//    겹친 만큼은 제외).
 //  - 지각, 조퇴: 그대로.
 // 허용 오차는 10분(10분 단위로 입력하는 값이라 이 이하는 같은 값으로 본다).
 
@@ -230,11 +231,16 @@ export function fetchBizAudit(
 
     const supNormal = Math.min(sup, 8);
     const supExtra = Math.max(0, sup - 8);
+    // 8시간 넘는 지원은 잔업 시간대에 지원한 것이라 PSN-01은 잔업도 그대로 두고 근무시간 합계에서만
+    // 겹친 만큼 뺀다(work-hours-leave.ts computeAttendanceHours의 supportOverlapHours와 같은 값).
+    // 비즈는 그 시간을 연장에 한 번만 적으므로 여기서도 한 번만 센다 — 안 빼면 잔업 2:20 + 지원
+    // 초과 2:20 = 4:40으로 이중 계산돼 김은미·최지은 같은 디자인 지원자가 매일 불일치로 잡혔다.
+    const supOverlap = Math.min(ms?.overtime_hours ?? 0, supExtra);
     const items: Record<BizAuditItemKey, BizAuditItem> = {
       normal: makeItem(n(bz?.normal_min) + n(bz?.special_min), toMin((ms?.normal_hours ?? 0) + supNormal)),
       extension: makeItem(
         n(bz?.extension_min) + n(bz?.special_holiday_min) + n(bz?.special_sat_min),
-        toMin((ms?.overtime_hours ?? 0) + (ms?.early_start_hours ?? 0) + (ms?.lunch_shift_hours ?? 0) + supExtra)
+        toMin((ms?.overtime_hours ?? 0) + (ms?.early_start_hours ?? 0) + (ms?.lunch_shift_hours ?? 0) + supExtra - supOverlap)
       ),
       late: makeItem(n(bz?.late_min), toMin(ms?.late_hours)),
       early_leave: makeItem(n(bz?.early_leave_min), toMin(ms?.early_leave_hours)),

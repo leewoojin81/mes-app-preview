@@ -183,6 +183,9 @@ export async function PATCH(
         bus_route: busRoute,
         bus_stop: busStop,
         remark,
+        status,
+        resign_date: resignDate,
+        resign_reason: resignReason,
       },
       changedBy: session?.u ?? null,
     });
