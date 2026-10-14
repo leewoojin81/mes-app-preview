@@ -11,6 +11,7 @@ import type {
   AttendanceAuditResult,
   AttendanceAuditRow,
   AttendanceAuditRowStatus,
+  CardEditCount,
 } from "@/lib/attendance-audit";
 
 // No.·사번·성명·공정·근무조·휴가·일자·출근시간·퇴근시간·저장상태(10) + 대사항목6×3(18) +
@@ -94,12 +95,6 @@ function computeProcessStats(rows: AttendanceAuditRow[]): ProcessStat[] {
   }));
   list.sort((a, b) => a.rate - b.rate);
   return list;
-}
-
-function rateColor(rate: number): string {
-  if (rate >= 90) return "bg-emerald-500";
-  if (rate >= 70) return "bg-amber-500";
-  return "bg-rose-500";
 }
 
 function toLocalDateStr(d: Date): string {
@@ -196,70 +191,6 @@ function ReferenceCell({
   );
 }
 
-const CHART_LABEL_W = "6rem";
-const CHART_VALUE_W = "3.25rem";
-const MATCH_RATE_THRESHOLD = 90;
-
-// 공정별 일치율 막대그래프 — 낮은 순(가장 문제 있는 공정 먼저) 정렬해서 받는다(호출부).
-// 라벨/막대/수치 3열짜리 CSS grid로 짜서, 90% 기준선 하나를 트랙(가운데) 열에만 걸치는
-// 별도 grid item으로 모든 행에 겹쳐 그린다 — 각 막대 트랙 너비가 같은 열이라 기준선
-// 위치(left: 90%)가 모든 행에서 정확히 같은 x좌표로 맞아떨어진다.
-function ProcessMatchRateChart({ stats }: { stats: ProcessStat[] }) {
-  const [hover, setHover] = useState<string | null>(null);
-  if (stats.length === 0) {
-    return <p className="text-sm text-slate-400 py-6 text-center">대사 가능한 데이터가 없습니다.</p>;
-  }
-  return (
-    <div
-      className="grid gap-y-2 gap-x-2"
-      style={{ gridTemplateColumns: `${CHART_LABEL_W} 1fr ${CHART_VALUE_W}` }}
-    >
-      {stats.map((s) => (
-        <Fragment key={s.workGroup}>
-          <div
-            className="text-xs text-slate-600 text-right self-center truncate"
-            title={s.workGroup}
-          >
-            {s.workGroup}
-          </div>
-          <div
-            className="relative h-5 self-center rounded-[4px] bg-slate-100"
-            onMouseEnter={() => setHover(s.workGroup)}
-            onMouseLeave={() => setHover((h) => (h === s.workGroup ? null : h))}
-          >
-            <div
-              className={`h-5 rounded-r-[4px] ${rateColor(s.rate)}`}
-              style={{ width: `${Math.min(100, s.rate)}%` }}
-            />
-            {hover === s.workGroup && (
-              <div className="absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1.5 rounded bg-slate-800 px-2.5 py-1.5 text-xs text-white shadow-lg whitespace-nowrap pointer-events-none">
-                <p className="font-semibold">{s.workGroup}</p>
-                <p>
-                  대상 {s.total.toLocaleString()}건 · 일치 {s.ok.toLocaleString()}건 · 불일치{" "}
-                  {s.mismatch.toLocaleString()}건
-                </p>
-                <p>일치율 {s.rate.toFixed(1)}%</p>
-              </div>
-            )}
-          </div>
-          <div className="text-xs font-mono tabular-nums text-slate-600 text-right self-center">
-            {s.rate.toFixed(1)}%
-          </div>
-        </Fragment>
-      ))}
-      <div
-        className="relative pointer-events-none"
-        style={{ gridColumn: 2, gridRow: `1 / ${stats.length + 1}` }}
-      >
-        <div
-          className="absolute top-0 bottom-0 border-l-2 border-dashed border-slate-400"
-          style={{ left: `${MATCH_RATE_THRESHOLD}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
 // 세 패널(그래프/요약표/항목별 표) 공통 카드 뼈대 — 제목만 다르게 받는다.
 function StatCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -274,7 +205,24 @@ function NoStatsMessage() {
   return <p className="text-sm text-slate-400 py-6 text-center">대사 가능한 데이터가 없습니다.</p>;
 }
 
-function ProcessMatchRateSection({ stats }: { stats: ProcessStat[] }) {
+function ProcessMatchRateSection({
+  stats,
+  cardEdits,
+  allWorkGroups,
+}: {
+  stats: ProcessStat[];
+  cardEdits: CardEditCount[];
+  allWorkGroups: string[];
+}) {
+  // 수정이 없는 공정도 0건으로 보이도록 조회 대상 공정 전체로 먼저 채운다. 수정 많은 순.
+  const editRows = useMemo(() => {
+    const byGroup = new Map<string, CardEditCount>();
+    for (const wg of allWorkGroups) byGroup.set(wg, { workGroup: wg, total: 0, edited: 0 });
+    for (const e of cardEdits) byGroup.set(e.workGroup, e);
+    return Array.from(byGroup.values()).sort(
+      (a, b) => b.edited - a.edited || a.workGroup.localeCompare(b.workGroup, "ko")
+    );
+  }, [cardEdits, allWorkGroups]);
   return (
     <div className="space-y-2">
       <div>
@@ -285,22 +233,43 @@ function ProcessMatchRateSection({ stats }: { stats: ProcessStat[] }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-        <StatCard title="공정별 일치율">
-          <ProcessMatchRateChart stats={stats} />
-          <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap pt-2 border-t border-slate-100">
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-500" /> 90% 이상
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-500" /> 70~90%
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-rose-500" /> 70% 미만
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-3 border-t-2 border-dashed border-slate-400" /> 90% 기준선
-            </span>
-          </div>
+        <StatCard title="공정별 출퇴근카드(PSN-02) 수정 건수">
+          {editRows.length === 0 ? (
+            <p className="text-sm text-slate-400 py-6 text-center">조회된 공정이 없습니다.</p>
+          ) : (
+            <div className="overflow-auto border border-slate-100 rounded-md">
+              <table className="text-xs w-full whitespace-nowrap">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-semibold">공정</th>
+                    <th className="text-right px-3 py-2 font-semibold">전체</th>
+                    <th className="text-right px-3 py-2 font-semibold">수정</th>
+                    <th className="text-right px-3 py-2 font-semibold">원본유지율</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {editRows.map((g) => (
+                    <tr key={g.workGroup}>
+                      <td className="px-3 py-1.5 text-slate-700">{g.workGroup}</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-slate-600">
+                        {g.total.toLocaleString()}
+                      </td>
+                      <td
+                        className={`px-3 py-1.5 text-right font-mono ${
+                          g.edited > 0 ? "text-rose-600 font-semibold" : "text-slate-300"
+                        }`}
+                      >
+                        {g.edited.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono font-semibold text-slate-700">
+                        {g.total > 0 ? `${(((g.total - g.edited) / g.total) * 100).toFixed(1)}%` : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </StatCard>
 
         <StatCard title="공정별 대상/일치/불일치">
@@ -454,6 +423,10 @@ export default function AttendanceAuditPage() {
   // 토글에 영향받지 않고 조회기간·공정 필터만 반영한다(allRows 기준) — 그 토글까지
   // 반영하면 예를 들어 "불일치만 보기"를 켠 순간 일치율이 항상 0%로 왜곡된다.
   const processStats = useMemo(() => computeProcessStats(result?.rows ?? []), [result]);
+  const allWorkGroups = useMemo(
+    () => Array.from(new Set((result?.rows ?? []).map((r) => r.work_group ?? "미지정"))),
+    [result]
+  );
   const search = searchText.trim().toLowerCase();
   const visibleRows = allRows.filter((r) => {
     if (mismatchOnly && r.status !== "불일치") return false;
@@ -569,7 +542,11 @@ export default function AttendanceAuditPage() {
         </label>
       </div>
 
-      {canQuery && !loading && result && <ProcessMatchRateSection stats={processStats} />}
+      {canQuery && !loading && result && <ProcessMatchRateSection
+          stats={processStats}
+          cardEdits={result.cardEdits ?? []}
+          allWorkGroups={allWorkGroups}
+        />}
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 

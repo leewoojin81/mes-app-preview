@@ -170,6 +170,14 @@ export interface AttendanceAuditResult {
   dateTo: string;
   rows: AttendanceAuditRow[];
   summary: AttendanceAuditSummary;
+  /** PSN-02 출퇴근카드 공정별 전체/수정 건수(조회기간 합계) */
+  cardEdits: CardEditCount[];
+}
+
+export interface CardEditCount {
+  workGroup: string;
+  total: number;
+  edited: number;
 }
 
 function buildItem(psn01: number, psn02: number | null): AttendanceAuditItem {
@@ -309,6 +317,7 @@ export function fetchAttendanceAudit(
     dateTo: params.dateTo,
     rows: [],
     summary: { periodMismatchCount: 0, nameMismatchCount: 0 },
+    cardEdits: [],
   };
   if (params.leaderWorkGroups && params.leaderWorkGroups.length === 0) return empty;
 
@@ -673,10 +682,35 @@ export function fetchAttendanceAudit(
     }
   }
 
+  // PSN-02 공정별 전체/수정 건수 — 전체는 카드 행 수, 수정은 edited_fields가 있는 행 수.
+  // 사번 변환으로 대상 작업자에 매핑되는 행만 세므로 조장 세션/공정 필터가 그대로 적용된다.
+  const workerByNo = new Map(workers.map((w) => [w.employee_no, w]));
+  const cardCountRows = db
+    .prepare(
+      `SELECT employee_no, work_date, edited_fields IS NOT NULL AS edited FROM attendance_card_status
+       WHERE work_date BETWEEN ? AND ?`
+    )
+    .all(params.dateFrom, params.dateTo) as { employee_no: string; work_date: string; edited: number }[];
+  const editCounts = new Map<string, CardEditCount>();
+  for (const r of cardCountRows) {
+    const converted = convertBizEmployeeNo(r.employee_no);
+    const w = converted ? workerByNo.get(converted) : undefined;
+    if (!converted || !w) continue;
+    const workGroup = resolveFieldAsOf(workGroupHistory, converted, r.work_date, w.work_group) ?? "미지정";
+    let cur = editCounts.get(workGroup);
+    if (!cur) {
+      cur = { workGroup, total: 0, edited: 0 };
+      editCounts.set(workGroup, cur);
+    }
+    cur.total++;
+    if (r.edited) cur.edited++;
+  }
+
   return {
     dateFrom: params.dateFrom,
     dateTo: params.dateTo,
     rows,
     summary: { periodMismatchCount, nameMismatchCount },
+    cardEdits: Array.from(editCounts.values()),
   };
 }
