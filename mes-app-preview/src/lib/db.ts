@@ -1304,6 +1304,17 @@ function migrate(db: DatabaseSync) {
     backfillOvertimeInputHours(db);
   }
 
+  // 휴가구분 "공가"는 정상근무 8시간으로 계산한다(2026-10-14 사용자 요청, work-hours-leave.ts).
+  // 이미 0으로 저장된 공가 행의 정상/근무시간 합계를 같은 규칙으로 다시 채운다. 지원시간은 공가
+  // 날 0이라 합계에 안 더한다. 다시 실행돼도 이미 8인 행은 건드리지 않아 안전하다.
+  if (workHoursDailyCols.length > 0) {
+    db.exec(
+      `UPDATE work_hours_daily
+       SET normal_hours = 8, total_hours = 8 + overtime_hours + early_start_hours + lunch_shift_hours
+       WHERE leave_type = '공가' AND normal_hours <> 8`
+    );
+  }
+
   // attendance_card_status: 업로드 이후 사람이 손으로 고친 컬럼을 기록해 화면에 빨간색으로
   // 표시한다(2026-09-24 사용자 요청). 값은 JSON 배열(예: '["출근시간","퇴근시간"]") —
   // [id]/route.ts의 PATCH가 실제로 바뀐 컬럼만 골라 누적 기록하고, import/route.ts의

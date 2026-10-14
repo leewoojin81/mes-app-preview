@@ -112,6 +112,12 @@ export function computeAttendanceHours(
       supportOverlapHours: Math.min(overtimeHours, supportOverflow),
     };
   }
+  // 공가는 출퇴근 카드·지각·조퇴·외출과 무관하게 정상근무 8시간으로 본다(2026-10-14 사용자
+  // 요청 — 공적인 사유로 자리를 비운 날이라 카드 시각이 어떻든 정상 8시간 인정). 지원시간은
+  // effectiveSupportHours가 이미 0으로 만든다.
+  if (leaveType === "공가") {
+    return { normalHours: 8, overtimeHours: inputs.overtimeInput, supportOverlapHours: 0 };
+  }
   const base = BASE_HOURS_BY_LEAVE[leaveType] ?? 8;
   const extraDeduction =
     inputs.lateHours + inputs.earlyLeaveHours + inputs.outingHours + inputs.supportHours;

@@ -218,14 +218,12 @@ function buildNormalItem(psn01: number, derivedPsn02: number | null, supportHour
   return { ...item, mismatch: Math.abs(diff) >= MISMATCH_THRESHOLD_HOURS };
 }
 
-// 조출은 "정확한 시간차"보다 "신청한 대로 실제로 발생했는지"만 우선 확인한다(2026-09-09
-// 사용자 요청) — PSN-01 조출을 아예 신청 안 했으면(0 또는 미입력) 세콤 값이 얼마든
-// 항상 일치 처리(불필요한 알림 방지), 조출을 실제로 신청한 날만 기존 30분 기준으로
-// 정밀 비교한다.
+// 조출은 세콤 재계산값(derivedPsn02)을 참고용으로 계속 보여주되 mismatch는 항상 false로
+// 고정한다(2026-10-14 사용자 요청 — 조장이 PSN-01에 입력한 조출시간을 그대로 인정. 유명호
+// 10/12·10/13 사례: 입력 0:30, 카드 14:46 출근 재계산 1:00이라 30분 기준에 걸려 불일치였음).
+// 근로시간 쪽도 조출은 PSN-01 값을 그대로 쓰게 된다(아래 earlyStartForTotal).
 function buildEarlyStartItem(psn01: number, derivedPsn02: number | null): AttendanceAuditItem {
-  const item = buildItem(psn01, derivedPsn02);
-  if (psn01 === 0) return { ...item, mismatch: false };
-  return item;
+  return { ...buildItem(psn01, derivedPsn02), mismatch: false };
 }
 
 // 조퇴는 세콤 재계산값(derivedPsn02)을 참고용으로 계속 보여주되 mismatch는 항상 false로
@@ -607,6 +605,21 @@ export function fetchAttendanceAudit(
         outing: buildItem(outingHours, null),
         support: buildItem(supportHours, null),
       };
+
+      // 공가는 카드 출퇴근 시각과 무관하게 PSN-01 정상 8시간을 그대로 인정한다(2026-10-14 사용자
+      // 요청, 이태옥 10/8 — 06:39~09:36 카드인데도 일치). 대사 항목은 전부 PSN-01 값과 같게 맞춘다.
+      if (daily?.leave_type === "공가") {
+        const matchPsn01 = (it: AttendanceAuditItem): AttendanceAuditItem => buildItem(it.psn01, it.psn01);
+        items = {
+          ...items,
+          total: matchPsn01(items.total),
+          normal: matchPsn01(items.normal),
+          overtime: matchPsn01(items.overtime),
+          early_start: matchPsn01(items.early_start),
+          late: matchPsn01(items.late),
+          early_leave: matchPsn01(items.early_leave),
+        };
+      }
     }
 
     // 카드가 아예 없는데(no_card) 근무일이고, 하루 종일 쉬는 휴가도 아니고, 그 날짜 카드
