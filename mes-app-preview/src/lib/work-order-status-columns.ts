@@ -43,7 +43,7 @@ export function normalizeOrderDate(v: string | number | null): string | null {
   if (v == null) return null;
   const s = String(v).trim();
   const m = s.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
-  if (!m) return s || null;
+  if (!m) return null; // 날짜가 아닌 값(범례·합계 행)은 버린다 — 그대로 두면 구간 재동기화가 그 값을 범위 끝으로 잡아 이후 데이터를 전부 지운다(2026-10-14 일일작업현황 사고)
   const [, y, mo, d] = m;
   return `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
 }

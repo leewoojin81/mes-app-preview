@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rangeDeleteGuard } from "@/lib/import-guard";
 import { randomUUID } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { DOSU_CHANGE_COLS, normalizeOrderDate } from "@/lib/dosu-change-columns";
@@ -157,6 +158,19 @@ export async function POST(req: NextRequest) {
     "DELETE FROM dosu_change_status WHERE inspect_date >= ? AND inspect_date <= ?"
   );
   const countAll = db.prepare("SELECT COUNT(*) AS c FROM dosu_change_status");
+
+  // 지울 건수가 넣을 건수보다 훨씬 많으면 확인 없이 지우지 않는다(lib/import-guard.ts).
+  {
+    const existing = (countInRange.get(dateFrom, dateTo) as { c: number }).c;
+    const warning = rangeDeleteGuard({
+      existing,
+      incoming: entries.length,
+      dateFrom,
+      dateTo,
+      force: form?.get("force") === "1",
+    });
+    if (warning) return NextResponse.json(warning, { status: 409 });
+  }
 
   let deleted = 0;
   let finalTotal = 0;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { postImport } from "@/lib/import-upload";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import TimeSegmentInput from "@/components/TimeSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
@@ -915,7 +916,7 @@ function UploadModal({
     setError(null);
     const fd = new FormData();
     fd.set("file", file);
-    const res = await fetch("/api/attendance-card-status/import", { method: "POST", body: fd });
+    const res = await postImport("/api/attendance-card-status/import", fd);
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {

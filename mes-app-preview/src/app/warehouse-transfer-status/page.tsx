@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { postImport } from "@/lib/import-upload";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
@@ -381,7 +382,7 @@ function UploadModal({
     setError(null);
     const fd = new FormData();
     fd.set("file", file);
-    const res = await fetch("/api/warehouse-transfer-status/import", { method: "POST", body: fd });
+    const res = await postImport("/api/warehouse-transfer-status/import", fd);
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
