@@ -445,6 +445,7 @@ function DefectSection({ result: r }: { result: WeeklyReportResult }) {
             <tr>
               <th className={thCls} rowSpan={2}>공정</th>
               {t2Groups.map((g) => <th key={g.group} className={thCls} colSpan={g.count}>{g.group}</th>)}
+              <th className={thCls} rowSpan={2}>기타</th>
               <th className={thCls} rowSpan={2} colSpan={noteCols}>비고(%)</th>
             </tr>
             <tr>{restIdx.map((i) => <th key={WEEKLY_DEFECT_TABLE2[i].title} className={thCls}>{WEEKLY_DEFECT_TABLE2[i].title}</th>)}</tr>
@@ -454,6 +455,7 @@ function DefectSection({ result: r }: { result: WeeklyReportResult }) {
               <tr key={d.label}>
                 <td className={`${tdCls} font-bold`}>{d.label}</td>
                 {restIdx.map((i) => <td key={i} className={tdCls}>{fmtDefectPct(d.table2[i])}</td>)}
+                <td className={tdCls}>{fmtDefectPct(d.etc)}</td>
                 <td className={tdCls} colSpan={noteCols}>{d.note}</td>
               </tr>
             ))}

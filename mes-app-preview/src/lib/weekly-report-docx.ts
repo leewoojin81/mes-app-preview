@@ -325,7 +325,7 @@ function defectTables(r: WeeklyReportResult): string[] {
   }
 
   const t2 = WEEKLY_DEFECT_TABLE2;
-  const grid2 = [900, ...new Array<number>(t2.length).fill(850), 1500];
+  const grid2 = [900, ...new Array<number>(t2.length).fill(850), 850, 1500];
   const groupCells: Cell[] = [];
   for (let i = 0; i < t2.length; ) {
     let j = i;
@@ -334,11 +334,11 @@ function defectTables(r: WeeklyReportResult): string[] {
     i = j;
   }
   const rows2: Cell[][] = [
-    [head("공정", { vm: "r" }), ...groupCells, head("비고(%)", { vm: "r" })],
-    [head("", { vm: "c" }), ...t2.map((c) => head(c.title)), head("", { vm: "c" })],
+    [head("공정", { vm: "r" }), ...groupCells, head("기타", { vm: "r" }), head("비고(%)", { vm: "r" })],
+    [head("", { vm: "c" }), ...t2.map((c) => head(c.title)), head("", { vm: "c" }), head("", { vm: "c" })],
   ];
   for (const d of r.defect) {
-    rows2.push([{ t: d.label, bold: true }, ...d.table2.map((v) => ({ t: defectPct(v) })), { t: d.note }]);
+    rows2.push([{ t: d.label, bold: true }, ...d.table2.map((v) => ({ t: defectPct(v) })), { t: defectPct(d.etc) }, { t: d.note }]);
   }
   return [table(grid1, rows1), table(grid2, rows2)];
 }

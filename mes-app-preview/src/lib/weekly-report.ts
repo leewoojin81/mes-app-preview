@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { ensureLineCapaPlanTable } from "./production-plan-lines";
 import { fetchPackagingSchedule } from "./packaging-schedule";
 import { moldSum, processSum } from "./production-status";
+import { DEFECT_TYPE_STATUS_COLS } from "./defect-type-status-columns";
 import {
   WEEKLY_DEFECT_PROCESSES,
   WEEKLY_DEFECT_TABLE1,
@@ -44,6 +45,10 @@ const NOTE_CANDIDATE_KEYS = [
   "유실", "설비오작동", "미해마", "PPT", "직경불량", "도수불량", "BC불량", "두께불량",
 ];
 const NOTE_EXCLUDE = new Set(["인쇄 不"]); // 표2에 이미 열로 있음
+// 불량종합현황의 유형별 불량 열 전체(불량율(%) 오른쪽 열들) — "기타" 열 = 위 두 표에 나오지 않는 유형들의 합.
+const DEFECT_TYPE_KEYS = DEFECT_TYPE_STATUS_COLS.map((c) => c.key).slice(
+  DEFECT_TYPE_STATUS_COLS.findIndex((c) => c.key === "불량율(%)") + 1
+);
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -401,6 +406,7 @@ function aggregateDefects(db: DatabaseSync, process: string, from: string, to: s
       ...WEEKLY_DEFECT_TABLE1.flatMap((c) => c.keys),
       ...WEEKLY_DEFECT_TABLE2.flatMap((c) => c.keys),
       ...NOTE_CANDIDATE_KEYS,
+      ...DEFECT_TYPE_KEYS,
     ]),
   ];
   const select = typeKeys
@@ -503,6 +509,10 @@ export function computeWeeklyReport(db: DatabaseSync, anyDate: string): WeeklyRe
         noteKey = k;
       }
     }
+    // 기타 = 두 표에 나오지 않는 불량유형들의 합(유형으로 분류되지 않은 불량수량은 제외, 2026-10-14
+    // 사용자 선택). 불량수량 − 표시 유형 합으로 구하면 유형 미분류 불량까지 섞인다.
+    const shownKeys = new Set<string>([...WEEKLY_DEFECT_TABLE1, ...WEEKLY_DEFECT_TABLE2].flatMap((c) => c.keys));
+    const etcQty = DEFECT_TYPE_KEYS.filter((k) => !shownKeys.has(k)).reduce((s, k) => s + (agg.types.get(k) ?? 0), 0);
     return {
       label,
       workQty,
@@ -511,6 +521,7 @@ export function computeWeeklyReport(db: DatabaseSync, anyDate: string): WeeklyRe
       yld: workQty > 0 ? agg.good / workQty : null,
       table1: WEEKLY_DEFECT_TABLE1.map((c) => rateOf(c.keys)),
       table2: WEEKLY_DEFECT_TABLE2.map((c) => rateOf(c.keys)),
+      etc: workQty > 0 ? etcQty / workQty : null,
       note: noteKey && workQty > 0 ? `${noteKey === "기타2" ? "기타" : noteKey} ${((noteQty / workQty) * 100).toFixed(2)}%` : "",
     };
   });

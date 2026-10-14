@@ -34,7 +34,7 @@ export const WEEKLY_DEFECT_TABLE2 = [
   { group: "인쇄", title: "색퍼짐", keys: ["색퍼짐"] },
   { group: "인쇄", title: "인쇄", keys: ["인쇄 不"] },
   { group: "인쇄", title: "색지렁이", keys: ["색,지렁이"] },
-  { group: "기타", title: "Base이물", keys: ["BASE이물"] },
+  { group: "인쇄", title: "Base이물", keys: ["BASE이물"] },
 ] as const;
 
 export interface WeeklyPlanRow {
@@ -129,6 +129,8 @@ export interface WeeklyDefectRow {
   yld: number | null;
   table1: (number | null)[]; // WEEKLY_DEFECT_TABLE1 순서, 불량률 = 유형수량 / 작업량
   table2: (number | null)[];
+  /** 기타 = 위 두 표에 나오지 않는 불량유형들의 합 ÷ 작업량(유형 미분류 불량 제외) (2026-10-14 사용자 요청: 작업량·양품수·불량수처럼 병합 열) */
+  etc: number | null;
   note: string; // 비고 예: "유실 0.37%" (없으면 "")
 }
 

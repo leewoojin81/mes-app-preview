@@ -42,7 +42,12 @@ export async function POST(req: NextRequest) {
     | number
     | null
   )[][];
-  const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).replace(/[▲▼]/g, "").trim()));
+  // 원본 헤더의 "不"이 호환 한자(U+F967)로 들어와 있어("인쇄 不", "성형 不") 우리 컬럼 제목(U+4E0D)과
+  // 글자 코드가 달랐다 — 그대로 비교하면 이 컬럼들이 통째로 못 찾아져 값이 전부 비어 저장됐다
+  // (2026-10-14 발견, PROD-11 인쇄 불량이 0으로 나오던 원인). NFC로 정규화해 같은 글자로 비교한다.
+  const header = (rows[0] ?? []).map((h) =>
+    h == null ? "" : String(h).replace(/[▲▼]/g, "").trim().normalize("NFC")
+  );
 
   // DEFECT_TYPE_STATUS_COLS의 title(원본 헤더 제목) 순서대로 header에서 등장 위치를
   // 하나씩 소비한다 — "기타"처럼 제목이 중복돼도 등장 순서대로 서로 다른 컬럼에 매칭된다.
