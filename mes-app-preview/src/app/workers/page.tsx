@@ -711,7 +711,9 @@ function WorkerFormModal({
     set("status", "정상");
   }
 
-  function applyBizName(raw: string) {
+  function applyBizName(input: string) {
+    // 접두사(SJ-, IP- 등)를 소문자로 쳐도 대문자로 바꿔 인식·표시한다(2026-10-14 사용자 요청).
+    const raw = input.toUpperCase();
     setBizName(raw);
     const { name, contractor } = parseBizName(raw);
     set("worker_name", name);
