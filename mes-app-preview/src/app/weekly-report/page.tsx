@@ -622,7 +622,14 @@ function YieldTrendChart({ points }: { points: WeeklySummary["yieldTrend"] }) {
           ) : (
             <g key={p.label}>
               <rect x={cx(i) - barW / 2} y={y(p.total)} width={barW} height={H - padB - y(p.total)} fill={fill(p.kind)} />
-              <text x={cx(i)} y={y(p.total) - 5} textAnchor="middle" fontSize="11" fontWeight="600" fill="#1e293b">
+              <text
+                x={cx(i)}
+                y={(y(p.total) + (H - padB)) / 2 + 4}
+                textAnchor="middle"
+                fontSize="11"
+                fontWeight="700"
+                fill={p.kind === "month" ? "#ffffff" : "#1e293b"}
+              >
                 {(p.total * 100).toFixed(1)}%
               </text>
             </g>
@@ -630,7 +637,14 @@ function YieldTrendChart({ points }: { points: WeeklySummary["yieldTrend"] }) {
         )}
         <polyline points={line} fill="none" stroke="#ED7D31" strokeWidth="2.5" />
         {points.map((p, i) =>
-          p.exInjection == null ? null : <circle key={p.label} cx={cx(i)} cy={y(p.exInjection)} r="4" fill="#ED7D31" />
+          p.exInjection == null ? null : (
+            <g key={p.label}>
+              <circle cx={cx(i)} cy={y(p.exInjection)} r="4" fill="#ED7D31" />
+              <text x={cx(i)} y={y(p.exInjection) - 9} textAnchor="middle" fontSize="11" fontWeight="700" fill="#C55A11">
+                {(p.exInjection * 100).toFixed(1)}%
+              </text>
+            </g>
+          )
         )}
         {points.map((p, i) => (
           <text key={p.label} x={cx(i)} y={H - padB + 18} textAnchor="middle" fontSize="12" fill="#334155">
@@ -640,13 +654,10 @@ function YieldTrendChart({ points }: { points: WeeklySummary["yieldTrend"] }) {
       </svg>
       <div className="flex items-center justify-center gap-4 text-xs text-slate-500">
         <span className="flex items-center gap-1">
-          <span className="inline-block w-3 h-3 bg-[#4472C4]" /> 사출포함(막대)
+          <span className="inline-block w-3 h-3 bg-[#4472C4]" /> 사출포함
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block w-4 border-t-2 border-[#ED7D31]" /> 사출제외(선)
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-3 h-3 bg-[#FFC000]" /> 주차
+          <span className="inline-block w-4 border-t-2 border-[#ED7D31]" /> 사출제외
         </span>
       </div>
       <p className="text-xs text-slate-400 text-center">

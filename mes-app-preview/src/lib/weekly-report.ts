@@ -478,50 +478,124 @@ export interface WeeklySummary {
   yieldTrend: SummaryYieldPoint[];
 }
 
-// 차트 구간 규칙(41주차 서식에서 읽은 규칙): 마지막으로 끝난 분기보다 앞선 분기는 분기(1Q, 2Q)로,
-// 마지막으로 끝난 분기의 첫 달부터 보고 주차가 속한 달까지는 월로(보고 월은 보고 주차 종료일까지의
-// 누계), 마지막에 직전 주차와 보고 주차를 주차 번호로 붙인다. 수율 공정 중 하나라도 데이터가 없는 구간은 이름만 두고 값은 비운다.
+// 차트 구간 규칙(2026-10-14 사용자 요청: 분기 2~3개, 월 4~7개, 주 1~5개 유지):
+//  - 월: 마지막으로 끝난 분기의 첫 달부터 보고 주차 종료일이 속한 달까지(보고 월은 종료일까지 누계) = 4~6개.
+//  - 분기: 그 월 구간보다 앞선 최근 3개 분기 중 수율 데이터가 있는 것(최소 2개는 데이터가 없어도 가장 최근 것으로 채움).
+//  - 주: 보고 주차와, 종료일이 같은 달에 속하는 직전 주차들(최대 5개, 최소 보고 주차 1개).
+// 수율 공정 중 하나라도 데이터가 없는 구간은 이름만 두고 값은 비운다.
+type DayProcessYield = Map<string, Map<string, { good: number; bad: number }>>;
+
+// 불량종합현황을 한 번만 훑어 (일자, 공정)별 양품/불량을 만든다 — 구간마다 다시 훑으면 10초 넘게 걸린다.
+function loadDayProcessYield(db: DatabaseSync, from: string, to: string): DayProcessYield {
+  const rows = db
+    .prepare(
+      `SELECT order_date AS d, json_extract(detail, '$."공정명"') AS p,
+              SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) AS good,
+              SUM(CAST(json_extract(detail, '$."불량수량"') AS REAL)) AS bad
+       FROM defect_type_status WHERE order_date BETWEEN ? AND ? GROUP BY d, p`
+    )
+    .all(from, to) as { d: string; p: string; good: number | null; bad: number | null }[];
+  const out: DayProcessYield = new Map();
+  for (const r of rows) {
+    let m = out.get(r.d);
+    if (!m) out.set(r.d, (m = new Map()));
+    m.set(r.p, { good: r.good ?? 0, bad: r.bad ?? 0 });
+  }
+  return out;
+}
+
+function yieldFromDays(db: DatabaseSync, days: DayProcessYield, from: string, to: string): Omit<WeeklyYieldRow, "weekLabel"> {
+  const sums = new Map<string, { good: number; bad: number }>();
+  for (const [d, procs] of days) {
+    if (d < from || d > to) continue;
+    for (const [p, v] of procs) {
+      const cur = sums.get(p) ?? { good: 0, bad: 0 };
+      cur.good += v.good;
+      cur.bad += v.bad;
+      sums.set(p, cur);
+    }
+  }
+  const yields = WEEKLY_YIELD_PROCESSES.map((p) => {
+    const a = sums.get(p);
+    return a && a.good + a.bad > 0 ? a.good / (a.good + a.bad) : null;
+  });
+  const injection = injectionYield(db, from, to);
+  const present = yields.filter((y): y is number => y != null);
+  return {
+    injection,
+    yields,
+    total: present.length > 0 ? present.reduce((p, y) => p * y, injection ?? 1) : null,
+    totalExInjection: present.length > 0 ? present.reduce((p, y) => p * y, 1) : null,
+  };
+}
+
 export function computeWeeklySummary(db: DatabaseSync, r: WeeklyReportResult): WeeklySummary {
   const { weekStart, weekEnd } = r;
   const printTotal = r.printing.rows.find((x) => x.label === "합계");
-
-  const year = Number(weekEnd.slice(0, 4));
-  const curMonth = Number(weekEnd.slice(5, 7));
-  const curQuarter = Math.ceil(curMonth / 3);
-  const lastDoneQuarter = curQuarter - 1; // 올해 안에서 마지막으로 끝난 분기(0이면 없음)
   const pad = (n: number) => String(n).padStart(2, "0");
-  const points: SummaryYieldPoint[] = [];
-  const add = (label: string, kind: SummaryYieldPoint["kind"], from: string, to: string) => {
-    const y = yieldBetween(db, from, to);
-    // 공정 중 하나라도 데이터가 없으면 곱이 실제보다 높게 나온다(예: 한 공정만 올라온 달이 99.7%) — 구간 이름은
-    // 그대로 두고 값만 비운다(차트에는 빈 칸으로 보임).
-    const incomplete = y.yields.some((v) => v == null) || (y.total == null && y.totalExInjection == null);
-    points.push({
-      label,
-      kind,
-      total: incomplete ? null : y.total,
-      exInjection: incomplete ? null : y.totalExInjection,
-    });
+  const ey = Number(weekEnd.slice(0, 4));
+  const em = Number(weekEnd.slice(5, 7));
+
+  // 월 구간: 마지막으로 끝난 분기의 첫 달 ~ 보고 월 (연도를 넘어도 월 번호를 이어서 센다)
+  const lastQuarterIdx = ey * 4 + Math.ceil(em / 3) - 1 - 1; // 마지막으로 끝난 분기(연*4 + 분기-1)
+  const firstMonthIdx = Math.floor(lastQuarterIdx / 4) * 12 + (lastQuarterIdx % 4) * 3;
+  const curMonthIdx = ey * 12 + (em - 1);
+  const ymOf = (idx: number) => `${Math.floor(idx / 12)}-${pad((idx % 12) + 1)}`;
+  const quarterRange = (qIdx: number): [string, string] => {
+    const y = Math.floor(qIdx / 4);
+    const m1 = (qIdx % 4) * 3 + 1;
+    return [`${y}-${pad(m1)}-01`, monthEndOf(`${y}-${pad(m1 + 2)}`)];
   };
-  for (let q = 1; q < lastDoneQuarter; q++) {
-    const m1 = (q - 1) * 3 + 1;
-    add(`${q}Q`, "quarter", `${year}-${pad(m1)}-01`, monthEndOf(`${year}-${pad(m1 + 2)}`));
+  const quarterLabel = (qIdx: number) => {
+    const y = Math.floor(qIdx / 4);
+    return `${y === ey ? "" : `${String(y).slice(2)}년 `}${(qIdx % 4) + 1}Q`;
+  };
+
+  // 주 구간: 보고 주차에서 거슬러 올라가며 종료일이 보고 월에 속하는 주차(최대 5개)
+  const weekStarts: string[] = [weekStart];
+  while (weekStarts.length < 5) {
+    const prev = addDays(weekStarts[0], -7);
+    if (addDays(prev, 6).slice(0, 7) !== weekEnd.slice(0, 7)) break;
+    weekStarts.unshift(prev);
   }
-  const firstMonth = lastDoneQuarter >= 1 ? (lastDoneQuarter - 1) * 3 + 1 : 1;
-  for (let m = firstMonth; m <= curMonth; m++) {
-    const ym = `${year}-${pad(m)}`;
-    add(`${m}월`, "month", `${ym}-01`, m === curMonth ? weekEnd : monthEndOf(ym));
+
+  // 분기 후보 3개(최근순)부터 맨 앞 구간까지 한 번에 읽는다
+  const quarterIdxs = [1, 2, 3].map((k) => lastQuarterIdx - k).reverse();
+  const loadFrom = quarterRange(quarterIdxs[0])[0];
+  const days = loadDayProcessYield(db, loadFrom, weekEnd);
+
+  const make = (label: string, kind: SummaryYieldPoint["kind"], from: string, to: string): SummaryYieldPoint => {
+    const y = yieldFromDays(db, days, from, to);
+    // 공정 중 하나라도 데이터가 없으면 곱이 실제보다 높게 나온다(예: 한 공정만 올라온 달이 99.7%)
+    const incomplete = y.yields.some((v) => v == null) || (y.total == null && y.totalExInjection == null);
+    return { label, kind, total: incomplete ? null : y.total, exInjection: incomplete ? null : y.totalExInjection };
+  };
+
+  const quarterPoints = quarterIdxs.map((q) => {
+    const [from, to] = quarterRange(q);
+    return make(quarterLabel(q), "quarter", from, to);
+  });
+  // 데이터가 있는 분기만 남기되 최소 2개는 유지(부족하면 가장 최근 분기부터 빈 칸으로 채운다)
+  let quarters = quarterPoints.filter((p) => p.total != null);
+  if (quarters.length < 2) quarters = quarterPoints.slice(-2);
+
+  const monthPoints: SummaryYieldPoint[] = [];
+  for (let idx = firstMonthIdx; idx <= curMonthIdx; idx++) {
+    const ym = ymOf(idx);
+    const y = Number(ym.slice(0, 4));
+    const m = Number(ym.slice(5, 7));
+    monthPoints.push(
+      make(`${y === ey ? "" : `${String(y).slice(2)}년 `}${m}월`, "month", `${ym}-01`, idx === curMonthIdx ? weekEnd : monthEndOf(ym))
+    );
   }
-  const prevStart = addDays(weekStart, -7);
-  add(`${weekNoOf(prevStart)}W`, "week", prevStart, addDays(prevStart, 6));
-  add(`${weekNoOf(weekStart)}W`, "week", weekStart, weekEnd);
+  const weekPoints = weekStarts.map((ws) => make(`${weekNoOf(ws)}W`, "week", ws, ws === weekStart ? weekEnd : addDays(ws, 6)));
 
   return {
     upperQty: moldSum(db, "상몰드", weekStart, weekEnd),
     lowerQty: moldSum(db, "하몰드", weekStart, weekEnd),
     printQty: printTotal?.totalQty ?? 0,
     shipQty: processSum(db, ["P410"], weekStart, weekEnd),
-    yieldTrend: points,
+    yieldTrend: [...quarters, ...monthPoints, ...weekPoints],
   };
 }
 
