@@ -20,8 +20,26 @@ export const LEADER_DEFAULT_CODES = new Set(["BASE-09", "PSN-01", "PSN-05"]);
 
 export const ALL_SCREEN_CODES: string[] = NAV_GROUPS.flatMap((g) => g.children.map((c) => c.code));
 
+// 관리자 기본 허용 화면 — 2026-10-16 기준으로 이미 운영 중인 화면 목록(고정 스냅샷).
+// 이 목록에 없는 화면(= 이후 새로 추가되는 모듈)은 관리자도 기본값이 "권한 없음"이라,
+// 오픈서버(3001)에 동기화돼도 SYS-01 사용자계정관리에서 사용자별로 열어주기 전까지 보이지 않는다.
+// 새 화면을 추가할 때는 이 목록에 코드를 넣지 말 것(INV-06/INV-07이 첫 적용 사례).
+// 권한을 열어줄 때 개별 예외(user_permissions)로 처리하며, 화면을 정식 오픈하기로 하면 그때 이 목록에 추가한다.
+const ADMIN_DEFAULT_CODES = new Set([
+  "BASE-01", "BASE-02", "BASE-03", "BASE-04", "BASE-05", "BASE-06", "BASE-07", "BASE-08", "BASE-09", "BASE-10",
+  "PSN-01", "PSN-02", "PSN-03", "PSN-04", "PSN-05", "PSN-06", "PSN-07",
+  "SALES-01", "SALES-02", "SALES-03",
+  "PLAN-01", "PLAN-02", "PLAN-03",
+  "PROD-01", "PROD-02", "PROD-03", "PROD-04", "PROD-05", "PROD-06", "PROD-07", "PROD-10", "PROD-11",
+  "INV-01", "INV-02", "INV-03", "INV-04", "INV-05",
+  "QC-01", "QC-02", "QC-03", "QC-04",
+  "PUR-01", "PUR-02",
+  "MGMT-01", "MGMT-02", "MGMT-03", "MGMT-04", "MGMT-05",
+  "SYS-01",
+]);
+
 export function roleDefaultAllowed(role: Role, code: string): boolean {
-  if (role === "admin") return true;
+  if (role === "admin") return ADMIN_DEFAULT_CODES.has(code);
   return LEADER_DEFAULT_CODES.has(code);
 }
 
@@ -114,6 +132,8 @@ const CODE_API_PREFIXES: Record<string, string[]> = {
   "INV-03": ["/api/process-wip"],
   "INV-04": ["/api/mold-receipt-status"],
   "INV-05": ["/api/warehouse-transfer-status"],
+  "INV-06": ["/api/stock-ledger"],
+  "INV-07": ["/api/stock-reconcile"],
   "QC-02": ["/api/bc-distribution"],
   "QC-03": ["/api/diameter-distribution"],
   "QC-04": ["/api/dosu-distribution"],

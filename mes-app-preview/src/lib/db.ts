@@ -433,6 +433,39 @@ CREATE TABLE IF NOT EXISTS inventory_status (
   detail TEXT
 );
 
+-- 재고 수불 원장(INV-06) — MES가 직접 쌓는 입출고 이력. 현재고현황(INV-02, inventory_status)은
+-- ERP 스냅샷 조회용으로 그대로 두고, 이 테이블은 기초재고 적재(ERP 스냅샷 기준일) 이후의 증감을
+-- 추가(INSERT)만 한다 — 수정/삭제 없이 잘못된 건은 '조정' 행으로 바로잡는다. qty는 부호 있는 값
+-- (입고 +, 출고 −, 이동은 출발 −/도착 + 두 행, 조정 ±). lot_no는 LOT 없는 품목도 합계 키가 되도록
+-- NULL 대신 빈 문자열. source_key는 구매입고·출하 등 기존 업로드 데이터에서 자동 반영한 행의
+-- 멱등 키(같은 원본 행은 두 번 쌓이지 않음) — 수동 등록 행은 NULL.
+CREATE TABLE IF NOT EXISTS stock_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tx_at TEXT NOT NULL,
+  item_code TEXT NOT NULL,
+  lot_no TEXT NOT NULL DEFAULT '',
+  warehouse TEXT NOT NULL,
+  tx_type TEXT NOT NULL,
+  qty REAL NOT NULL,
+  reason TEXT NOT NULL,
+  ref_no TEXT,
+  memo TEXT,
+  source_key TEXT UNIQUE,
+  created_by TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- 기초재고 적재 이력 — 스냅샷을 수불 원장에 한 번만 옮기는 작업의 기록(1건만 허용).
+CREATE TABLE IF NOT EXISTS stock_ledger_baseline (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  base_date TEXT NOT NULL,
+  snapshot_uploaded_at TEXT,
+  row_count INTEGER NOT NULL,
+  total_qty REAL NOT NULL,
+  created_by TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
 CREATE TABLE IF NOT EXISTS process_wip_status (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   item_code TEXT,
@@ -1183,6 +1216,11 @@ function migrate(db: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_inventory_status_cat1 ON inventory_status(json_extract(detail, '$."대분류"'));
     CREATE INDEX IF NOT EXISTS idx_inventory_status_cat2 ON inventory_status(json_extract(detail, '$."중분류"'));
     CREATE INDEX IF NOT EXISTS idx_inventory_status_cat3 ON inventory_status(json_extract(detail, '$."소분류"'));
+
+    CREATE INDEX IF NOT EXISTS idx_stock_ledger_key ON stock_ledger(item_code, lot_no, warehouse);
+    CREATE INDEX IF NOT EXISTS idx_stock_ledger_tx_at ON stock_ledger(tx_at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_stock_ledger_ref_no ON stock_ledger(ref_no);
+    CREATE INDEX IF NOT EXISTS idx_inventory_status_key ON inventory_status(item_code, lot_no, warehouse);
 
     CREATE INDEX IF NOT EXISTS idx_sales_orders_customer_code ON sales_orders(customer_code);
     CREATE INDEX IF NOT EXISTS idx_sales_orders_item_code ON sales_orders(item_code);

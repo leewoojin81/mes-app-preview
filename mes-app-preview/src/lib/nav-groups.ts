@@ -69,6 +69,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/process-wip", label: "공정재공현황", code: "INV-03" },
       { href: "/mold-receipt-status", label: "MOLD입고현황", code: "INV-04" },
       { href: "/warehouse-transfer-status", label: "창고이동현황", code: "INV-05" },
+      { href: "/stock-ledger", label: "재고수불원장", code: "INV-06" },
+      { href: "/stock-reconcile", label: "재고대사", code: "INV-07" },
     ],
   },
   {
