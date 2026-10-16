@@ -39,6 +39,10 @@ function fmtDefectPct(n: number | null): string {
 function fmtK(n: number): string {
   return Math.round(n / 1000).toLocaleString("ko-KR");
 }
+// 불량수(K천대)는 소수 첫째 자리까지(2026-10-16 사용자 요청) — 불량은 값이 작아 정수로 반올림하면 0으로 뭉개진다.
+function fmtK1(n: number): string {
+  return (n / 1000).toLocaleString("ko-KR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
 function negClass(n: number | null): string {
   return n != null && n < 0 ? "text-red-600" : "";
 }
@@ -569,7 +573,7 @@ function DefectSection({ result: r }: { result: WeeklyReportResult }) {
                 <td className={`${tdCls} font-bold`}>{d.label}</td>
                 <td className={tdCls}>{fmtK(d.workQty)}</td>
                 <td className={tdCls}>{fmtK(d.goodQty)}</td>
-                <td className={tdCls}>{fmtK(d.badQty)}</td>
+                <td className={tdCls}>{fmtK1(d.badQty)}</td>
                 <td className={tdCls}>{fmtPct(d.yld, 1)}</td>
                 {d.table1.map((v, i) => <td key={i} className={tdCls}>{fmtDefectPct(v)}</td>)}
                 {movedIdx.map((i) => <td key={`m${i}`} className={tdCls}>{fmtDefectPct(d.table2[i])}</td>)}

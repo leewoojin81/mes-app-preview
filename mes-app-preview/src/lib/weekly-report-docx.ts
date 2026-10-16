@@ -313,12 +313,14 @@ function defectTables(r: WeeklyReportResult): string[] {
     [head("", { vm: "c" }), head("", { vm: "c" }), head("", { vm: "c" }), head("", { vm: "c" }), head("", { vm: "c" }), ...t1.map((c) => head(c.title))],
   ];
   const k = (n: number): string => Math.round(n / 1000).toLocaleString("ko-KR");
+  // 불량수(K천대)는 소수 첫째 자리까지
+  const k1 = (n: number): string => (n / 1000).toLocaleString("ko-KR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   for (const d of r.defect) {
     rows1.push([
       { t: d.label, bold: true },
       { t: k(d.workQty) },
       { t: k(d.goodQty) },
-      { t: k(d.badQty) },
+      { t: k1(d.badQty) },
       { t: pct(d.yld, 1) },
       ...d.table1.map((v) => ({ t: defectPct(v) })),
     ]);
