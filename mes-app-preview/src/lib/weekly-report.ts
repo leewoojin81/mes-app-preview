@@ -135,11 +135,11 @@ const PLAN_LINES: PlanLineSpec[] = [
 // (수량이 비어 있는 시험설비 "착색 30호기"는 자연히 빠진다). 평균 가동대수 = 일별 가동대수 합 ÷
 // 그 기간의 생산캘린더 근무일수(전산 장애로 생산이 없던 근무일도 0대로 평균에 들어간다 —
 // 서식의 9.8대 = 49대 ÷ 5일). 전주도 같은 방식으로 계산한다.
-interface PrintingDay {
+export interface PrintingDay {
   units: [number, number]; // [수동, 자동]
   qty: [number, number];
 }
-function printingByDay(db: DatabaseSync, from: string, to: string): Map<string, PrintingDay> {
+export function printingByDay(db: DatabaseSync, from: string, to: string): Map<string, PrintingDay> {
   const rows = db
     .prepare(
       `SELECT work_date, json_extract(detail, '$."라인"') AS line,
@@ -468,7 +468,7 @@ function aggregateDefects(db: DatabaseSync, process: string, from: string, to: s
 // 창고이동현황에서 사출창고→불량창고로 옮긴 출고수량과 MOLD입고현황의 불량창고 입고량(2026-10-16 추가)을 불량으로 본다(2026-09-30 사용자 지정).
 // 불량도 먼저 입고로 잡힌 뒤 불량창고로 옮겨지므로 수율 = (입고 − 불량) ÷ 입고. TTL에는 곱해 넣고,
 // "사출제외" 값(렌즈 공정 곱)은 totalExInjection으로 따로 낸다(2026-09-30 사용자 요청).
-function injectionYield(db: DatabaseSync, from: string, to: string): number | null {
+export function injectionYield(db: DatabaseSync, from: string, to: string): number | null {
   const received = moldSum(db, "상몰드", from, to) + moldSum(db, "하몰드", from, to);
   if (received <= 0) return null;
   const row = db
@@ -531,10 +531,10 @@ export interface WeeklySummary {
 //  - 분기: 그 월 구간보다 앞선 최근 3개 분기 중 수율 데이터가 있는 것(최소 2개는 데이터가 없어도 가장 최근 것으로 채움).
 //  - 주: 보고 주차와, 종료일이 같은 달에 속하는 직전 주차들(최대 5개, 최소 보고 주차 1개).
 // 수율 공정 중 하나라도 데이터가 없는 구간은 이름만 두고 값은 비운다.
-type DayProcessYield = Map<string, Map<string, { good: number; bad: number }>>;
+export type DayProcessYield = Map<string, Map<string, { good: number; bad: number }>>;
 
 // 불량종합현황을 한 번만 훑어 (일자, 공정)별 양품/불량을 만든다 — 구간마다 다시 훑으면 10초 넘게 걸린다.
-function loadDayProcessYield(db: DatabaseSync, from: string, to: string): DayProcessYield {
+export function loadDayProcessYield(db: DatabaseSync, from: string, to: string): DayProcessYield {
   const rows = db
     .prepare(
       `SELECT order_date AS d, json_extract(detail, '$."공정명"') AS p,
@@ -552,7 +552,7 @@ function loadDayProcessYield(db: DatabaseSync, from: string, to: string): DayPro
   return out;
 }
 
-function yieldFromDays(db: DatabaseSync, days: DayProcessYield, from: string, to: string): Omit<WeeklyYieldRow, "weekLabel"> {
+export function yieldFromDays(db: DatabaseSync, days: DayProcessYield, from: string, to: string): Omit<WeeklyYieldRow, "weekLabel"> {
   const sums = new Map<string, { good: number; bad: number }>();
   for (const [d, procs] of days) {
     if (d < from || d > to) continue;
@@ -659,30 +659,10 @@ function aggregateYieldOnly(db: DatabaseSync, process: string, from: string, to:
   return { good: row.good ?? 0, bad: row.bad ?? 0 };
 }
 
-export function computeWeeklyReport(db: DatabaseSync, anyDate: string): WeeklyReportResult {
-  const weekStart = weekStartOf(anyDate);
-  const weekEnd = addDays(weekStart, 6);
-  // 계획 표의 기준 월은 주차 시작일이 속한 달이다 — 40 W(09/25~10/01)는 9월 표의 마지막 행이다.
-  const yearMonth = weekStart.slice(0, 7);
-
-  ensureLineCapaPlanTable(db);
-  const capaRows = db
-    .prepare(`SELECT line_key, daily_capa FROM line_capa_plan WHERE year_month = ?`)
-    .all(yearMonth) as { line_key: string; daily_capa: number | null }[];
-  const dailyCapaByLine = new Map(capaRows.map((r) => [r.line_key, r.daily_capa]));
-  const plan = PLAN_LINES.map((spec) => buildPlanBlock(db, spec, yearMonth, weekEnd, dailyCapaByLine));
-  const packaging = computePackaging(db, yearMonth, weekEnd);
-
-  const current = yieldRow(db, weekStart);
-  const previous = yieldRow(db, addDays(weekStart, -7));
-  const diffPct = current.total != null && previous.total != null ? current.total - previous.total : null;
-  const diffPctExInjection =
-    current.totalExInjection != null && previous.totalExInjection != null
-      ? current.totalExInjection - previous.totalExInjection
-      : null;
-
-  const defect: WeeklyDefectRow[] = WEEKLY_DEFECT_PROCESSES.map(({ process, label }) => {
-    const agg = aggregateDefects(db, process, weekStart, weekEnd);
+// 주요공정 불량률(분리/검사) — 기간 안의 불량종합현황을 공정별로 합산한다. 주간·월간 보고가 함께 쓴다.
+export function buildDefectRows(db: DatabaseSync, from: string, to: string): WeeklyDefectRow[] {
+  return WEEKLY_DEFECT_PROCESSES.map(({ process, label }) => {
+    const agg = aggregateDefects(db, process, from, to);
     const workQty = agg.good + agg.bad;
     const rateOf = (keys: readonly string[]): number | null =>
       workQty > 0 ? keys.reduce((s, k) => s + (agg.types.get(k) ?? 0), 0) / workQty : null;
@@ -712,6 +692,31 @@ export function computeWeeklyReport(db: DatabaseSync, anyDate: string): WeeklyRe
       note: noteKey && workQty > 0 ? `${noteKey === "기타2" ? "기타" : noteKey} ${((noteQty / workQty) * 100).toFixed(2)}%` : "",
     };
   });
+}
+
+export function computeWeeklyReport(db: DatabaseSync, anyDate: string): WeeklyReportResult {
+  const weekStart = weekStartOf(anyDate);
+  const weekEnd = addDays(weekStart, 6);
+  // 계획 표의 기준 월은 주차 시작일이 속한 달이다 — 40 W(09/25~10/01)는 9월 표의 마지막 행이다.
+  const yearMonth = weekStart.slice(0, 7);
+
+  ensureLineCapaPlanTable(db);
+  const capaRows = db
+    .prepare(`SELECT line_key, daily_capa FROM line_capa_plan WHERE year_month = ?`)
+    .all(yearMonth) as { line_key: string; daily_capa: number | null }[];
+  const dailyCapaByLine = new Map(capaRows.map((r) => [r.line_key, r.daily_capa]));
+  const plan = PLAN_LINES.map((spec) => buildPlanBlock(db, spec, yearMonth, weekEnd, dailyCapaByLine));
+  const packaging = computePackaging(db, yearMonth, weekEnd);
+
+  const current = yieldRow(db, weekStart);
+  const previous = yieldRow(db, addDays(weekStart, -7));
+  const diffPct = current.total != null && previous.total != null ? current.total - previous.total : null;
+  const diffPctExInjection =
+    current.totalExInjection != null && previous.totalExInjection != null
+      ? current.totalExInjection - previous.totalExInjection
+      : null;
+
+  const defect = buildDefectRows(db, weekStart, weekEnd);
 
   return {
     weekNo: weekNoOf(weekStart),

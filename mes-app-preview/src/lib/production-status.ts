@@ -189,7 +189,7 @@ function hoursByKey(
   return map;
 }
 
-function workHoursSum(db: DatabaseSync, processCode: string, dateFrom: string, dateTo: string): number {
+export function workHoursSum(db: DatabaseSync, processCode: string, dateFrom: string, dateTo: string): number {
   return hoursByKey(db, processCode, dateFrom, dateTo, 0).get("") ?? 0;
 }
 

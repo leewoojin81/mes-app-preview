@@ -127,6 +127,7 @@ const CODE_API_PREFIXES: Record<string, string[]> = {
   "PROD-07": ["/api/defect-type-status"],
   "PROD-10": ["/api/daily-work-status"],
   "PROD-11": ["/api/weekly-report"],
+  "PROD-12": ["/api/monthly-report"],
   "INV-01": ["/api/inventory"],
   "INV-02": ["/api/inventory-status"],
   "INV-03": ["/api/process-wip"],

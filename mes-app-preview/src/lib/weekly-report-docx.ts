@@ -23,13 +23,13 @@ export const WEEKLY_REPORT_TEMPLATE_PATH = path.join(process.cwd(), "templates",
 
 const TEXT_WIDTH = 9746; // A4 폭 11906 − 좌우 여백 1080×2 (dxa)
 
-function esc(s: string): string {
+export function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 const FONT = `<w:rFonts w:asciiTheme="minorEastAsia" w:hAnsiTheme="minorEastAsia"/>`;
 
-function run(text: string, o: { size?: number; bold?: boolean; underline?: boolean; color?: string } = {}): string {
+export function run(text: string, o: { size?: number; bold?: boolean; underline?: boolean; color?: string } = {}): string {
   const rpr =
     FONT +
     (o.bold ? "<w:b/><w:bCs/>" : "") +
@@ -39,7 +39,7 @@ function run(text: string, o: { size?: number; bold?: boolean; underline?: boole
   return `<w:r><w:rPr>${rpr}</w:rPr><w:t xml:space="preserve">${esc(text)}</w:t></w:r>`;
 }
 
-function para(
+export function para(
   runs: string,
   o: { align?: "left" | "center" | "right"; before?: number; after?: number; pageBreakBefore?: boolean } = {}
 ): string {
@@ -64,7 +64,7 @@ function cellPara(c: Cell, sz: number): string {
   return `<w:p><w:pPr>${ppr}</w:pPr>${runs}</w:p>`;
 }
 
-interface Cell {
+export interface Cell {
   t: string;
   span?: number;
   /** "r" = 세로 병합 시작, "c" = 세로 병합 이어짐 */
@@ -79,7 +79,7 @@ const BORDERS = ["top", "left", "bottom", "right"]
   .map((s) => `<w:${s} w:val="single" w:sz="4" w:space="0" w:color="auto"/>`)
   .join("");
 
-function table(grid: number[], rows: Cell[][], opts: { sz?: number; mar?: number } = {}): string {
+export function table(grid: number[], rows: Cell[][], opts: { sz?: number; mar?: number } = {}): string {
   const sz = opts.sz ?? 18;
   const mar = opts.mar ?? 40;
   const total = grid.reduce((s, v) => s + v, 0);
@@ -112,19 +112,19 @@ function table(grid: number[], rows: Cell[][], opts: { sz?: number; mar?: number
 }
 
 const HEAD_FILL = "F2F2F2";
-const SUM_FILL = "FFF2CC";
+export const SUM_FILL = "FFF2CC";
 
-function head(t: string, extra: Partial<Cell> = {}): Cell {
+export function head(t: string, extra: Partial<Cell> = {}): Cell {
   return { t, bold: true, fill: HEAD_FILL, ...extra };
 }
-function qty(n: number | null): string {
+export function qty(n: number | null): string {
   return n == null ? "" : Math.round(n).toLocaleString("ko-KR");
 }
-function pct(n: number | null, digits: number): string {
+export function pct(n: number | null, digits: number): string {
   return n == null ? "" : `${(n * 100).toFixed(digits)}%`;
 }
 // 불량유형 칸은 0.000001% 미만(사실상 없음)이면 빈칸(2026-10-01 사용자 요청)
-function defectPct(n: number | null): string {
+export function defectPct(n: number | null): string {
   return n == null || n * 100 < 0.000001 ? "" : pct(n, 2);
 }
 function signedCell(n: number | null, fill?: string): Cell {
@@ -201,7 +201,7 @@ function packagingTable(b: WeeklyPackagingBlock): string {
   return table(grid, rows, { sz: 16, mar: 30 });
 }
 
-const PRINT_FILL = "FCE4D6";
+export const PRINT_FILL = "FCE4D6";
 
 // 가동대수는 소수 첫째 자리까지, 단위("대") 없이 표시한다(화면과 동일).
 function units(n: number | null): string {
@@ -300,7 +300,7 @@ function yieldExInjectionSummary(r: WeeklyReportResult): string | null {
   return s ? `☞ ${s}` : null;
 }
 
-function defectTables(r: WeeklyReportResult): string[] {
+export function defectTables(r: { defect: WeeklyReportResult["defect"] }): string[] {
   const t1 = WEEKLY_DEFECT_TABLE1;
   const grid1 = [900, 1000, 1000, 1000, 800, ...new Array<number>(t1.length).fill(900)];
   const rows1: Cell[][] = [

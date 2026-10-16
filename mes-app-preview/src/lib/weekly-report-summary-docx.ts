@@ -24,7 +24,7 @@ function pointFill(kind: SummaryYieldPoint["kind"]): string | null {
   return null;
 }
 
-function patchChart(xml: string, points: SummaryYieldPoint[]): string {
+export function patchChart(xml: string, points: SummaryYieldPoint[]): string {
   const strCache =
     `<c:strCache><c:ptCount val="${points.length}"/>` +
     points.map((p, i) => `<c:pt idx="${i}"><c:v>${esc(p.label)}</c:v></c:pt>`).join("") +

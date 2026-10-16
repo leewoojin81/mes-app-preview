@@ -59,6 +59,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/defect-type-status", label: "불량종합현황", code: "PROD-07" },
       { href: "/daily-work-status", label: "일일작업현황", code: "PROD-10" },
       { href: "/weekly-report", label: "주간업무보고", code: "PROD-11" },
+      { href: "/monthly-report", label: "월간업무보고", code: "PROD-12" },
     ],
   },
   {
