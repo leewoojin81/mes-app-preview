@@ -64,7 +64,7 @@ function weekdayOf(dateStr: string): number {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d).getDay(); // 0=일 ... 5=금
 }
-function monthEndOf(ym: string): string {
+export function monthEndOf(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
   return `${ym}-${pad2(new Date(y, m, 0).getDate())}`;
 }
@@ -315,7 +315,30 @@ function daysBetweenStr(a: string, b: string): number {
   return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
 }
 
+// 출하공정 기초계획 직접 수정(2026-10-16 사용자 요청) — 특정 월의 주차 행 기초계획(팩수/수량)만 임의 값으로
+// 덮어쓴다. 수정하지 않은 달·주차는 지금처럼 계획정보(PLAN-03)에서 자동 계산한다. 월 단위 행이라 다음 달에는
+// 영향이 없다. 테이블은 처음 쓸 때 만든다(CREATE IF NOT EXISTS — 서버 재시작 불필요).
+export function ensurePackagingPlanOverrideTable(db: DatabaseSync): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS weekly_packaging_plan_override (
+    year_month TEXT NOT NULL,
+    week_start TEXT NOT NULL,
+    plan_packs REAL NOT NULL,
+    plan_qty REAL NOT NULL,
+    updated_by TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY (year_month, week_start)
+  )`);
+}
+
 function computePackaging(db: DatabaseSync, yearMonth: string, weekEnd: string): WeeklyPackagingBlock {
+  ensurePackagingPlanOverrideTable(db);
+  const overrides = new Map(
+    (
+      db
+        .prepare("SELECT week_start, plan_packs, plan_qty FROM weekly_packaging_plan_override WHERE year_month = ?")
+        .all(yearMonth) as { week_start: string; plan_packs: number; plan_qty: number }[]
+    ).map((r) => [r.week_start, r])
+  );
   const monthStart = `${yearMonth}-01`;
   const monthEnd = monthEndOf(yearMonth);
   const firstWs = weekStartOf(monthStart);
@@ -359,8 +382,10 @@ function computePackaging(db: DatabaseSync, yearMonth: string, weekEnd: string):
     }
     return { qty, packs };
   };
-  const rowOf = (label: string, range: string, from: string, to: string, started: boolean): WeeklyPackagingRow => {
-    const p = sum(planByDate, from, to);
+  const rowOf = (label: string, range: string, from: string, to: string, started: boolean, weekStart?: string): WeeklyPackagingRow => {
+    const auto = sum(planByDate, from, to);
+    const ov = weekStart ? overrides.get(weekStart) : undefined;
+    const p = ov ? { qty: ov.plan_qty, packs: ov.plan_packs } : auto;
     const a = started ? sum(actualByDate, from, to < weekEnd ? to : weekEnd) : null;
     return {
       weekLabel: label,
@@ -373,6 +398,7 @@ function computePackaging(db: DatabaseSync, yearMonth: string, weekEnd: string):
       diffQty: a ? a.qty - p.qty : null,
       ratePacks: a && p.packs > 0 ? a.packs / p.packs : null,
       rateQty: a && p.qty > 0 ? a.qty / p.qty : null,
+      ...(weekStart ? { weekStart, planOverridden: !!ov, autoPlanPacks: auto.packs, autoPlanQty: auto.qty } : {}),
     };
   };
 
@@ -380,7 +406,7 @@ function computePackaging(db: DatabaseSync, yearMonth: string, weekEnd: string):
   for (let ws = firstWs; ws <= monthEnd; ws = addDays(ws, 7)) {
     const we = addDays(ws, 6);
     const to = we < monthEnd ? we : monthEnd;
-    weeks.push(rowOf(`${weekNoOf(ws)} 주차`, `${mmdd(ws)}~${mmdd(to)}`, ws, to, ws <= weekEnd));
+    weeks.push(rowOf(`${weekNoOf(ws)} 주차`, `${mmdd(ws)}~${mmdd(to)}`, ws, to, ws <= weekEnd, ws));
   }
 
   const month = rowOf(`${Number(yearMonth.slice(5, 7))} 월`, `${mmdd(monthStart)}~${mmdd(monthEnd)}`, monthStart, monthEnd, monthStart <= weekEnd);
@@ -391,6 +417,17 @@ function computePackaging(db: DatabaseSync, yearMonth: string, weekEnd: string):
   };
   month.diffPacks = diffSum((w) => w.diffPacks);
   month.diffQty = diffSum((w) => w.diffQty);
+  // 월 합계 기초계획 = 자동 월 계획 + 수정한 주차의 (수정값 − 자동값). 첫 주의 전월 구간은 월 합계에 원래 안 들어가므로
+  // 수정 차액만큼만 반영해 월 계획이 어긋나지 않게 한다.
+  const adj = weeks.filter((w) => w.planOverridden);
+  if (adj.length > 0) {
+    month.planPacks += adj.reduce((s, w) => s + (w.planPacks - (w.autoPlanPacks ?? 0)), 0);
+    month.planQty += adj.reduce((s, w) => s + (w.planQty - (w.autoPlanQty ?? 0)), 0);
+    if (month.actualPacks != null) {
+      month.ratePacks = month.planPacks > 0 ? month.actualPacks / month.planPacks : null;
+      month.rateQty = month.planQty > 0 && month.actualQty != null ? month.actualQty / month.planQty : null;
+    }
+  }
   return { weeks, month };
 }
 

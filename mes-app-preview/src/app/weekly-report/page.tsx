@@ -63,6 +63,7 @@ export default function WeeklyReportPage() {
   const [date, setDate] = useState("");
   const [result, setResult] = useState<WeeklyReportResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
   // 주간업무보고(전체 보고서 + Word 다운로드) / 요약(생산실적·수율 추이 + 요약 다운로드) 탭(2026-10-14 사용자 요청)
   const [tab, setTab] = useTabState<"report" | "summary">("wrTab", "report");
 
@@ -78,7 +79,7 @@ export default function WeeklyReportPage() {
     return () => {
       cancelled = true;
     };
-  }, [date]);
+  }, [date, reloadKey]);
 
   // 주차를 바꾸면 새 결과가 올 때까지 기존 표를 흐리게 보여준다.
   function goto(next: string) {
@@ -179,7 +180,7 @@ export default function WeeklyReportPage() {
                 <PlanTable key={b.key} block={b} monthNo={Number(result.yearMonth.slice(5, 7))} showProgress />
               ))}
             <PrintingTable block={result.printing} />
-            <PackagingTable block={result.packaging} />
+            <PackagingTable block={result.packaging} yearMonth={result.yearMonth} onSaved={() => setReloadKey((k) => k + 1)} />
           </section>
 
           <section className="space-y-3">
@@ -261,25 +262,135 @@ function dashQty(n: number | null): string {
   const r = Math.round(n);
   return r === 0 ? "-" : r.toLocaleString("ko-KR");
 }
-function PackagingTable({ block: b }: { block: WeeklyPackagingBlock }) {
+function PackagingTable({
+  block: b,
+  yearMonth,
+  onSaved,
+}: {
+  block: WeeklyPackagingBlock;
+  yearMonth: string;
+  onSaved: () => void;
+}) {
   const groups = ["기초계획(월)", "포장 실적", "계획대비실적", "달성률(%)"];
-  const row = (w: WeeklyPackagingBlock["month"], sum: boolean) => (
-    <tr key={w.weekLabel} className={sum ? "bg-orange-50 font-bold" : ""}>
-      <td className={`${tdCls} font-bold`}>{w.weekLabel}</td>
-      <td className={tdCls}>{w.rangeLabel}</td>
-      <td className={tdCls}>{dashQty(w.planPacks)}</td>
-      <td className={tdCls}>{dashQty(w.planQty)}</td>
-      <td className={tdCls}>{dashQty(w.actualPacks)}</td>
-      <td className={tdCls}>{dashQty(w.actualQty)}</td>
-      <td className={`${tdCls} ${negClass(w.diffPacks)}`}>{dashQty(w.diffPacks)}</td>
-      <td className={`${tdCls} ${negClass(w.diffQty)}`}>{dashQty(w.diffQty)}</td>
-      <td className={tdCls}>{fmtPct(w.ratePacks, 1)}</td>
-      <td className={tdCls}>{fmtPct(w.rateQty, 1)}</td>
-    </tr>
-  );
+  // 기초계획 직접 수정(2026-10-16 사용자 요청) — 이 달 주차별 기초계획만 임의 값으로 바꾼다. 다른 달은 지금처럼 자동.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Record<string, { packs: string; qty: string }>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const anyOverridden = b.weeks.some((w) => w.planOverridden);
+
+  function startEdit() {
+    const d: Record<string, { packs: string; qty: string }> = {};
+    for (const w of b.weeks) {
+      if (w.weekStart) d[w.weekStart] = { packs: String(Math.round(w.planPacks)), qty: String(Math.round(w.planQty)) };
+    }
+    setDraft(d);
+    setError(null);
+    setEditing(true);
+  }
+
+  async function save(resetAll: boolean) {
+    setBusy(true);
+    setError(null);
+    const rows = b.weeks
+      .filter((w) => w.weekStart)
+      .map((w) => {
+        const ws = w.weekStart as string;
+        if (resetAll) return { weekStart: ws, planPacks: null, planQty: null };
+        const cur = draft[ws];
+        // 자동값 그대로면 수정값으로 저장하지 않는다(자동 계산을 계속 따라가게 둠)
+        const same =
+          Number(cur.packs) === Math.round(w.planPacks) && Number(cur.qty) === Math.round(w.planQty);
+        if (same && !w.planOverridden) return { weekStart: ws, planPacks: null, planQty: null };
+        return { weekStart: ws, planPacks: cur.packs, planQty: cur.qty };
+      });
+    const res = await fetch("/api/weekly-report/packaging-plan", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ yearMonth, rows }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setError(data.error ?? "저장에 실패했습니다.");
+      return;
+    }
+    setEditing(false);
+    onSaved();
+  }
+
+  const inputCls = "w-24 border border-slate-300 rounded px-1.5 py-0.5 text-right font-mono text-xs bg-white";
+  const row = (w: WeeklyPackagingBlock["month"], sum: boolean) => {
+    const ed = editing && !sum && w.weekStart ? draft[w.weekStart] : null;
+    const ovCls = w.planOverridden ? "bg-amber-50" : "";
+    const setField = (k: "packs" | "qty", v: string) =>
+      setDraft((d) => ({ ...d, [w.weekStart as string]: { ...d[w.weekStart as string], [k]: v } }));
+    return (
+      <tr key={w.weekLabel} className={sum ? "bg-orange-50 font-bold" : ""}>
+        <td className={`${tdCls} font-bold`}>{w.weekLabel}</td>
+        <td className={tdCls}>{w.rangeLabel}</td>
+        <td className={`${tdCls} ${ovCls}`} title={w.planOverridden ? `수정됨 (자동 계산값 ${dashQty(w.autoPlanPacks ?? 0)})` : undefined}>
+          {ed ? (
+            <input className={inputCls} type="number" min={0} value={ed.packs} onChange={(e) => setField("packs", e.target.value)} />
+          ) : (
+            dashQty(w.planPacks)
+          )}
+        </td>
+        <td className={`${tdCls} ${ovCls}`} title={w.planOverridden ? `수정됨 (자동 계산값 ${dashQty(w.autoPlanQty ?? 0)})` : undefined}>
+          {ed ? (
+            <input className={inputCls} type="number" min={0} value={ed.qty} onChange={(e) => setField("qty", e.target.value)} />
+          ) : (
+            dashQty(w.planQty)
+          )}
+        </td>
+        <td className={tdCls}>{dashQty(w.actualPacks)}</td>
+        <td className={tdCls}>{dashQty(w.actualQty)}</td>
+        <td className={`${tdCls} ${negClass(w.diffPacks)}`}>{dashQty(w.diffPacks)}</td>
+        <td className={`${tdCls} ${negClass(w.diffQty)}`}>{dashQty(w.diffQty)}</td>
+        <td className={tdCls}>{fmtPct(w.ratePacks, 1)}</td>
+        <td className={tdCls}>{fmtPct(w.rateQty, 1)}</td>
+      </tr>
+    );
+  };
   return (
     <div className="space-y-1.5">
-      <p className="text-sm font-semibold text-slate-700">□ 출하공정</p>
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-sm font-semibold text-slate-700">□ 출하공정</p>
+        {!editing ? (
+          <>
+            <button onClick={startEdit} className="px-2.5 py-1 rounded-md text-xs border border-slate-300 bg-white text-slate-600 hover:border-navy">
+              기초계획 수정
+            </button>
+            {anyOverridden && (
+              <span className="text-xs text-amber-700">
+                {Number(yearMonth.slice(5, 7))}월 기초계획 일부를 직접 수정한 값으로 표시 중 (다른 달은 자동)
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            <button onClick={() => save(false)} disabled={busy} className="px-2.5 py-1 rounded-md text-xs bg-navy text-white disabled:opacity-40">
+              {busy ? "저장 중..." : "저장"}
+            </button>
+            <button onClick={() => setEditing(false)} disabled={busy} className="px-2.5 py-1 rounded-md text-xs border border-slate-300 bg-white text-slate-600">
+              취소
+            </button>
+            {anyOverridden && (
+              <button
+                onClick={() => {
+                  if (window.confirm(`${Number(yearMonth.slice(5, 7))}월 기초계획 수정값을 모두 지우고 자동 계산값으로 되돌릴까요?`)) save(true);
+                }}
+                disabled={busy}
+                className="px-2.5 py-1 rounded-md text-xs border border-rose-300 bg-white text-rose-600"
+              >
+                자동값으로 되돌리기
+              </button>
+            )}
+            <span className="text-xs text-slate-500">{Number(yearMonth.slice(5, 7))}월 주차별 기초계획만 바뀌며 다음 달에는 영향이 없습니다.</span>
+            {error && <span className="text-xs text-rose-600">{error}</span>}
+          </>
+        )}
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs border-collapse">
           <thead>

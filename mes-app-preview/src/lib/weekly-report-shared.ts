@@ -81,6 +81,13 @@ export interface WeeklyPackagingRow {
   diffQty: number | null;
   ratePacks: number | null;
   rateQty: number | null;
+  /** 주차 행만: 그 주차 시작일(금요일, YYYY-MM-DD) — 기초계획 수정 저장의 키 */
+  weekStart?: string;
+  /** 기초계획을 직접 수정한 주차면 true (planPacks/planQty가 수정값) */
+  planOverridden?: boolean;
+  /** 계획정보(PLAN-03) 포장 일정에서 자동 계산한 원래 값 — 수정 화면 참고용 */
+  autoPlanPacks?: number;
+  autoPlanQty?: number;
 }
 export interface WeeklyPackagingBlock {
   weeks: WeeklyPackagingRow[];
