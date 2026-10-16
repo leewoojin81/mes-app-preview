@@ -259,7 +259,9 @@ function buildPlanBlock(
   const weeks: WeeklyPlanRow[] = [];
   // 월의 첫 날이 속한 금~목 주차부터 월말이 속한 주차까지
   for (let ws = weekStartOf(monthStart); ws <= monthEnd; ws = addDays(ws, 7)) {
-    const we = addDays(ws, 6);
+    // 마지막 주차는 월말까지만 — 다음 달(미래) 날짜는 이 달 표의 계획·실적·기간에 넣지 않는다
+    // (45 W 10/30~11/05 → 10월 표에서는 10/30~10/31, 11월 표의 첫 행에서는 전체 구간 그대로).
+    const we = addDays(ws, 6) < monthEnd ? addDays(ws, 6) : monthEnd;
     const started = ws <= weekEnd;
     const plan = planBetween(ws, we);
     const actual = capas.map((_c, i) => (started ? spec.actual(db, i, ws, we < weekEnd ? we : weekEnd) : null));
