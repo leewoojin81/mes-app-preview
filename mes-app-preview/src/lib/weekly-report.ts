@@ -465,7 +465,7 @@ function aggregateDefects(db: DatabaseSync, process: string, from: string, to: s
 }
 
 // 사출(몰드) 수율 — 사출 실적이 MES에 없어 MOLD입고현황의 입고량(상·하몰드 전체)을 생산량으로,
-// 창고이동현황에서 사출창고→불량창고로 옮긴 출고수량을 불량으로 본다(2026-09-30 사용자 지정).
+// 창고이동현황에서 사출창고→불량창고로 옮긴 출고수량과 MOLD입고현황의 불량창고 입고량(2026-10-16 추가)을 불량으로 본다(2026-09-30 사용자 지정).
 // 불량도 먼저 입고로 잡힌 뒤 불량창고로 옮겨지므로 수율 = (입고 − 불량) ÷ 입고. TTL에는 곱해 넣고,
 // "사출제외" 값(렌즈 공정 곱)은 totalExInjection으로 따로 낸다(2026-09-30 사용자 요청).
 function injectionYield(db: DatabaseSync, from: string, to: string): number | null {
@@ -477,7 +477,16 @@ function injectionYield(db: DatabaseSync, from: string, to: string): number | nu
        WHERE from_warehouse = '사출창고' AND to_warehouse = '불량창고' AND transfer_date BETWEEN ? AND ?`
     )
     .get(from, to) as { s: number | null };
-  return Math.max(0, (received - (row.s ?? 0)) / received);
+  // 2026-10-16 사용자 요청: MOLD입고현황(예외입고)에서 입고창고가 불량창고로 잡힌 입고량도 불량에 포함한다.
+  // 분모(입고 합계)는 창고 구분 없이 모든 입고를 더한 값이라 불량창고 입고분이 이미 들어 있어 이중 계산이 아니다.
+  const moldDefect = db
+    .prepare(
+      `SELECT SUM(CAST(json_extract(detail, '$."입고량"') AS REAL)) s FROM mold_receipt_status
+       WHERE warehouse = '불량창고' AND json_extract(detail, '$."품목군"') IN ('상몰드', '하몰드')
+         AND receipt_date BETWEEN ? AND ?`
+    )
+    .get(from, to) as { s: number | null };
+  return Math.max(0, (received - (row.s ?? 0) - (moldDefect.s ?? 0)) / received);
 }
 
 function yieldBetween(db: DatabaseSync, from: string, to: string): Omit<WeeklyYieldRow, "weekLabel"> {

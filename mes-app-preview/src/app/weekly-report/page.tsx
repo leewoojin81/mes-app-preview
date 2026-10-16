@@ -523,7 +523,7 @@ function YieldSection({ result: r }: { result: WeeklyReportResult }) {
       </div>
       {exInjection && <p className="text-sm text-slate-700">☞ {exInjection}</p>}
       <p className="text-xs text-slate-400">
-        사출 수율 = (MOLD입고 − 사출창고→불량창고 이동) ÷ MOLD입고 · TTL = 사출 × 렌즈 공정 수율의 곱, 사출제외 = 렌즈 공정 수율의 곱
+        사출 수율 = (MOLD입고 − 사출창고→불량창고 이동 − MOLD입고의 불량창고 입고) ÷ MOLD입고 · TTL = 사출 × 렌즈 공정 수율의 곱, 사출제외 = 렌즈 공정 수율의 곱
       </p>
     </>
   );
