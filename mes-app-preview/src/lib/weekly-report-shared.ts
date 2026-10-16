@@ -154,3 +154,13 @@ export interface WeeklyReportResult {
   defect: WeeklyDefectRow[];
 }
 
+
+/**
+ * 수율 문장(당주 / 전주 / 전주 比)의 소수 자릿수. 기본은 소수 첫째 자리인데, 반올림한 당주·전주 값의 차이가
+ * 반올림한 차이와 어긋나 보이면(예: 83.6% · 87.4% 인데 3.7% 감소) 혼동을 줄이기 위해 둘째 자리까지 보여준다
+ * (2026-10-16 사용자 요청). 값은 0~1 비율이다.
+ */
+export function yieldDigits(cur: number | null, prev: number | null, diff: number | null): 1 | 2 {
+  if (cur == null || prev == null || diff == null) return 1;
+  return Math.round(cur * 1000) - Math.round(prev * 1000) === Math.round(diff * 1000) ? 1 : 2;
+}

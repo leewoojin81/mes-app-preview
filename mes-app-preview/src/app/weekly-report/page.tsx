@@ -6,6 +6,7 @@ import {
   WEEKLY_DEFECT_TABLE1,
   WEEKLY_DEFECT_TABLE2,
   WEEKLY_YIELD_PROCESSES,
+  yieldDigits,
   type WeeklyPackagingBlock,
   type WeeklyPlanBlock,
   type WeeklyPrintingBlock,
@@ -481,10 +482,11 @@ function PrintingTable({ block: p }: { block: WeeklyPrintingBlock }) {
 function YieldSection({ result: r }: { result: WeeklyReportResult }) {
   const line = (label: string, cur: number | null, prev: number | null, diff: number | null): string | null => {
     if (cur == null) return null;
-    let s = `${label} : ${fmtPct(cur, 1)}`;
+    const nd = yieldDigits(cur, prev, diff);
+    let s = `${label} : ${fmtPct(cur, nd)}`;
     if (prev != null && diff != null) {
-      const d = Math.abs(diff * 100).toFixed(1);
-      s += ` (전주 : ${fmtPct(prev, 1)} 전주 比 ${Math.abs(diff) < 0.0005 ? "동일" : diff > 0 ? `${d}% 증가` : `${d}% 감소`})`;
+      const d = Math.abs(diff * 100).toFixed(nd);
+      s += ` (전주 : ${fmtPct(prev, nd)} 전주 比 ${Math.abs(diff) < 0.0005 ? "동일" : diff > 0 ? `${d}% 증가` : `${d}% 감소`})`;
     }
     return s;
   };

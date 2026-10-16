@@ -5,6 +5,7 @@ import {
   WEEKLY_DEFECT_TABLE1,
   WEEKLY_DEFECT_TABLE2,
   WEEKLY_YIELD_PROCESSES,
+  yieldDigits,
   type WeeklyPackagingBlock,
   type WeeklyPackagingRow,
   type WeeklyPlanBlock,
@@ -277,11 +278,12 @@ function yieldTable(r: WeeklyReportResult): string {
 
 function yieldLine(label: string, cur: number | null, prev: number | null, diff: number | null): string | null {
   if (cur == null) return null;
-  let s = `${label} : ${pct(cur, 1)}`;
+  const nd = yieldDigits(cur, prev, diff);
+  let s = `${label} : ${pct(cur, nd)}`;
   if (prev != null && diff != null) {
-    const d = Math.abs(diff * 100).toFixed(1);
+    const d = Math.abs(diff * 100).toFixed(nd);
     const dir = Math.abs(diff) < 0.0005 ? "동일" : diff > 0 ? `${d}% 증가` : `${d}% 감소`;
-    s += ` (전주 : ${pct(prev, 1)} 전주 比 ${dir})`;
+    s += ` (전주 : ${pct(prev, nd)} 전주 比 ${dir})`;
   }
   return s;
 }
