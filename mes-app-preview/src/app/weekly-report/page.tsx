@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import MonthlyReportView from "@/components/reports/MonthlyReportView";
 import { useTabState } from "@/lib/use-tab-state";
 import {
   WEEKLY_DEFECT_TABLE1,
@@ -63,14 +64,45 @@ function EqualCols({ n }: { n: number }) {
 const thCls = "px-2 py-1.5 text-center font-semibold text-slate-700 bg-slate-100 border border-slate-300";
 const tdCls = "px-2 py-1.5 text-center font-mono border border-slate-300";
 
+type ReportTab = "report" | "summary" | "monthly";
+
+// PROD-11 업무보고 — 주간보고 / 주간요약 / 월간보고 3탭(2026-10-19 사용자 요청: 예전 PROD-12 월간업무보고를 탭으로 통합).
 export default function WeeklyReportPage() {
+  const [tab, setTab] = useTabState<ReportTab>("wrTab", "report");
+  const tabBar = (
+    <div className="flex items-center gap-1 border-b border-slate-200">
+      {(
+        [
+          { key: "report", label: "주간보고" },
+          { key: "summary", label: "주간요약" },
+          { key: "monthly", label: "월간보고" },
+        ] as const
+      ).map((t) => (
+        <button
+          key={t.key}
+          onClick={() => setTab(t.key)}
+          className={`px-4 py-2.5 -mb-px text-sm font-semibold border-b-2 transition-colors ${
+            tab === t.key ? "text-navy border-navy" : "text-slate-400 border-transparent hover:text-slate-600"
+          }`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+  return tab === "monthly" ? (
+    <MonthlyReportView tabBar={tabBar} />
+  ) : (
+    <WeeklyReportView tab={tab} tabBar={tabBar} />
+  );
+}
+
+function WeeklyReportView({ tab, tabBar }: { tab: "report" | "summary"; tabBar: ReactNode }) {
   // ""이면 서버가 이미 끝난 가장 최근 금~목 주차를 고른다.
   const [date, setDate] = useState("");
   const [result, setResult] = useState<WeeklyReportResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
-  // 주간업무보고(전체 보고서 + Word 다운로드) / 요약(생산실적·수율 추이 + 요약 다운로드) 탭(2026-10-14 사용자 요청)
-  const [tab, setTab] = useTabState<"report" | "summary">("wrTab", "report");
 
   useEffect(() => {
     let cancelled = false;
@@ -96,7 +128,7 @@ export default function WeeklyReportPage() {
     <div className="w-full px-4 sm:px-6 py-8 space-y-6">
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-navy">주간업무보고</h1>
+          <h1 className="text-2xl font-bold text-navy">업무보고</h1>
           <p className="text-sm text-slate-500 mt-1">
             PROD-11 · 생산팀 주간 업무 서식 · 주차는 금~목 기준 · 수율·불량은 불량종합현황(PROD-07), 계획은 계획정보(PLAN-02)
             연동
@@ -145,24 +177,7 @@ export default function WeeklyReportPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1 border-b border-slate-200">
-        {(
-          [
-            { key: "report", label: "주간업무보고" },
-            { key: "summary", label: "요약" },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2.5 -mb-px text-sm font-semibold border-b-2 transition-colors ${
-              tab === t.key ? "text-navy border-navy" : "text-slate-400 border-transparent hover:text-slate-600"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {tabBar}
 
       {loading && !result && <div className="text-center py-20 text-slate-400">불러오는 중...</div>}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   WEEKLY_DEFECT_TABLE1,
   WEEKLY_DEFECT_TABLE2,
@@ -9,7 +9,7 @@ import {
 } from "@/lib/weekly-report-shared";
 import type { MonthlyPrintingBlock, MonthlyProductionRow, MonthlyReportResult, MonthlyTrendPoint } from "@/lib/monthly-report-shared";
 
-// PROD-12 월간업무보고 — 서식 "생산팀 월간 업무.docx"와 같은 구성(1. 공정별 생산실적 및 생산성 / 2. 생산 수율 /
+// PROD-11 월간보고 탭 — 서식 "생산팀 월간 업무.docx"와 같은 구성(1. 공정별 생산실적 및 생산성 / 2. 생산 수율 /
 // 3. 주요공정 불량률 / 4. 이슈사항)을 화면에서 미리 보고 Word(.docx)로 내려받는다. 집계 규칙은 src/lib/monthly-report.ts 참고.
 
 function shiftMonth(ym: string, delta: number): string {
@@ -39,7 +39,7 @@ function fmtUnits(n: number | null): string {
 const thCls = "px-2 py-1.5 text-center font-semibold text-slate-700 bg-slate-100 border border-slate-300";
 const tdCls = "px-2 py-1.5 text-center font-mono border border-slate-300";
 
-export default function MonthlyReportPage() {
+export default function MonthlyReportView({ tabBar }: { tabBar: ReactNode }) {
   // ""이면 서버가 이미 끝난 가장 최근 달을 고른다.
   const [month, setMonth] = useState("");
   const [result, setResult] = useState<MonthlyReportResult | null>(null);
@@ -85,9 +85,9 @@ export default function MonthlyReportPage() {
     <div className="w-full px-4 sm:px-6 py-8 space-y-6">
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-navy">월간업무보고</h1>
+          <h1 className="text-2xl font-bold text-navy">업무보고</h1>
           <p className="text-sm text-slate-500 mt-1">
-            PROD-12 · 생산팀 월간 업무 서식 · 생산량은 일일작업현황(PROD-10), 수율·불량은 불량종합현황(PROD-07), 근무시간은 근무시간입력(PSN-01) 연동
+            PROD-11 · 생산팀 월간 업무 서식 · 생산량은 일일작업현황(PROD-10), 수율·불량은 불량종합현황(PROD-07), 근무시간은 근무시간입력(PSN-01) 연동
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -128,6 +128,8 @@ export default function MonthlyReportPage() {
           </a>
         </div>
       </div>
+
+      {tabBar}
 
       {loading && !result && <div className="text-center py-20 text-slate-400">불러오는 중...</div>}
 
