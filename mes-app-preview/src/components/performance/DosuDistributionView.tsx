@@ -41,7 +41,7 @@ function formatSignedDosu(v: number): string {
 
 type Mode = "summary" | "hema";
 
-export default function DosuDistributionPage() {
+export default function DosuDistributionView() {
   const [model, setModel] = useTabState("doModel", "");
   const [mold, setMold] = useTabState("doMold", "");
   // 지시도수 필터 — 값은 문자열로 들고 있다가(select value) 쿼리 파라미터로 그대로
@@ -115,9 +115,9 @@ export default function DosuDistributionPage() {
   return (
     <div className="w-full px-4 sm:px-6 py-6 space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-navy">형명별/몰드별/지시도수별 도수 분포 분석</h1>
+        <h2 className="text-base font-bold text-navy">형명별/몰드별/지시도수별 도수 분포 분석</h2>
         <p className="text-sm text-slate-500 mt-1">
-          QC-04 · 일일작업현황(PROD-10) 데이터를 도수1/도수2/도수3 샘플 단위로 재집계 ·
+          성능 분석 · 일일작업현황(PROD-10) 데이터를 도수1/도수2/도수3 샘플 단위로 재집계 ·
           형명+몰드코드+지시도수 조합마다 별도 표(지시도수 내림차순 나열) · 지시도수를
           정중앙에 둔 1/8D 간격 11칸 분포 히트맵 · 형명·몰드 요약(작업월별) 또는
           HEMA No별 상세는 우측 토글에서 전환

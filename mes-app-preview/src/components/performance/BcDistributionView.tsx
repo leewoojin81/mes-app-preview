@@ -35,7 +35,7 @@ function firstDayOfMonth(): string {
 
 type Mode = "summary" | "hema";
 
-export default function BcDistributionPage() {
+export default function BcDistributionView() {
   const [model, setModel] = useTabState("bcModel", "");
   const [mold, setMold] = useTabState("bcMold", "");
   const [dateFrom, setDateFrom] = useTabState("bcDateFrom", firstDayOfMonth);
@@ -105,9 +105,9 @@ export default function BcDistributionPage() {
   return (
     <div className="w-full px-4 sm:px-6 py-6 space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-navy">형명별/몰드별/원료LOT별 B.C 분포 분석</h1>
+        <h2 className="text-base font-bold text-navy">형명별/몰드별/원료LOT별 B.C 분포 분석</h2>
         <p className="text-sm text-slate-500 mt-1">
-          QC-02 · 일일작업현황(PROD-10) 데이터를 B.C1/B.C2/B.C3 샘플 단위로 재집계 ·
+          성능 분석 · 일일작업현황(PROD-10) 데이터를 B.C1/B.C2/B.C3 샘플 단위로 재집계 ·
           형명·몰드 요약(작업월별) 또는 HEMA No별 상세(우측 토글에서 전환) 0.05 구간
           분포 히트맵
         </p>

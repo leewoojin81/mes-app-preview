@@ -78,9 +78,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "품질관리",
     children: [
       { href: "/dosu-trend", label: "도수변경현황", code: "QC-01" },
-      { href: "/bc-distribution", label: "B.C 분포 분석", code: "QC-02" },
-      { href: "/diameter-distribution", label: "직경 분포 분석", code: "QC-03" },
-      { href: "/dosu-distribution", label: "도수 분포 분석", code: "QC-04" },
+      { href: "/performance-analysis", label: "성능 분석", code: "QC-02" },
     ],
   },
   {
