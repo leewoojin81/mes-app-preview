@@ -1394,12 +1394,13 @@ function ManualTab() {
 }
 
 export default function PackagingPlanPage() {
-  const [tab, setTab] = useTabState<"schedule" | "plan" | "manual" | "due">("pkTab", "plan");
+  const [tab, setTab] = useTabState<"schedule" | "plan" | "manual" | "due" | "line">("pkTab", "plan");
   const tabs = [
     { id: "plan", label: "생산계획" },
     { id: "schedule", label: "일정(계획)" },
     { id: "manual", label: "일정(수기)" },
     { id: "due", label: "납기진행" },
+    { id: "line", label: "라인별" },
   ] as const;
   return (
     <div className="w-full px-4 sm:px-6 pb-6 space-y-5">
@@ -1421,7 +1422,7 @@ export default function PackagingPlanPage() {
       </div>
       <div id="pk-sticky-slot" />
       </div>
-      {tab === "schedule" ? <ScheduleTab /> : tab === "manual" ? <ManualTab /> : tab === "due" ? <DueProgressTab /> : <PackagingSummaryTab />}
+      {tab === "schedule" || tab === "line" ? <ScheduleTab /> : tab === "manual" ? <ManualTab /> : tab === "due" ? <DueProgressTab /> : <PackagingSummaryTab />}
     </div>
   );
 }
