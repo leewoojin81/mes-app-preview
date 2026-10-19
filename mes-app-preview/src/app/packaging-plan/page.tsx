@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
-import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent, type Modifier } from "@dnd-kit/core";
 import SoDndCell, { dropAllowed, type BlockDragData } from "./SoDndCell";
 import PackagingSummaryTab from "./PackagingSummaryTab";
 import DueProgressTab from "./DueProgressTab";
@@ -246,13 +246,58 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
 
   useEffect(load, [load]);
 
-  // 라인별 탭의 블록 드래그&드롭 이동 — 서버가 삽입 후 밀기로 옮기고, 끝나면 일정을 다시 읽는다
+  // 라인별 탭의 블록 드래그&드롭 이동 — 블록(라인×일자, 고객사~팩수) 전체를 카드처럼 떼어 끌고, 놓은 날짜 블록을 서버가 삽입 후 밀기로 옮긴다.
+  // 놓을 자리는 마우스 아래 칸의 data-blk(라인|날짜)로 찾는다(수주번호 칸만이 아니라 블록 어느 칸 위든 된다).
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const blockStarters = useRef(new Map<string, (e: React.PointerEvent) => void>());
+  const registerBlock = useCallback((key: string, starter: ((e: React.PointerEvent) => void) | null) => {
+    if (starter) blockStarters.current.set(key, starter);
+    else blockStarters.current.delete(key);
+  }, []);
+  const [hoverBlk, setHoverBlk] = useState<string | null>(null);
+  const [dragSrc, setDragSrc] = useState<BlockDragData | null>(null);
+  const [overBlk, setOverBlk] = useState<string | null>(null);
+  const overBlkRef = useRef<string | null>(null);
+  const [dragCard, setDragCard] = useState<{ title: string; rows: { label: string; value: string }[] } | null>(null);
+  const blkOf = (el: Element | null | undefined): string | null => el?.closest("td[data-blk]")?.getAttribute("data-blk") ?? null;
+  function handleBlockDragStart(e: DragStartEvent) {
+    const a = e.active.data.current as BlockDragData | undefined;
+    if (!a) return;
+    setDragSrc(a);
+    setHoverBlk(null);
+    const rows = [...document.querySelectorAll(`td[data-blk="${a.line}|${a.date}"]`)]
+      .map((td) => {
+        const label = td.closest("tr")?.querySelector("td.sticky.left-28")?.textContent?.trim() ?? "";
+        const inp = td.querySelector("input");
+        return { label, value: ((inp ? inp.value : td.textContent) ?? "").trim() };
+      })
+      .filter((r) => r.label && r.value);
+    const lineLabel = result?.lines.find((l) => l.key === a.line)?.label ?? a.line;
+    setDragCard({ title: `${lineLabel} · ${mmdd(a.date)} (${DAY_NAMES[weekdayOf(a.date)]})`, rows });
+  }
+  // 드래그 중에는 마우스 아래 블록을 계속 따라간다
+  useEffect(() => {
+    if (!dragSrc) return;
+    const onMove = (ev: PointerEvent) => {
+      const k = blkOf(document.elementsFromPoint(ev.clientX, ev.clientY).find((el) => el.matches("td[data-blk]")));
+      overBlkRef.current = k;
+      setOverBlk(k);
+    };
+    window.addEventListener("pointermove", onMove);
+    return () => window.removeEventListener("pointermove", onMove);
+  }, [dragSrc]);
+  function endBlockDrag() {
+    setDragSrc(null);
+    setDragCard(null);
+    setOverBlk(null);
+    overBlkRef.current = null;
+  }
   async function handleBlockDragEnd(e: DragEndEvent) {
     const a = e.active.data.current as BlockDragData | undefined;
-    const overId = e.over ? String(e.over.id) : "";
-    if (!a || !overId.startsWith("drop|")) return;
-    const [, line, date] = overId.split("|");
+    const over = overBlkRef.current;
+    endBlockDrag();
+    if (!a || !over) return;
+    const [line, date] = over.split("|");
     if (!dropAllowed(a, line, date, dayKind(date, calendar) !== null, date < today())) return;
     try {
       const res = await fetch("/api/packaging-schedule/move", {
@@ -272,6 +317,28 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
       setToast("이동에 실패했습니다.");
     }
   }
+  // 오버레이 카드가 마우스 오른쪽 아래에 매달리게 한다(끌기 시작한 칸 위치와 상관없이)
+  const cardModifier: Modifier = ({ transform, activatorEvent, draggingNodeRect }) => {
+    if (!draggingNodeRect || !activatorEvent) return transform;
+    const ev = activatorEvent as PointerEvent;
+    return { ...transform, x: ev.clientX + transform.x - draggingNodeRect.left + 14, y: ev.clientY + transform.y - draggingNodeRect.top + 14 };
+  };
+  // 블록 단위 색 표시 — 마우스를 올리면 블록 전체가 파랗게, 끌고 있으면 원래 블록은 흐리게·놓을 수 있는 날짜는 연초록·지금 올라간 날짜는 진초록(못 놓으면 빨강)
+  const blockCss = useMemo(() => {
+    const tint = (k: string, rgba: string, edge: string) =>
+      `td[data-blk="${k}"] input { box-shadow: inset 0 0 0 9999px ${rgba} !important; }` +
+      `td[data-blk="${k}"] { box-shadow: inset 0 0 0 9999px ${rgba}, inset 2px 0 0 ${edge}, inset -2px 0 0 ${edge} !important; }`;
+    if (!dragSrc) return hoverBlk ? tint(hoverBlk, "rgba(59,130,246,0.13)", "#3b82f6") + `td[data-blk="${hoverBlk}"]{cursor:grab}` : "";
+    let css = `td[data-blk="${dragSrc.line}|${dragSrc.date}"]{opacity:.35} body{user-select:none}`;
+    for (const d of dates) {
+      if (d === dragSrc.date) continue;
+      const ok = dropAllowed(dragSrc, dragSrc.line, d, dayKind(d, calendar) !== null, d < today());
+      const k = `${dragSrc.line}|${d}`;
+      if (overBlk === k) css += tint(k, ok ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)", ok ? "#16a34a" : "#dc2626") + (ok ? "" : `td[data-blk="${k}"]{cursor:not-allowed}`);
+      else if (ok) css += tint(k, "rgba(34,197,94,0.10)", "transparent");
+    }
+    return css;
+  }, [dragSrc, hoverBlk, overBlk, dates, calendar]);
 
   useEffect(() => {
     if (!toast) return;
@@ -596,7 +663,8 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
-        <DndContext sensors={dndSensors} onDragEnd={handleBlockDragEnd}>
+        {dragEnabled && blockCss && <style>{blockCss}</style>}
+        <DndContext sensors={dndSensors} modifiers={[cardModifier]} onDragStart={handleBlockDragStart} onDragEnd={handleBlockDragEnd} onDragCancel={endBlockDrag}>
         <div className="overflow-auto max-h-[calc(100vh-17rem)]">
           <table className="text-xs border-collapse">
             <thead>
@@ -631,7 +699,27 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
                 })}
               </tr>
             </thead>
-            <tbody>
+            <tbody
+              onPointerDown={
+                dragEnabled
+                  ? (e) => {
+                      // 블록의 수주번호 칸이 아닌 칸(고객사·품목군·계획 등)을 눌러도 같은 블록 드래그를 시작한다
+                      const td = (e.target as HTMLElement).closest("td[data-blk]");
+                      if (!td || td.getAttribute("role") === "button") return;
+                      blockStarters.current.get(td.getAttribute("data-blk") ?? "")?.(e);
+                    }
+                  : undefined
+              }
+              onMouseOver={
+                dragEnabled && !dragSrc
+                  ? (e) => {
+                      const k = blkOf(e.target as Element);
+                      setHoverBlk(k && blockStarters.current.has(k) ? k : null);
+                    }
+                  : undefined
+              }
+              onMouseLeave={dragEnabled ? () => setHoverBlk(null) : undefined}
+            >
               {loading && (
                 <tr>
                   <td colSpan={2 + dates.length} className="text-center py-10 text-slate-400">
@@ -681,7 +769,7 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
                               {dates.map((d) => {
                                 const q = orderQtyShown.get(`${line.key}|${d}`);
                                 return (
-                                  <td key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 px-1.5 py-1 text-right font-mono">
+                                  <td key={d} data-blk={`${line.key}|${d}`} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 px-1.5 py-1 text-right font-mono">
                                     {q && q > 0 ? fmtNum(q) : ""}
                                   </td>
                                 );
@@ -699,6 +787,7 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
                                 return (
                                   <td
                                     key={d}
+                                    data-blk={`${line.key}|${d}`}
                                     title={
                                       a
                                         ? a.details
@@ -726,6 +815,7 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
                                 return (
                                   <td
                                     key={d}
+                                    data-blk={`${line.key}|${d}`}
                                     style={{
                                       ...dayFill(d, calendar),
                                       ...weekEdge(d),
@@ -753,7 +843,7 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
                                 const qty = Number((drafts[key3(line.key, d, "plan_qty")] ?? "").replace(/,/g, ""));
                                 const pn = packNumber(drafts[key3(line.key, d, "pack_size")]);
                                 return (
-                                  <td key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-500">
+                                  <td key={d} data-blk={`${line.key}|${d}`} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-500">
                                     {qty > 0 && pn ? fmtNum(qty / pn) : ""}
                                   </td>
                                 );
@@ -774,7 +864,7 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
                                 const k = key3(line.key, d, "plan_qty");
                                 const hasSo = (drafts[key3(line.key, d, "so_no")] ?? "").trim() !== "";
                                 return (
-                                  <td key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 p-0">
+                                  <td key={d} data-blk={`${line.key}|${d}`} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 p-0">
                                     <input
                                       value={drafts[k] ?? ""}
                                       disabled={!hasSo}
@@ -796,6 +886,7 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
                                 return (
                                   <td
                                     key={d}
+                                    data-blk={`${line.key}|${d}`}
                                     title={lateDays > 0 ? `납기 지연 ${lateDays}일 (납기 ${dueStr} · 계획 ${d})` : undefined}
                                     style={{
                                       ...dayFill(d, calendar),
@@ -876,14 +967,14 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
                                   line={line.key}
                                   date={d}
                                   so={drafts[key3(line.key, d, "so_no")] ?? ""}
-                                  off={dayKind(d, calendar) !== null}
                                   past={d < today()}
+                                  register={registerBlock}
                                   style={cellStyle}
                                 >
                                   {cellInput}
                                 </SoDndCell>
                               ) : (
-                                <td key={d} style={cellStyle} className="border border-slate-200 p-0">
+                                <td key={d} data-blk={`${line.key}|${d}`} style={cellStyle} className="border border-slate-200 p-0">
                                   {cellInput}
                                 </td>
                               );
@@ -897,6 +988,24 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
             </tbody>
           </table>
         </div>
+          <DragOverlay dropAnimation={null}>
+            {dragCard && (
+              <div
+                style={{ transform: "rotate(2deg)", pointerEvents: "none" }}
+                className="w-48 rounded-lg border-2 border-blue-500 bg-white shadow-2xl text-xs overflow-hidden"
+              >
+                <div className="bg-blue-500 text-white px-2 py-1 font-semibold">{dragCard.title}</div>
+                <div className="px-2 py-1 space-y-0.5">
+                  {dragCard.rows.map((r) => (
+                    <div key={r.label} className="flex gap-2">
+                      <span className="w-12 shrink-0 text-slate-400">{r.label}</span>
+                      <span className="text-slate-700 truncate">{r.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </DragOverlay>
         </DndContext>
       </div>
 
