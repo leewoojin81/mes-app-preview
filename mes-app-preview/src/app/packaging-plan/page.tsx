@@ -4,6 +4,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
+import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import SoDndCell, { dropAllowed, type BlockDragData } from "./SoDndCell";
 import PackagingSummaryTab from "./PackagingSummaryTab";
 import DueProgressTab from "./DueProgressTab";
 import type { ManualMeta } from "@/lib/packaging-manual-schedule";
@@ -172,7 +174,7 @@ function anyPlan(p: { text: string; plans: Record<string, string> }): boolean {
   return splitSoNos(p.text).some((t) => (p.plans[t] ?? "").replace(/,/g, "").trim() !== "");
 }
 
-function ScheduleTab() {
+function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
   const [from, setFrom] = useTabState("pkFrom", today);
   const [days, setDays] = useTabState("pkDays", 28);
   const [result, setResult] = useState<PackagingScheduleResult | null>(null);
@@ -243,6 +245,33 @@ function ScheduleTab() {
   }, [from, days]);
 
   useEffect(load, [load]);
+
+  // 라인별 탭의 블록 드래그&드롭 이동 — 서버가 삽입 후 밀기로 옮기고, 끝나면 일정을 다시 읽는다
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  async function handleBlockDragEnd(e: DragEndEvent) {
+    const a = e.active.data.current as BlockDragData | undefined;
+    const overId = e.over ? String(e.over.id) : "";
+    if (!a || !overId.startsWith("drop|")) return;
+    const [, line, date] = overId.split("|");
+    if (!dropAllowed(a, line, date, dayKind(date, calendar) !== null, date < today())) return;
+    try {
+      const res = await fetch("/api/packaging-schedule/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lineKey: line, fromDate: a.date, toDate: date, mode: "push" }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setToast(d.error ?? "이동에 실패했습니다.");
+        return;
+      }
+      const n = (d.moved ?? []).filter((m: { dragged: boolean }) => !m.dragged).length;
+      setToast(`${mmdd(a.date)} → ${mmdd(date)} 이동 완료${n > 0 ? ` (뒤 블록 ${n}개 밀림)` : ""}`);
+      load();
+    } catch {
+      setToast("이동에 실패했습니다.");
+    }
+  }
 
   useEffect(() => {
     if (!toast) return;
@@ -567,6 +596,7 @@ function ScheduleTab() {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+        <DndContext sensors={dndSensors} onDragEnd={handleBlockDragEnd}>
         <div className="overflow-auto max-h-[calc(100vh-17rem)]">
           <table className="text-xs border-collapse">
             <thead>
@@ -789,8 +819,8 @@ function ScheduleTab() {
                                       result.missingSoNos.includes(t)
                                     )
                                   : [];
-                              return (
-                                <td key={d} style={{ ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge }} className="border border-slate-200 p-0">
+                              const cellStyle = { ...dayFill(d, calendar), ...weekEdge(d), ...blockEdge };
+                              const cellInput = (
                                   <input
                                     id={inputId(line.key, d, f)}
                                     value={
@@ -839,6 +869,22 @@ function ScheduleTab() {
                                         : "bg-transparent"
                                     } ${f === "plan_qty" ? "text-right font-mono" : "text-center"}`}
                                   />
+                              );
+                              return dragEnabled && f === "so_no" ? (
+                                <SoDndCell
+                                  key={d}
+                                  line={line.key}
+                                  date={d}
+                                  so={drafts[key3(line.key, d, "so_no")] ?? ""}
+                                  off={dayKind(d, calendar) !== null}
+                                  past={d < today()}
+                                  style={cellStyle}
+                                >
+                                  {cellInput}
+                                </SoDndCell>
+                              ) : (
+                                <td key={d} style={cellStyle} className="border border-slate-200 p-0">
+                                  {cellInput}
                                 </td>
                               );
                             })}
@@ -851,6 +897,7 @@ function ScheduleTab() {
             </tbody>
           </table>
         </div>
+        </DndContext>
       </div>
 
       {!loading && weekly.length > 0 && (
@@ -1422,7 +1469,7 @@ export default function PackagingPlanPage() {
       </div>
       <div id="pk-sticky-slot" />
       </div>
-      {tab === "schedule" || tab === "line" ? <ScheduleTab /> : tab === "manual" ? <ManualTab /> : tab === "due" ? <DueProgressTab /> : <PackagingSummaryTab />}
+      {tab === "schedule" ? <ScheduleTab /> : tab === "line" ? <ScheduleTab dragEnabled /> : tab === "manual" ? <ManualTab /> : tab === "due" ? <DueProgressTab /> : <PackagingSummaryTab />}
     </div>
   );
 }
