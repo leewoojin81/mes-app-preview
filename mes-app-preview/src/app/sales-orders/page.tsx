@@ -247,32 +247,61 @@ export default function SalesOrdersPage() {
             SALES-02 · 거래처 주문 접수 및 상태 관리 (수주 → Packing → 출고 → 완료/중단) · 원본 엑셀 전체 컬럼 표시
           </p>
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => {
+              const params = new URLSearchParams();
+              if (filter !== "전체") params.set("status", filter);
+              if (customerSearch) params.set("customer", customerSearch);
+              if (soNoSearch) params.set("soNo", soNoSearch);
+              if (dateFrom) params.set("dateFrom", dateFrom);
+              if (dateTo) params.set("dateTo", dateTo);
+              window.location.href = `/api/sales-orders/export?${params.toString()}`;
+            }}
+            className="px-3.5 py-2 rounded-md text-sm font-medium bg-emerald-700 text-white hover:bg-emerald-800 transition-colors"
+          >
+            엑셀 다운로드
+          </button>
+          <button
+            onClick={() => setShowUpload(true)}
+            className="px-3.5 py-2 rounded-md text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:border-navy transition-colors"
+          >
+            엑셀 업로드
+          </button>
         <button
           onClick={() => setShowBulk(true)}
           className="bg-navy text-white text-sm font-medium px-4 py-2.5 rounded-md hover:bg-navy-light transition-colors"
         >
           + 수주등록
         </button>
+        </div>
       </div>
 
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex gap-2 flex-wrap">
-          <select
-            value={filter}
-            onChange={(e) => {
-              setFilter(e.target.value as (typeof FILTER_TABS)[number]);
-              setPage(1);
-            }}
-            className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white text-slate-600 font-medium"
-          >
-            {FILTER_TABS.map((tab) => (
-              <option key={tab} value={tab}>
-                {tab}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs font-medium text-slate-500 shrink-0">수주일자</label>
+            <DateSegmentInput
+              value={dateFrom}
+              onChange={(iso) => {
+                setDateFrom(iso);
+                setPage(1);
+              }}
+            />
+            <span className="text-slate-400 text-sm">~</span>
+            <DateSegmentInput
+              value={dateTo}
+              onChange={(iso) => {
+                setDateTo(iso);
+                setPage(1);
+              }}
+            />
+          </div>
+          <input
+            value={soNoSearchInput}
+            onChange={(e) => setSoNoSearchInput(e.target.value)}
+            placeholder="수주번호 검색"
+            className="border border-slate-300 rounded-md px-3 py-2 text-sm w-40"
+          />
           <div className="relative">
             <input
               value={customerSearchInput}
@@ -303,29 +332,6 @@ export default function SalesOrdersPage() {
               </ul>
             )}
           </div>
-          <input
-            value={soNoSearchInput}
-            onChange={(e) => setSoNoSearchInput(e.target.value)}
-            placeholder="수주번호 검색"
-            className="border border-slate-300 rounded-md px-3 py-2 text-sm w-40"
-          />
-          <div className="flex items-center gap-1.5">
-            <DateSegmentInput
-              value={dateFrom}
-              onChange={(iso) => {
-                setDateFrom(iso);
-                setPage(1);
-              }}
-            />
-            <span className="text-slate-400 text-sm">~</span>
-            <DateSegmentInput
-              value={dateTo}
-              onChange={(iso) => {
-                setDateTo(iso);
-                setPage(1);
-              }}
-            />
-          </div>
           <select
             value={pageSize}
             onChange={(e) => {
@@ -340,26 +346,21 @@ export default function SalesOrdersPage() {
               </option>
             ))}
           </select>
-          <button
-            onClick={() => {
-              const params = new URLSearchParams();
-              if (filter !== "전체") params.set("status", filter);
-              if (customerSearch) params.set("customer", customerSearch);
-              if (soNoSearch) params.set("soNo", soNoSearch);
-              if (dateFrom) params.set("dateFrom", dateFrom);
-              if (dateTo) params.set("dateTo", dateTo);
-              window.location.href = `/api/sales-orders/export?${params.toString()}`;
+          <select
+            value={filter}
+            onChange={(e) => {
+              setFilter(e.target.value as (typeof FILTER_TABS)[number]);
+              setPage(1);
             }}
-            className="px-3.5 py-2 rounded-md text-sm font-medium bg-emerald-700 text-white hover:bg-emerald-800 transition-colors"
+            className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white text-slate-600 font-medium"
           >
-            엑셀 다운로드
-          </button>
-          <button
-            onClick={() => setShowUpload(true)}
-            className="px-3.5 py-2 rounded-md text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:border-navy transition-colors"
-          >
-            엑셀 업로드
-          </button>
+            {FILTER_TABS.map((tab) => (
+              <option key={tab} value={tab}>
+                {tab}
+              </option>
+            ))}
+          </select>
+        <span className="mx-1 h-6 w-px bg-slate-300" aria-hidden />
           <button
             onClick={() => setShowBulkEdit(true)}
             disabled={selected.size === 0}
@@ -374,7 +375,6 @@ export default function SalesOrdersPage() {
           >
             선택 일괄삭제{selected.size > 0 ? ` (${selected.size})` : ""}
           </button>
-        </div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
