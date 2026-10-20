@@ -357,7 +357,7 @@ function dayLabelOf(dateStr: string): string {
 
 // MGMT-05 표 하단 그래프 — 선택한 라인의 올해 1월~전월은 월별 합계, 이번달(asOfDate가 속한 달)은
 // 1일~말일 전체를 일별로 이어 붙인 추이(그래프.JPG 참고: 월별 추이 뒤에 이번달 일별 실적이 붙는
-// 형태). 예전엔 "전일까지"만 그렸는데, 실적 입력이 기준일(asOfDate)보다 앞서 들어와 있는 날도
+// 형태). 이번달도 월별 점("10월", 1일~말일 합계)을 전월 바로 옆에 하나 더 둔다(사용자 요청). 예전엔 "전일까지"만 그렸는데, 실적 입력이 기준일(asOfDate)보다 앞서 들어와 있는 날도
 // 있어(공정마다 업로드 시점이 달라 기준일 이후 날짜에도 이미 데이터가 있을 수 있음) 2026-09-29
 // 사용자 요청으로 달 전체를 그리도록 바꿨다 — 데이터가 없는 날(미래/미입력)은 pushPoint가
 // 그냥 건너뛴다.
@@ -381,7 +381,7 @@ export function computeProductionTrend(
   // 일별 점은 그 날의 합계로 나눈다. 근무시간 기록이 없는 달/날은 UPH를 만들 근거가
   // 없어 0으로 그리지 않고 점 자체를 건너뛴다(PSN-01 데이터가 시작되기 전 달 등). 생산량이
   // 0이라 UPH가 0인 점도 같은 이유로 제외한다(2026-09-28 사용자 요청) — 평균도 나머지 점 기준.
-  const hoursByYm = hoursByKey(db, line.workProcessCode, yearStart, addDays(monthStart, -1), 7);
+  const hoursByYm = hoursByKey(db, line.workProcessCode, yearStart, monthEnd, 7);
   const hoursByDate = hoursByKey(db, line.workProcessCode, monthStart, monthEnd, 10);
 
   const points: ProductionTrendPoint[] = [];
@@ -397,10 +397,10 @@ export function computeProductionTrend(
       .prepare(
         `SELECT substr(receipt_date, 1, 7) ym, SUM(CAST(json_extract(detail, '$."입고량"') AS REAL)) s
          FROM mold_receipt_status
-         WHERE json_extract(detail, '$."품목군"') = ? AND receipt_date >= ? AND receipt_date < ?
+         WHERE json_extract(detail, '$."품목군"') = ? AND receipt_date BETWEEN ? AND ?
          GROUP BY ym ORDER BY ym`
       )
-      .all(group, yearStart, monthStart) as { ym: string; s: number | null }[];
+      .all(group, yearStart, monthEnd) as { ym: string; s: number | null }[];
     for (const r of monthRows) {
       pushPoint(monthLabelOf(r.ym), r.s ?? 0, hoursByYm.get(r.ym));
     }
@@ -423,10 +423,10 @@ export function computeProductionTrend(
       .prepare(
         `SELECT substr(work_date, 1, 7) ym, SUM(CAST(json_extract(detail, '$."양품수량"') AS REAL)) s
          FROM daily_work_status
-         WHERE process_code = ? AND work_date >= ? AND work_date < ?
+         WHERE process_code = ? AND work_date BETWEEN ? AND ?
          GROUP BY ym ORDER BY ym`
       )
-      .all(processCode, yearStart, monthStart) as { ym: string; s: number | null }[];
+      .all(processCode, yearStart, monthEnd) as { ym: string; s: number | null }[];
     for (const r of monthRows) {
       pushPoint(monthLabelOf(r.ym), r.s ?? 0, hoursByYm.get(r.ym));
     }
