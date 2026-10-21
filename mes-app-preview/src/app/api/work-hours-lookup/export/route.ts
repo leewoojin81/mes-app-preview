@@ -16,8 +16,8 @@ export const runtime = "nodejs";
 // 원본과 같은 컬럼(No/사번/공정/공정코드/성명/일자/정상/잔업/조출/중교/지각/조퇴/외출/지원)을
 // 내려준다 — 공정코드는 원본 파일엔 없던 컬럼이지만 화면 그리드에 이미 "공정"과 "성명"
 // 사이에 있어(2026-09-11 추가) 다운로드에도 같은 위치로 맞췄다(2026-09-15 사용자 요청).
-// 원본처럼 사번/공정/공정코드/성명은 각 작업자 블록의 첫 데이터행에만 채우고 나머지
-// 행은 비워둔다. 화면에만 있는 소계/전체합계 요약행도 작업자 블록마다, 그리고 맨
+// No/사번/공정/공정코드/성명은 일자별 모든 데이터행에 빈칸 없이 채운다(2026-10-21 사용자 요청 —
+// 예전엔 원본처럼 각 작업자 블록의 첫 행에만 채웠다). 화면에만 있는 소계/전체합계 요약행도 작업자 블록마다, 그리고 맨
 // 마지막에 한 줄씩 덧붙인다.
 //
 // 2026-09-08: workGroup/employeeNo가 둘 다 없어도 막지 않는다(화면과 동일하게
@@ -81,11 +81,11 @@ export async function GET(req: NextRequest) {
     const processCodeLabel = w.process_code ? `${w.process_code} · ${w.process_name ?? ""}` : "-";
     w.rows.forEach((r, idx) => {
       aoa.push([
-        idx === 0 ? wIdx + 1 : null,
-        idx === 0 ? w.employee_no : null,
-        idx === 0 ? w.work_group : null,
-        idx === 0 ? processCodeLabel : null,
-        idx === 0 ? w.worker_name : null,
+        wIdx + 1,
+        w.employee_no,
+        w.work_group,
+        processCodeLabel,
+        w.worker_name,
         r.work_date,
         r.normal_hours || null,
         r.overtime_hours || null,
