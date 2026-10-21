@@ -98,6 +98,8 @@ export default function CustomerMasterPage() {
   const [useFilter, setUseFilter] = useTabState<"" | "Y" | "N">("useFilter", "");
   const [typeFilter, setTypeFilter] = useTabState("typeFilter", "");
   const [keyword, setKeyword] = useTabState("keyword", "");
+  // 약칭이 등록된 거래처만 보기(2026-10-21 사용자 요청)
+  const [shortFilter, setShortFilter] = useTabState<"" | "Y" | "N">("shortFilter", "");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
@@ -125,6 +127,9 @@ export default function CustomerMasterPage() {
   const visibleRows = rows.filter((r) => {
     if (useFilter && r.use_yn !== useFilter) return false;
     if (typeFilter && r.customer_type !== typeFilter) return false;
+    const hasShort = (r.short_name ?? "").trim() !== "";
+    if (shortFilter === "Y" && !hasShort) return false;
+    if (shortFilter === "N" && hasShort) return false;
     if (keyword) {
       const k = keyword.trim().toLowerCase();
       if (
@@ -185,6 +190,15 @@ export default function CustomerMasterPage() {
               {t}
             </option>
           ))}
+        </select>
+        <select
+          value={shortFilter}
+          onChange={(e) => setShortFilter(e.target.value as "" | "Y" | "N")}
+          className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white text-slate-600"
+        >
+          <option value="">약칭 전체</option>
+          <option value="Y">약칭 있음</option>
+          <option value="N">약칭 없음</option>
         </select>
         <input
           value={keyword}
