@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull, strVal } from "@/lib/item-fields";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,7 @@ export async function GET(req: NextRequest) {
 // 작업자 등록
 export async function POST(req: NextRequest) {
   const db = getDb();
+  markHistoryActor(db, req);
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
   const body = await req.json().catch(() => null);
   if (!body) {

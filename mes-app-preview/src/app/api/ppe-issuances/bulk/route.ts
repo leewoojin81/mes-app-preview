@@ -4,6 +4,7 @@ import type { PpeItem } from "@/lib/types";
 import { nextDueDateAfterIssuance } from "@/lib/ppe";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
 import { ENTITY_TYPE_WORKER, logFieldChanges, WORKER_TRACKED_FIELDS } from "@/lib/master-data-history";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
   }
 
   const db = getDb();
+  markHistoryActor(db, req, { skipTracked: true });
   const items = new Map(
     (db.prepare("SELECT * FROM ppe_items").all() as unknown as PpeItem[]).map((i) => [i.item_code, i])
   );

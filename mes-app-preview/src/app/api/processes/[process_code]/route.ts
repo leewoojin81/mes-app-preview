@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull, strVal, timeOrNull } from "@/lib/item-fields";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,7 @@ export async function PATCH(
 ) {
   const { process_code: processCode } = await params;
   const db = getDb();
+  markHistoryActor(db, req);
   const existing = db
     .prepare("SELECT * FROM processes WHERE process_code = ?")
     .get(processCode);
@@ -127,6 +129,7 @@ export async function DELETE(
 ) {
   const { process_code: processCode } = await params;
   const db = getDb();
+  markHistoryActor(db, _req);
   const result = db.prepare("DELETE FROM processes WHERE process_code = ?").run(processCode);
   if (result.changes === 0) {
     return NextResponse.json({ error: "공정을 찾을 수 없습니다." }, { status: 404 });

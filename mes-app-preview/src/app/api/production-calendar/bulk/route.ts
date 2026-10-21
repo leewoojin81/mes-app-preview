@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { DatabaseSync } from "node:sqlite";
 import { getDb } from "@/lib/db";
 import { strOrNull } from "@/lib/item-fields";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -75,6 +76,7 @@ function applyWeekdayDefault(db: DatabaseSync, year: number): number {
 
 export async function POST(req: NextRequest) {
   const db = getDb();
+  markHistoryActor(db, req);
   const body = await req.json().catch(() => null);
   if (!body || typeof body.action !== "string") {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });

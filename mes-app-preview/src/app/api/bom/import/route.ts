@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { recordUpload } from "@/lib/master-meta";
 import * as XLSX from "xlsx";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
   }
 
   const db = getDb();
+  markHistoryActor(db, req, { seconds: 900 });
   const itemExists = db.prepare("SELECT 1 FROM items WHERE item_code = ?");
   const insertItem = db.prepare(
     `INSERT INTO items (item_code, item_name, category, spec, unit) VALUES (?, ?, ?, ?, ?)`

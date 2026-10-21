@@ -9,15 +9,16 @@ import type { DatabaseSync } from "node:sqlite";
 // 대상유형은 화면(대상유형 필터 드롭다운)에도 그대로 노출되는 한글 라벨을 값으로 쓴다
 // (entity_type 컬럼 자체에 이 문자열이 저장됨) — 지금 실제로 로깅되는 건 "작업자"뿐이고
 // 나머지는 향후 연결 예정을 위해 미리 적어둔 것.
-export const MASTER_DATA_ENTITY_TYPES = ["작업자", "품목", "자재", "BOM", "설비", "거래처", "창고"] as const;
+export const MASTER_DATA_ENTITY_TYPES = ["작업자", "품목", "자재", "BOM", "공정", "설비", "거래처", "창고", "생산캘린더", "공정캘린더", "공정 목표UPH"] as const;
 export const ENTITY_TYPE_WORKER = "작업자";
 
 // 작업자등록(BASE-09)에서 추적하는 필드 — team("근무조", 급여형태 구분)과
 // shift_group("교대조", A조/B조/고정)은 서로 다른 개념이라 둘 다 별도로 추적한다.
 // 방진복·방진화·조끼·안전화·버스·정류장·특이사항은 2026-10-08, 근무상태·퇴사일자·퇴사사유는 2026-10-14 사용자 요청으로
-// 추가(그 전 변경분은 이력 없음).
+// 추가, 공정코드는 2026-10-21 사용자 요청으로 추가(그 전 변경분은 이력 없음).
 export const WORKER_TRACKED_FIELDS: { key: string; label: string }[] = [
   { key: "work_group", label: "공정" },
+  { key: "process_code", label: "공정코드" },
   { key: "team", label: "근무조" },
   { key: "shift_group", label: "교대조" },
   { key: "duty", label: "직무" },

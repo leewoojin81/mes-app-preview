@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull, strVal } from "@/lib/item-fields";
 import type { BomRow, Item } from "@/lib/types";
 import type { DatabaseSync } from "node:sqlite";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -61,6 +62,7 @@ export async function GET(req: NextRequest) {
 // (신규 구성품은 제품등록/자재등록에서 먼저 등록하도록 안내).
 export async function POST(req: NextRequest) {
   const db = getDb();
+  markHistoryActor(db, req);
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });

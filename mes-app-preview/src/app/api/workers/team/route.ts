@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
+import { markHistoryActor } from "@/lib/history-actor";
 import {
   ENTITY_TYPE_WORKER,
   fetchFieldHistoryMap,
@@ -48,6 +49,7 @@ function addOneDay(dateStr: string): string {
 //    분기로 처리한다.
 export async function PATCH(req: NextRequest) {
   const db = getDb();
+  markHistoryActor(db, req, { skipTracked: true });
   const body = await req.json().catch(() => null);
   if (!body || !Array.isArray(body.employeeNos)) {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });

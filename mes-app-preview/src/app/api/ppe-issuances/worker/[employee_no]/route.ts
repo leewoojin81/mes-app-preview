@@ -4,6 +4,7 @@ import type { PpeItem } from "@/lib/types";
 import { nextDueDateAfterIssuance } from "@/lib/ppe";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
 import { ENTITY_TYPE_WORKER, logFieldChanges, WORKER_TRACKED_FIELDS } from "@/lib/master-data-history";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,7 @@ export async function PUT(
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
   const db = getDb();
+  markHistoryActor(db, req, { skipTracked: true });
   if (!db.prepare("SELECT 1 FROM workers WHERE employee_no = ?").get(employeeNo)) {
     return NextResponse.json({ error: "존재하지 않는 작업자입니다." }, { status: 404 });
   }
@@ -91,6 +93,7 @@ export async function DELETE(
 ) {
   const { employee_no: employeeNo } = await params;
   const db = getDb();
+  markHistoryActor(db, req, { skipTracked: true });
   db.prepare("DELETE FROM ppe_issuances WHERE employee_no = ?").run(employeeNo);
   return NextResponse.json({ ok: true });
 }

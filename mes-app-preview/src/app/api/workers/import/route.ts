@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { recordUpload } from "@/lib/master-meta";
 import { numOrNull, strOrNull, strVal } from "@/lib/item-fields";
 import * as XLSX from "xlsx";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -115,6 +116,7 @@ export async function POST(req: NextRequest) {
   const iUse = header.indexOf("사용여부");
 
   const db = getDb();
+  markHistoryActor(db, req, { seconds: 900 });
   const existingCodes = new Set(
     (db.prepare("SELECT employee_no FROM workers").all() as { employee_no: string }[]).map(
       (r) => r.employee_no

@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { strOrNull, strVal } from "@/lib/item-fields";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
 import { ENTITY_TYPE_WORKER, logFieldChanges, WORKER_TRACKED_FIELDS } from "@/lib/master-data-history";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -44,6 +45,7 @@ export async function PATCH(
 ) {
   const { employee_no: employeeNo } = await params;
   const db = getDb();
+  markHistoryActor(db, req, { skipTracked: true });
   const existing = db
     .prepare(
       `SELECT erp_code, employee_qr, worker_name, contractor, process_code, work_group, duty, team, shift_group,
@@ -171,6 +173,7 @@ export async function PATCH(
       before: existing,
       after: {
         work_group: workGroup,
+        process_code: processCode,
         team,
         shift_group: shiftGroup,
         duty,
@@ -205,6 +208,7 @@ export async function DELETE(
 ) {
   const { employee_no: employeeNo } = await params;
   const db = getDb();
+  markHistoryActor(db, req, { skipTracked: true });
 
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
   if (session?.r === "leader") {

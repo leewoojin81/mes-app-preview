@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull, timeOrNull } from "@/lib/item-fields";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,7 @@ export async function PATCH(
   }
 
   const db = getDb();
+  markHistoryActor(db, req);
   if (!db.prepare("SELECT 1 FROM processes WHERE process_code = ?").get(processCode)) {
     return NextResponse.json({ error: "공정을 찾을 수 없습니다." }, { status: 404 });
   }
@@ -97,6 +99,7 @@ export async function DELETE(
 ) {
   const { date, process_code: processCode } = await params;
   const db = getDb();
+  markHistoryActor(db, _req);
   db.prepare("DELETE FROM process_calendar WHERE cal_date = ? AND process_code = ?").run(
     date,
     processCode

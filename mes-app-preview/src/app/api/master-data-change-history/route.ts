@@ -13,6 +13,9 @@ export const runtime = "nodejs";
 // 연결되면 이 SELECT의 entity_name LEFT JOIN에 그 마스터 테이블을 CASE로 추가하면 된다.
 // 조장은 현재 소속(work_group) 작업자의 이력만 본다(entity_type="작업자"인 행에만
 // 적용 — 다른 대상유형은 조장이 애초에 볼 일이 없는 기준정보라 필터를 걸지 않는다).
+// 대상명 — 대상유형에 맞는 마스터의 현재 이름(기준정보 BASE-01~09 전체, 2026-10-21 확대)
+const NAME_EXPR = "COALESCE(w.worker_name, i.item_name, cu.customer_name, pr.process_name, eq.equipment_name, wh.warehouse_name)";
+
 export async function GET(req: NextRequest) {
   const db = getDb();
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
@@ -36,7 +39,7 @@ export async function GET(req: NextRequest) {
   }
   const entityName = params.get("entityName")?.trim();
   if (entityName) {
-    conditions.push("w.worker_name LIKE ?");
+    conditions.push(`${NAME_EXPR} LIKE ?`);
     args.push(`%${entityName}%`);
   }
   const field = params.get("field")?.trim();
@@ -90,6 +93,11 @@ export async function GET(req: NextRequest) {
   // 붙인다 — src/lib/auth.ts의 세션 n 필드(표시이름) 계산과 동일한 폴백 규칙.
   const fromClause = `FROM master_data_change_history h
     LEFT JOIN workers w ON h.entity_type = '${ENTITY_TYPE_WORKER}' AND w.employee_no = h.entity_id
+    LEFT JOIN items i ON h.entity_type IN ('품목', '자재') AND i.item_code = h.entity_id
+    LEFT JOIN customers cu ON h.entity_type = '거래처' AND cu.customer_code = h.entity_id
+    LEFT JOIN processes pr ON h.entity_type = '공정' AND pr.process_code = h.entity_id
+    LEFT JOIN equipments eq ON h.entity_type = '설비' AND CAST(eq.equipment_id AS TEXT) = h.entity_id
+    LEFT JOIN warehouses wh ON h.entity_type = '창고' AND wh.warehouse_code = h.entity_id
     LEFT JOIN users u ON h.changed_by = u.username`;
 
   const total = (db.prepare(`SELECT COUNT(*) AS c ${fromClause} ${where}`).get(...args) as { c: number }).c;
@@ -97,7 +105,7 @@ export async function GET(req: NextRequest) {
   const offset = (page - 1) * pageSize;
   const rows = db
     .prepare(
-      `SELECT h.id, h.entity_type, h.entity_id, w.worker_name AS entity_name, h.field, h.field_label,
+      `SELECT h.id, h.entity_type, h.entity_id, ${NAME_EXPR} AS entity_name, h.field, h.field_label,
               h.old_value, h.new_value, h.change_date, h.changed_by,
               COALESCE(u.display_name, h.changed_by) AS changed_by_name, h.created_at
        ${fromClause}

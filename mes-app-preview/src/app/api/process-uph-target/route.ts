@@ -4,6 +4,7 @@ import { numOrNull } from "@/lib/item-fields";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
 import { PRODUCTION_STATUS_LINES } from "@/lib/production-status";
 import { ensureProcessUphTargetTable, getProcessUphTarget } from "@/lib/process-uph-target";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -75,6 +76,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const db = getDb();
+  markHistoryActor(db, req);
   ensureProcessUphTargetTable(db);
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
   const upsert = db.prepare(

@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { recordUpload } from "@/lib/master-meta";
 import { numOrNull, strOrNull, strVal, timeOrNull, todayDot } from "@/lib/item-fields";
 import * as XLSX from "xlsx";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -68,6 +69,7 @@ export async function POST(req: NextRequest) {
   const iApplyPattern = idx("근무패턴 적용여부");
 
   const db = getDb();
+  markHistoryActor(db, req, { seconds: 900 });
   const existingCodes = new Set(
     (db.prepare("SELECT process_code FROM processes").all() as { process_code: string }[]).map(
       (r) => r.process_code

@@ -1,3 +1,4 @@
+import { ensureMasterHistoryTriggers } from "@/lib/master-history-triggers";
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
@@ -1454,6 +1455,7 @@ export function getDb(): DatabaseSync {
   db.exec("PRAGMA temp_store = MEMORY;");
   db.exec(SCHEMA_SQL);
   migrate(db);
+  ensureMasterHistoryTriggers(db);
   globalForDb.__mesDb = db;
   dbInstance = db;
   return db;

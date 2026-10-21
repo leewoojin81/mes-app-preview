@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { strOrNull } from "@/lib/item-fields";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,7 @@ export async function PATCH(
   const note = strOrNull(body.note);
 
   const db = getDb();
+  markHistoryActor(db, req);
   db.prepare(
     `INSERT INTO production_calendar (cal_date, day_type, work_yn, note, updated_at)
      VALUES (?, ?, ?, ?, datetime('now','localtime'))
@@ -49,6 +51,7 @@ export async function DELETE(
 ) {
   const { date } = await params;
   const db = getDb();
+  markHistoryActor(db, _req);
   db.prepare("DELETE FROM production_calendar WHERE cal_date = ?").run(date);
   return NextResponse.json({ ok: true });
 }

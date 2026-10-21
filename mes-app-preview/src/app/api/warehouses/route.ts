@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull, strVal } from "@/lib/item-fields";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,7 @@ export async function GET() {
 // 창고 등록
 export async function POST(req: NextRequest) {
   const db = getDb();
+  markHistoryActor(db, req);
   const body = await req.json().catch(() => null);
   if (!body) {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });

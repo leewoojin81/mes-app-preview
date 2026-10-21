@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
 import { ENTITY_TYPE_WORKER, logFieldChanges, WORKER_TRACKED_FIELDS } from "@/lib/master-data-history";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,7 @@ const SHIFT_GROUP_VALUES = ["A조", "B조", "고정"] as const;
 // 필드가 null로 날아간다 — 그래서 shift_group 하나만 부분수정하는 이 엔드포인트를 따로 둔다.
 export async function PATCH(req: NextRequest) {
   const db = getDb();
+  markHistoryActor(db, req, { skipTracked: true });
   const body = await req.json().catch(() => null);
   if (!body || !Array.isArray(body.employeeNos)) {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });

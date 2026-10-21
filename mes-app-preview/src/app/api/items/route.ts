@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { buildItemWhere } from "@/lib/item-filters";
 import { numOrNull, strOrNull, strVal, todayDot } from "@/lib/item-fields";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -97,6 +98,7 @@ const CATEGORIES = ["완제품", "반제품", "원자재"];
 // 키로 하는 값 모음이며, 품목코드/품명 외 나머지는 전부 선택 입력이다.
 export async function POST(req: NextRequest) {
   const db = getDb();
+  markHistoryActor(db, req);
   const body = await req.json().catch(() => null);
   if (!body) {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });

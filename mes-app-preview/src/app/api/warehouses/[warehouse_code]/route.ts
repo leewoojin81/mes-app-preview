@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { strOrNull, strVal } from "@/lib/item-fields";
+import { markHistoryActor } from "@/lib/history-actor";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,7 @@ export async function PATCH(
 ) {
   const { warehouse_code: warehouseCode } = await params;
   const db = getDb();
+  markHistoryActor(db, req);
   const existing = db
     .prepare("SELECT * FROM warehouses WHERE warehouse_code = ?")
     .get(warehouseCode);
@@ -51,6 +53,7 @@ export async function DELETE(
 ) {
   const { warehouse_code: warehouseCode } = await params;
   const db = getDb();
+  markHistoryActor(db, _req);
   const result = db
     .prepare("DELETE FROM warehouses WHERE warehouse_code = ?")
     .run(warehouseCode);
