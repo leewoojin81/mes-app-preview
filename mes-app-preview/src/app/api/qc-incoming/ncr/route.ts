@@ -5,7 +5,7 @@ import { insertManualNcr, listBlisterLots, listNcr, listSupplyLots } from "@/lib
 
 export const runtime = "nodejs";
 
-// 입고검사 관리대장(QC-03) 부적합 탭 — 부적합 대장을 만드는 데 필요한 것을 한 번에 내려 준다:
+// 수입검사(QC-03) 부적합 탭 — 부적합 대장을 만드는 데 필요한 것을 한 번에 내려 준다:
 // 부자재 로트 + 블리스터 로트(입력원) + 처리 기록(qc_ncr). 대상 판정(부적합률 10% 이상 등)은 화면이 대시보드와 같은 규칙으로 계산한다.
 export async function GET() {
   const db = getDb();

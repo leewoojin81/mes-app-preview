@@ -78,7 +78,7 @@ export const NAV_GROUPS: NavGroup[] = [
     children: [
       { href: "/dosu-trend", label: "도수변경현황", code: "QC-01" },
       { href: "/performance-analysis", label: "성능 분석", code: "QC-02" },
-      { href: "/qc-incoming", label: "입고검사 관리대장", code: "QC-03" },
+      { href: "/qc-incoming", label: "수입검사", code: "QC-03" },
     ],
   },
   {

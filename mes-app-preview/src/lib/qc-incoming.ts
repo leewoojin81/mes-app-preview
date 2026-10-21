@@ -4,7 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { BlisterLot, NcrRecord, QcPhotoMeta, SupplyLot } from "@/lib/qc-incoming-shared";
 import { DESIGN_OPTIONS, NCR_STATUS, RECV_TYPE_OPTIONS, RESULT_OPTIONS, SUPPLY_PARTS } from "@/lib/qc-incoming-shared";
 
-// 품질관리 "입고검사 관리대장(QC-03)" 저장소 — 입고검사 대시보드의 부자재관리대장·부적합관리대장을 MES DB로 옮긴 것(2026-10-21).
+// 품질관리 "수입검사(QC-03)" 저장소 — 입고검사 대시보드의 부자재관리대장·부적합관리대장을 MES DB로 옮긴 것(2026-10-21).
 // 테이블은 CREATE만 한다(DROP/ALTER 없음). 처음 만들어질 때 대시보드에 들어 있던 데이터(seed/qc-incoming-seed.json)를 한 번만 넣는다.
 //   qc_supply_lots   부자재 로트(대시보드 "LG" 한 줄) — 엑셀 원본 값은 orig(JSON)에 남겨 "원래대로"를 지원
 //   qc_supply_photos 로트 사진(엑셀에 들어 있던 사진 + 화면에서 올린 사진)

@@ -11,7 +11,7 @@ const TABS: { v: Tab; label: string }[] = [
   { v: "ncr", label: "부적합" },
 ];
 
-// 입고검사 관리대장(QC-03) — 입고검사 대시보드의 부자재 관리대장·부적합 관리대장을 탭으로 옮겼다(2026-10-21).
+// 수입검사(QC-03) — 입고검사 대시보드의 부자재 관리대장·부적합 관리대장을 탭으로 옮겼다(2026-10-21).
 // 각 탭은 선택됐을 때만 마운트한다.
 export default function QcIncomingPage() {
   const [tab, setTab] = useTabState<Tab>("qcInTab", "supply");
@@ -19,7 +19,7 @@ export default function QcIncomingPage() {
   return (
     <div>
       <div className="w-full px-4 sm:px-6 pt-6">
-        <h1 className="text-xl font-bold text-navy">입고검사 관리대장</h1>
+        <h1 className="text-xl font-bold text-navy">수입검사</h1>
         <p className="text-sm text-slate-500 mt-1">QC-03 · 부자재 입고검사 로트 관리 / 부적합 로트 처리(부적합률 10% 이상)</p>
         <div className="flex gap-1 mt-4 border-b border-slate-200">
           {TABS.map((t) => (

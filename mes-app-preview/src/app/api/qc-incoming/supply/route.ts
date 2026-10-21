@@ -5,7 +5,7 @@ import { cleanLotInput, insertSupplyLot, listSupplyLots } from "@/lib/qc-incomin
 
 export const runtime = "nodejs";
 
-// 입고검사 관리대장(QC-03) 부자재 탭 — 로트 목록 / 로트 추가
+// 수입검사(QC-03) 부자재 탭 — 로트 목록 / 로트 추가
 export async function GET() {
   return NextResponse.json({ lots: listSupplyLots(getDb()) });
 }
