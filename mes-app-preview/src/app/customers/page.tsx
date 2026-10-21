@@ -78,8 +78,8 @@ const EMPTY_FORM: FormState = {
 
 const COLUMNS: { key: keyof Customer; label: string; align?: "right" }[] = [
   { key: "customer_code", label: "거래처코드" },
-  { key: "customer_name", label: "거래처명" },
   { key: "short_name", label: "약칭" },
+  { key: "customer_name", label: "거래처명" },
   { key: "customer_type", label: "구분" },
   { key: "biz_reg_no", label: "사업자번호" },
   { key: "ceo_name", label: "대표자" },
@@ -99,7 +99,7 @@ export default function CustomerMasterPage() {
   const [typeFilter, setTypeFilter] = useTabState("typeFilter", "");
   const [keyword, setKeyword] = useTabState("keyword", "");
   // 약칭이 등록된 거래처만 보기(2026-10-21 사용자 요청)
-  const [shortFilter, setShortFilter] = useTabState<"" | "Y" | "N">("shortFilter", "");
+  const [shortOnly, setShortOnly] = useTabState("shortOnly", false);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
@@ -128,8 +128,7 @@ export default function CustomerMasterPage() {
     if (useFilter && r.use_yn !== useFilter) return false;
     if (typeFilter && r.customer_type !== typeFilter) return false;
     const hasShort = (r.short_name ?? "").trim() !== "";
-    if (shortFilter === "Y" && !hasShort) return false;
-    if (shortFilter === "N" && hasShort) return false;
+    if (shortOnly && !hasShort) return false;
     if (keyword) {
       const k = keyword.trim().toLowerCase();
       if (
@@ -191,15 +190,15 @@ export default function CustomerMasterPage() {
             </option>
           ))}
         </select>
-        <select
-          value={shortFilter}
-          onChange={(e) => setShortFilter(e.target.value as "" | "Y" | "N")}
-          className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white text-slate-600"
-        >
-          <option value="">약칭 전체</option>
-          <option value="Y">약칭 있음</option>
-          <option value="N">약칭 없음</option>
-        </select>
+        <label className="flex items-center gap-1.5 text-sm text-slate-600 select-none cursor-pointer">
+          <input
+            type="checkbox"
+            checked={shortOnly}
+            onChange={(e) => setShortOnly(e.target.checked)}
+            className="accent-navy"
+          />
+          약칭
+        </label>
         <input
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
