@@ -31,16 +31,18 @@ export interface ProductionStatusLineDef {
    *  공정코드. 사출_상/사출_하는 같은 사출(P100) 인원이 담당해 둘 다 P100. */
   workProcessCode: string;
   /** isMold=false일 때 process_wip_status detail JSON의 재공수량 컬럼 키(원본 헤더명) */
-  wipColumnKey?: string;
+  wipColumnKey?: string | string[];
+  /** 재공재고품을 공정재공현황이 아니라 현재고(inventory_status)의 창고·품목군 재고수량으로 쓰는 라인 */
+  wipStock?: { warehouse: string; group: string };
 }
 
 export const PRODUCTION_STATUS_LINES: ProductionStatusLineDef[] = [
   { key: "injection_upper", label: "사출상몰드", isMold: true, moldGroup: "상몰드", workProcessCode: "P100" },
   { key: "injection_lower", label: "사출하몰드", isMold: true, moldGroup: "하몰드", workProcessCode: "P100" },
-  { key: "coloring", label: "착색인쇄", isMold: false, processCode: "P220", workProcessCode: "P220", wipColumnKey: "착색 인쇄" },
+  { key: "coloring", label: "착색인쇄", isMold: false, processCode: "P220", workProcessCode: "P220", wipColumnKey: "착색 인쇄", wipStock: { warehouse: "조립창고", group: "착색" } },
   { key: "assembly", label: "조립", isMold: false, processCode: "P300", workProcessCode: "P300", wipColumnKey: "조립" },
   { key: "separation", label: "분리3", isMold: false, processCode: "P340", workProcessCode: "P340", wipColumnKey: "분리3" },
-  { key: "appearance", label: "외관검사", isMold: false, processCode: "P360", workProcessCode: "P360", wipColumnKey: "외관검사" },
+  { key: "appearance", label: "외관검사", isMold: false, processCode: "P360", workProcessCode: "P360", wipColumnKey: ["습윤", "외관검사", "이재기"] },
   { key: "sealing", label: "실링", isMold: false, processCode: "P370", workProcessCode: "P370", wipColumnKey: "실링" },
   { key: "marking", label: "마킹", isMold: false, processCode: "P400", workProcessCode: "P400", wipColumnKey: "마킹" },
   { key: "shipping", label: "출하포장", isMold: false, processCode: "P410", workProcessCode: "P410", wipColumnKey: "출하포장" },
@@ -123,13 +125,17 @@ export function moldSum(db: DatabaseSync, group: string, dateFrom: string, dateT
   return row.s ?? 0;
 }
 
+// 사출 상/하 라인의 재공재고품 — 상몰드는 착색창고의 상몰드 재고, 하몰드는 조립창고의 하몰드 재고(2026-10-21 사용자 요청.
+// 그 전에는 둘 다 사출창고 재고였다).
+const MOLD_WIP_WAREHOUSE: Record<string, string> = { 상몰드: "착색창고", 하몰드: "조립창고" };
+
 function moldWip(db: DatabaseSync, group: string): number {
   const row = db
     .prepare(
       `SELECT SUM(stock_qty) s FROM inventory_status
-       WHERE warehouse = '사출창고' AND json_extract(detail, '$."품목군"') = ?`
+       WHERE warehouse = ? AND json_extract(detail, '$."품목군"') = ?`
     )
-    .get(group) as { s: number | null };
+    .get(MOLD_WIP_WAREHOUSE[group] ?? "사출창고", group) as { s: number | null };
   return row.s ?? 0;
 }
 
@@ -203,11 +209,24 @@ function headcountOf(db: DatabaseSync, processCode: string): number {
   ).c;
 }
 
-function processWip(db: DatabaseSync, wipColumnKey: string): number {
+// 현재고(inventory_status)의 창고·품목군 재고수량 합계 — 착색인쇄의 재공재고품은 조립창고의 착색 재고(2026-10-21 사용자 요청)
+function stockQty(db: DatabaseSync, warehouse: string, group: string): number {
   const row = db
-    .prepare(`SELECT SUM(json_extract(detail, '$."${wipColumnKey}"')) s FROM process_wip_status`)
-    .get() as { s: number | null };
+    .prepare(`SELECT SUM(stock_qty) s FROM inventory_status WHERE warehouse = ? AND json_extract(detail, '$."품목군"') = ?`)
+    .get(warehouse, group) as { s: number | null };
   return row.s ?? 0;
+}
+
+// 공정 재공수량 — wipColumnKey가 배열이면 그 컬럼들을 모두 더한다(외관검사는 앞 공정인 습윤과 뒤 공정인 이재기 재공도 함께 본다 —
+// 2026-10-21 사용자 요청).
+function processWip(db: DatabaseSync, wipColumnKey: string | string[]): number {
+  const keys = Array.isArray(wipColumnKey) ? wipColumnKey : [wipColumnKey];
+  let total = 0;
+  for (const k of keys) {
+    const row = db.prepare(`SELECT SUM(json_extract(detail, '$."${k}"')) s FROM process_wip_status`).get() as { s: number | null };
+    total += row.s ?? 0;
+  }
+  return total;
 }
 
 export function computeProductionStatus(db: DatabaseSync, asOfDate?: string): ProductionStatusResult {
@@ -274,7 +293,9 @@ export function computeProductionStatus(db: DatabaseSync, asOfDate?: string): Pr
       const processCodes = line.processCode ? [line.processCode] : [];
       yesterdayQty = processSum(db, processCodes, yesterday, yesterday);
       mtdQty = doneWorkDays === 0 ? 0 : processSum(db, processCodes, monthStart, yesterday);
-      wip = processWip(db, line.wipColumnKey ?? "");
+      wip = line.wipStock
+        ? stockQty(db, line.wipStock.warehouse, line.wipStock.group)
+        : processWip(db, line.wipColumnKey ?? "");
       prevMonthQty = processSum(db, processCodes, prevMonthStart, prevMonthEnd);
     }
 

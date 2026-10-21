@@ -205,7 +205,7 @@ function ProductionStatusTable({ result }: { result: ProductionStatusResult }) {
                 일간목표대비실적
               </th>
               <th rowSpan={2} className={`${thCls} border-l-2 border-slate-300`}>
-                재공품
+                재공재고품
               </th>
               <th colSpan={3} className={`${thCls} border-l-2 border-slate-300`}>
                 생산성 (UPH)
