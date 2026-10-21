@@ -130,7 +130,10 @@ export async function GET(req: NextRequest) {
     // 직무가 "디자인"인 인원은 그날 저장분이 없으면 지원공정/지원시간을 "디자인"/8시간으로
     // 미리 채워 보여준다(2026-09-10 사용자 요청 — 항상 디자인팀을 지원하는 인원이라 매번
     // 손으로 입력하지 않도록). 이미 저장된 분이 있으면(그 값이 무엇이든) 그대로 존중한다.
-    const isDesignDuty = w.duty === "디자인";
+    // 그날 근태 행이 이미 저장돼 있으면(d) 지원 기록이 없어도 "지원 없음"으로 저장한 것이니 다시 채우지 않는다
+    // (2026-10-21 사용자 요청 — 디자인 직무가 지원공정을 "-"/지원시간 0으로 저장해도 저장 시 지원 행이 지워져
+    // 다음 조회 때 디자인/8시간이 되살아나 정상근무가 0이 되던 문제).
+    const isDesignDuty = w.duty === "디자인" && !d;
     const supportWorkGroup = support ? support.support_work_group : isDesignDuty ? "디자인" : null;
     const leaveType = d ? d.leave_type : defaultLeaveType;
     // 하루 종일 쉬는 휴가구분(연차/공가/병가/휴무)인 날은 자동 채움·저장분과 무관하게 지원시간 0.
