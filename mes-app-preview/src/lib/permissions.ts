@@ -135,6 +135,7 @@ const CODE_API_PREFIXES: Record<string, string[]> = {
   "INV-06": ["/api/stock-ledger"],
   "INV-07": ["/api/stock-reconcile"],
   "QC-02": ["/api/bc-distribution", "/api/diameter-distribution", "/api/dosu-distribution"],
+  "QC-03": ["/api/qc-incoming"],
   "PUR-01": ["/api/purchase-orders"],
   "PUR-02": ["/api/purchase-receipts"],
   "MGMT-01": ["/api/dashboard"],
