@@ -37,7 +37,7 @@ const FIELD_ORDER = PACKAGING_FIELDS as readonly PackagingField[];
 
 // 표에 보이는 행 순서(2026-10-01 사용자 요청: 구분 → 고객사, 수주번호, 품명, 계획, 실적, 개입수, 납기일).
 // 실적·계획 팩수는 읽기 전용 행이다. 엔터 이동은 이 순서의 입력 행만 따라간다.
-type RowKind = { kind: "field"; field: PackagingField } | { kind: "orderqty" } | { kind: "actual" } | { kind: "progress" } | { kind: "packs" };
+type RowKind = { kind: "field"; field: PackagingField } | { kind: "orderqty" } | { kind: "actual" } | { kind: "progress" } | { kind: "markprogress" } | { kind: "packs" };
 const ROW_LAYOUT: RowKind[] = [
   { kind: "field", field: "customer" },
   { kind: "field", field: "so_no" },
@@ -46,6 +46,7 @@ const ROW_LAYOUT: RowKind[] = [
   { kind: "field", field: "plan_qty" },
   { kind: "actual" },
   { kind: "progress" },
+  { kind: "markprogress" },
   { kind: "field", field: "pack_size" },
   { kind: "field", field: "pack_method" },
   { kind: "field", field: "due_date" },
@@ -63,7 +64,7 @@ const FIELD_TEXT_COLOR: Partial<Record<PackagingField, string>> = {
 const READONLY_FIELDS = new Set<PackagingField>(["customer", "product_name", "plan_qty", "pack_size", "pack_method", "due_date"]);
 // 보고 싶은 구분(행)만 체크해서 보는 기능(2026-10-02 사용자 요청) — 행 식별자와 체크박스 이름
 const rowId = (r: RowKind): string => (r.kind === "field" ? r.field : r.kind);
-const rowLabel = (r: RowKind): string => (r.kind === "field" ? FIELD_LABEL[r.field] : r.kind === "orderqty" ? "수주량" : r.kind === "actual" ? "실적" : r.kind === "progress" ? "진도율" : "팩수");
+const rowLabel = (r: RowKind): string => (r.kind === "field" ? FIELD_LABEL[r.field] : r.kind === "orderqty" ? "수주량" : r.kind === "actual" ? "실적" : r.kind === "progress" ? "진도율" : r.kind === "markprogress" ? "마킹진도율" : "팩수");
 const ALL_ROW_IDS = ROW_LAYOUT.map(rowId);
 const SHOWN_ROWS_STORAGE_KEY = "packagingPlan.shownRows";
 
@@ -203,6 +204,12 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
           if (!saved.includes("orderqty")) saved.push("orderqty");
           localStorage.setItem(SHOWN_ROWS_STORAGE_KEY, JSON.stringify(saved));
         }
+        // 마킹진도율 행(2026-10-21)도 이전에 저장한 선택에 한 번은 보이게 넣어 준다
+        if (!localStorage.getItem(SHOWN_ROWS_STORAGE_KEY + ".markprogressAdded")) {
+          localStorage.setItem(SHOWN_ROWS_STORAGE_KEY + ".markprogressAdded", "1");
+          if (!saved.includes("markprogress")) saved.push("markprogress");
+          localStorage.setItem(SHOWN_ROWS_STORAGE_KEY, JSON.stringify(saved));
+        }
         setShownRowsState(ALL_ROW_IDS.filter((id) => saved.includes(id)));
       }
     } catch {
@@ -217,7 +224,9 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
       /* 저장 실패는 무시 */
     }
   }
-  const shownLayout = ROW_LAYOUT.filter((r) => shownRows.includes(rowId(r)));
+  // 마킹진도율 행은 라인별 탭에만 둔다(2026-10-21 사용자 요청)
+  const layoutRows = dragEnabled ? ROW_LAYOUT : ROW_LAYOUT.filter((r) => r.kind !== "markprogress");
+  const shownLayout = layoutRows.filter((r) => shownRows.includes(rowId(r)));
 
   const dates = useMemo(() => Array.from({ length: days }, (_, i) => addDays(from, i)), [from, days]);
   // 생산캘린더(BASE-08) 휴일·근무일 — 주말·휴일 칸 색을 정한다
@@ -585,6 +594,32 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
     return m;
   }, [result, dates, drafts, orderQtyByCell]);
 
+  // 마킹진도율 — 진도율과 같은 방식의 누적(시작일 전 마킹 + 표시 첫 날부터 그 날까지) ÷ 수주량
+  const markProgress = useMemo(() => {
+    const m = new Map<string, number>();
+    if (!result || !dragEnabled) return m;
+    for (const line of result.lines) {
+      const cumByTok = new Map<string, number>();
+      const seen = new Set<string>();
+      for (const d of dates) {
+        const so = (drafts[key3(line.key, d, "so_no")] ?? "").trim();
+        if (!so) continue;
+        let total = 0;
+        for (const t of splitSoNos(so)) {
+          if (!seen.has(t)) {
+            seen.add(t);
+            cumByTok.set(t, result.soMarkPrior?.[t] ?? 0);
+          }
+          cumByTok.set(t, (cumByTok.get(t) ?? 0) + (result.soMarkDaily?.[t]?.[d] ?? 0));
+          total += cumByTok.get(t) ?? 0;
+        }
+        const oq = orderQtyByCell.get(`${line.key}|${d}`) ?? 0;
+        if (oq > 0 && total > 0) m.set(`${line.key}|${d}`, (total / oq) * 100);
+      }
+    }
+    return m;
+  }, [result, dates, drafts, orderQtyByCell, dragEnabled]);
+
   const thBase = "px-2 py-1.5 text-center font-semibold border border-slate-300 bg-[#D9E1F2] text-slate-600 text-xs";
 
   return (
@@ -629,7 +664,7 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
         </select>
 
         <span className="text-xs font-medium text-slate-500 shrink-0 ml-4">표시 항목</span>
-        {ROW_LAYOUT.map((r) => {
+        {layoutRows.map((r) => {
           const id = rowId(r);
           return (
             <label key={id} className="flex items-center gap-1 text-xs text-slate-600 select-none cursor-pointer shrink-0">
@@ -823,6 +858,34 @@ function ScheduleTab({ dragEnabled = false }: { dragEnabled?: boolean }) {
                                       // 엑셀 데이터 막대처럼 진도율만큼 칸을 왼쪽부터 채운다(100% 넘으면 가득)
                                       ...(pct != null
                                         ? { backgroundImage: `linear-gradient(to right, #8FB4E3 ${Math.min(100, pct)}%, transparent ${Math.min(100, pct)}%)` }
+                                        : {}),
+                                    }}
+                                    className="border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-700"
+                                  >
+                                    {pct != null ? `${pct.toFixed(1)}%` : ""}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        }
+                        if (row.kind === "markprogress") {
+                          return (
+                            <tr key={rowKey} className="h-7">
+                              {lineCell}
+                              <td style={labelStyle} className={labelCls}>마킹진도율</td>
+                              {dates.map((d) => {
+                                const pct = markProgress.get(`${line.key}|${d}`);
+                                return (
+                                  <td
+                                    key={d}
+                                    data-blk={`${line.key}|${d}`}
+                                    style={{
+                                      ...dayFill(d, calendar),
+                                      ...weekEdge(d),
+                                      ...blockEdge,
+                                      ...(pct != null
+                                        ? { backgroundImage: `linear-gradient(to right, #F4B183 ${Math.min(100, pct)}%, transparent ${Math.min(100, pct)}%)` }
                                         : {}),
                                     }}
                                     className="border border-slate-200 px-1.5 py-1 text-right font-mono text-slate-700"

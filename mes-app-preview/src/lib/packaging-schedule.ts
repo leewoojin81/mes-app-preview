@@ -89,6 +89,42 @@ export function p410BySo(db: DatabaseSync): Map<string, P410Row[]> {
   p410Cache.set(db, { at: Date.now(), bySo });
   return bySo;
 }
+// ── 마킹(P400) 실적 한 번에 읽기 — 라인별 탭의 마킹진도율용(2026-10-21 사용자 요청) ──────────────────────
+// 납기진행 탭(packaging-due-progress.ts)과 같은 기준: 줄의 수주번호, 없으면 작업지시현황(PROD-05)의 수주번호. 수주번호는
+// "-순번"을 뗀 기본 번호로 모은다.
+interface P400Row {
+  d: string;
+  q: number;
+}
+const p400Cache = new WeakMap<DatabaseSync, { at: number; bySo: Map<string, P400Row[]> }>();
+function soBaseOf(so: string): string {
+  const i = so.indexOf("-");
+  return i > 0 ? so.slice(0, i) : so;
+}
+function p400BySo(db: DatabaseSync): Map<string, P400Row[]> {
+  const hit = p400Cache.get(db);
+  if (hit && Date.now() - hit.at < 30_000) return hit.bySo;
+  const rows = db
+    .prepare(
+      `SELECT COALESCE(NULLIF(json_extract(d.detail, '$."수주번호"'), ''), NULLIF(w.so_no, '')) so, d.work_date dt,
+              SUM(CAST(json_extract(d.detail, '$."양품수량"') AS REAL)) q
+         FROM daily_work_status d
+         LEFT JOIN work_order_status w ON w.wo_no = d.wo_no
+        WHERE d.process_code = 'P400'
+        GROUP BY so, dt`
+    )
+    .all() as { so: string | null; dt: string; q: number | null }[];
+  const bySo = new Map<string, P400Row[]>();
+  for (const r of rows) {
+    if (!r.so) continue;
+    const k = soBaseOf(r.so.trim());
+    const list = bySo.get(k) ?? [];
+    list.push({ d: r.dt, q: r.q ?? 0 });
+    bySo.set(k, list);
+  }
+  p400Cache.set(db, { at: Date.now(), bySo });
+  return bySo;
+}
 /** 수주번호의 출하포장 양품수량 합계 — before가 있으면 그 날짜 전날까지 */
 function packedQty(db: DatabaseSync, so: string, before?: string): number {
   let sum = 0;
@@ -110,6 +146,10 @@ export interface PackagingScheduleResult {
   lineActuals: Record<string, PackagingDayActual>;
   /** 수주번호 → 표시 시작일 **이전**에 포장한 실적 합계(누적 진도율이 시작일 전 실적도 포함하도록) */
   soPriorActual: Record<string, number>;
+  /** 수주번호 → 표시 시작일 이전에 마킹(P400)한 양품수량 합계(마킹진도율의 누적 시작값) */
+  soMarkPrior?: Record<string, number>;
+  /** 수주번호 → { 날짜 → 그 날 마킹 양품수량 } (표시 기간 안) */
+  soMarkDaily?: Record<string, Record<string, number>>;
   /** UPH가 없어 계획을 계산할 수 없는 라인 — 계획을 직접 입력한다(예: 수동 5호기) */
   manualPlanLines: string[];
   /** 표시 기간 계획 칸에 적힌 수주번호 중 수주등록(SALES-02)에 없는 번호 — 화면이 색으로 오류 표기한다 */
@@ -396,6 +436,19 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
     }
   }
 
+  // 마킹 실적 — 계획에 나온 모든 수주번호(라인과 무관)에 대해 시작일 전 합계와 표시 기간의 일자별 수량
+  const soMarkPrior: Record<string, number> = {};
+  const soMarkDaily: Record<string, Record<string, number>> = {};
+  for (const so of lineBySo.keys()) {
+    for (const r of p400BySo(db).get(soBaseOf(so)) ?? []) {
+      if (r.d < from) soMarkPrior[so] = (soMarkPrior[so] ?? 0) + r.q;
+      else if (r.d <= to) {
+        const m = (soMarkDaily[so] ??= {});
+        m[r.d] = (m[r.d] ?? 0) + r.q;
+      }
+    }
+  }
+
   // 수주번호로 값 읽어 오기 — 칸에 적힌 수주번호들을 한 번에 찾아 고객사·품목군·계획·개입수·납기일을 채우고,
   // 수주등록에 없는 번호는 missingSoNos로 돌려준다(저장된 값은 못 찾았을 때의 예비값으로 그대로 둔다).
   const tokens = [...new Set(cells.flatMap((c) => splitSoNos(c.so_no)))];
@@ -453,7 +506,7 @@ export function fetchPackagingSchedule(db: DatabaseSync, from: string, days: num
     .all(from, to) as { cal_date: string; day_type: string }[];
   const holidays = calRows.filter((r) => r.day_type === "휴일").map((r) => r.cal_date);
   const workDays = calRows.filter((r) => r.day_type === "평일").map((r) => r.cal_date);
-  return { from, to, lines: PACKAGING_LINES, cells: filledCells, lineActuals, soPriorActual, manualPlanLines, missingSoNos, holidays, workDays };
+  return { from, to, lines: PACKAGING_LINES, cells: filledCells, lineActuals, soPriorActual, soMarkPrior, soMarkDaily, manualPlanLines, missingSoNos, holidays, workDays };
 }
 
 // ── 저장 ─────────────────────────────────────────────────────────────────────────
