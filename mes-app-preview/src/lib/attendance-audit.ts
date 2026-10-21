@@ -541,7 +541,15 @@ export function fetchAttendanceAudit(
       // 정상근무시간도 세콤 원본 필드(휴게/식사시간을 안 뺀 총 체류시간)를 그대로 안 믿고
       // 출근~퇴근시각에서 겹치는 휴게/식사시간만큼 직접 빼서 재계산한다(2026-09-09 사용자
       // 요청). 대응되는 조 스케줄이 없으면(주간고정 등) 기존처럼 세콤 원본값을 그대로 쓴다.
-      const derivedNormal = ref ? deriveNormalHours(punchIn, rawPunchOut, ref) : null;
+      // 반차(전반/후반)인 날은 정상근무를 4시간까지만 인정한다(2026-10-21 사용자 요청, 김성민 10/19 오전반차 — 카드는 10:27 출근이라
+      // 반차 끝(11:15)보다 일찍 찍혀 재계산 정상이 4:48로 나와 PSN-01 정상 4:00과 불일치로 잡혔다). 반차 시간대 밖에서 일한 부분은
+      // 정상이 아니므로 재계산값을 반차 기준시간(4시간)으로 자른다.
+      const HALF_DAY_NORMAL_HOURS = 4;
+      const derivedNormalRaw = ref ? deriveNormalHours(punchIn, rawPunchOut, ref) : null;
+      const derivedNormal =
+        derivedNormalRaw != null && (isMorningHalfDay || isAfternoonHalfDay)
+          ? Math.min(derivedNormalRaw, HALF_DAY_NORMAL_HOURS)
+          : derivedNormalRaw;
       // 외출(PSN-01)도 세콤 재계산이 모르는 시간대다(중교와 달리 외출은 카드를 찍고 나갔다
       // 들어오는 게 아니라 출근~퇴근 카드 사이에 그냥 자리를 비운 것이라 출퇴근시각만으로
       // 재계산하면 그 시간까지 전부 "정상"으로 잡힌다) — PSN-01에 신청된 외출시간만큼
