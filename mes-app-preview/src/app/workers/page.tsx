@@ -134,6 +134,7 @@ export default function WorkerMasterPage() {
   const [useFilter, setUseFilter] = useTabState<"" | "Y" | "N">("useFilter", "");
   const [contractorFilter, setContractorFilter] = useTabState("contractorFilter", "");
   const [workGroupFilter, setWorkGroupFilter] = useTabState("workGroupFilter", "");
+  const [processCodeFilter, setProcessCodeFilter] = useTabState("processCodeFilter", "");
   const [teamFilter, setTeamFilter] = useTabState("teamFilter", "");
   const [shiftGroupFilter, setShiftGroupFilter] = useTabState("shiftGroupFilter", "");
   const [busRouteFilter, setBusRouteFilter] = useTabState("busRouteFilter", "");
@@ -165,6 +166,7 @@ export default function WorkerMasterPage() {
 
   const contractorOptions = distinctOptions(rows, "contractor");
   const workGroupOptions = distinctOptions(rows, "work_group");
+  const processCodeOptions = distinctOptions(rows, "process_code");
   const teamOptions = distinctOptions(rows, "team");
   const busRouteOptions = distinctOptions(rows, "bus_route");
 
@@ -173,6 +175,7 @@ export default function WorkerMasterPage() {
     if (useFilter && r.use_yn !== useFilter) return false;
     if (contractorFilter && r.contractor !== contractorFilter) return false;
     if (workGroupFilter && r.work_group !== workGroupFilter) return false;
+    if (processCodeFilter && r.process_code !== processCodeFilter) return false;
     if (teamFilter && r.team !== teamFilter) return false;
     if (busRouteFilter && r.bus_route !== busRouteFilter) return false;
     // 교대조는 지금 전원 미지정으로 시작하므로(2026-09-09 신설), distinctOptions로 뽑으면
@@ -307,6 +310,18 @@ export default function WorkerMasterPage() {
           ))}
         </select>
         <select
+          value={processCodeFilter}
+          onChange={(e) => setProcessCodeFilter(e.target.value)}
+          className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white text-slate-600"
+        >
+          <option value="">공정코드 전체</option>
+          {processCodeOptions.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <select
           value={teamFilter}
           onChange={(e) => setTeamFilter(e.target.value)}
           className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white text-slate-600"
@@ -357,11 +372,12 @@ export default function WorkerMasterPage() {
           />
           비즈 정보 표시
         </label>
-        {(contractorFilter || workGroupFilter || teamFilter || shiftGroupFilter || busRouteFilter || searchText) && (
+        {(contractorFilter || workGroupFilter || processCodeFilter || teamFilter || shiftGroupFilter || busRouteFilter || searchText) && (
           <button
             onClick={() => {
               setContractorFilter("");
               setWorkGroupFilter("");
+              setProcessCodeFilter("");
               setTeamFilter("");
               setShiftGroupFilter("");
               setBusRouteFilter("");

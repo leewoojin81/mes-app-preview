@@ -16,6 +16,8 @@ interface WorkerOption {
   employee_no: string;
   worker_name: string;
   work_group: string | null;
+  process_code?: string | null;
+  process_name?: string | null;
 }
 
 interface Me {
@@ -149,6 +151,8 @@ export default function WorkHoursLookupPage() {
   const [dateFrom, setDateFrom] = useTabState("whlDateFrom", firstDayOfMonth);
   const [dateTo, setDateTo] = useTabState("whlDateTo", today);
   const [processFilter, setProcessFilter] = useTabState("whlProcess", "");
+  // 공정코드 필터(2026-10-21 사용자 요청) — 작업자정보(BASE-09)의 공정코드(P220 등)가 같은 작업자만 서버에서 걸러 보여준다
+  const [processCodeFilter, setProcessCodeFilter] = useTabState("whlProcessCode", "");
   const [page, setPage] = useTabState("whlPage", 1);
   // 저장상태 필터(2026-09-08 사용자 요청) — 서버 조회 조건이 아니라 이미 받아온 일자별
   // 행(has_record)을 화면에서만 걸러 보여준다. ""=전체, "saved"=저장됨, "unsaved"=미저장.
@@ -186,14 +190,26 @@ export default function WorkHoursLookupPage() {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
+  // 공정코드 선택지 — 작업자 목록에 나온 공정코드를 코드순으로(공정 필터를 고른 경우 그 공정 소속 것만)
+  const processCodeOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const w of workers) {
+      if (!w.process_code) continue;
+      if (processFilter && w.work_group !== processFilter) continue;
+      m.set(w.process_code, w.process_name ?? "");
+    }
+    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [workers, processFilter]);
+
   const matches = useMemo(() => {
     const q = searchText.trim();
     if (!q) return [];
     return workers
       .filter((w) => !processFilter || w.work_group === processFilter)
+      .filter((w) => !processCodeFilter || w.process_code === processCodeFilter)
       .filter((w) => w.employee_no.includes(q) || w.worker_name.includes(q))
       .slice(0, 20);
-  }, [workers, searchText, processFilter]);
+  }, [workers, searchText, processFilter, processCodeFilter]);
 
   function selectWorker(w: WorkerOption) {
     setEmployeeNo(w.employee_no);
@@ -214,8 +230,15 @@ export default function WorkHoursLookupPage() {
 
   // 공정 필터가 바뀌면 이미 골라둔 작업자가 새 필터 밖일 수 있으니 검색 선택을 비운다
   // (필터와 안 맞는 작업자가 표에 계속 남아 있으면 헷갈린다) — 공정 필터 자체는 그대로 조회 조건이 된다.
+  function changeProcessCodeFilter(v: string) {
+    setProcessCodeFilter(v);
+    setEmployeeNo("");
+    setSearchText("");
+    setPage(1);
+  }
   function changeProcessFilter(v: string) {
     setProcessFilter(v);
+    setProcessCodeFilter("");
     setEmployeeNo("");
     setSearchText("");
     setPage(1);
@@ -237,7 +260,10 @@ export default function WorkHoursLookupPage() {
     setError(null);
     const params = new URLSearchParams({ dateFrom, dateTo, page: String(page) });
     if (employeeNo) params.set("employeeNo", employeeNo);
-    else if (processFilter) params.set("workGroup", processFilter);
+    else {
+      if (processFilter) params.set("workGroup", processFilter);
+      if (processCodeFilter) params.set("processCode", processCodeFilter);
+    }
     fetch(`/api/work-hours-lookup?${params.toString()}`, { cache: "no-store" })
       .then(async (res) => {
         const data = await res.json();
@@ -261,12 +287,15 @@ export default function WorkHoursLookupPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employeeNo, processFilter, dateFrom, dateTo, page, canQuery]);
+  }, [employeeNo, processFilter, processCodeFilter, dateFrom, dateTo, page, canQuery]);
 
   function buildDownloadParams(): URLSearchParams {
     const params = new URLSearchParams({ dateFrom, dateTo });
     if (employeeNo) params.set("employeeNo", employeeNo);
-    else if (processFilter) params.set("workGroup", processFilter);
+    else {
+      if (processFilter) params.set("workGroup", processFilter);
+      if (processCodeFilter) params.set("processCode", processCodeFilter);
+    }
     return params;
   }
 
@@ -425,6 +454,22 @@ export default function WorkHoursLookupPage() {
             </option>
           ))}
         </select>
+        {(activeTab === "lookup" || activeTab === "overtime") && (
+          <select
+            value={processCodeFilter}
+            onChange={(e) => changeProcessCodeFilter(e.target.value)}
+            className={`border rounded-md px-2.5 py-2 text-sm bg-white ${
+              processCodeFilter ? "border-navy text-navy font-medium" : "border-slate-300 text-slate-600"
+            }`}
+          >
+            <option value="">전체 공정코드</option>
+            {processCodeOptions.map(([code, name]) => (
+              <option key={code} value={code}>
+                {code} · {name}
+              </option>
+            ))}
+          </select>
+        )}
         {activeTab !== "overtime" && activeTab !== "special" && (
           <select
             value={statusFilter}

@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const workGroup = params.get("workGroup") ?? "";
   const employeeNo = params.get("employeeNo") ?? "";
+  const processCode = params.get("processCode") ?? "";
   const dateFrom = params.get("dateFrom");
   const dateTo = params.get("dateTo");
   const requestedPage = Math.max(1, parseInt(params.get("page") ?? "1", 10) || 1);
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest) {
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
   const leaderWorkGroups = session?.r === "leader" ? processCodesFromSession(session) : null;
 
-  const allEmployeeNos = resolveEmployeeNos(db, { workGroup, employeeNo, leaderWorkGroups });
+  const allEmployeeNos = resolveEmployeeNos(db, { workGroup, employeeNo, leaderWorkGroups, processCode });
   const totalWorkers = allEmployeeNos.length;
   const workersPerPage = Math.max(1, Math.floor(PAGE_ROW_LIMIT / days));
   const totalPages = totalWorkers === 0 ? 1 : Math.ceil(totalWorkers / workersPerPage);

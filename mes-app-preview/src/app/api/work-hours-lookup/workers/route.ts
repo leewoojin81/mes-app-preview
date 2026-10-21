@@ -18,14 +18,14 @@ export async function GET(req: NextRequest) {
     const placeholders = leaderWorkGroups.map(() => "?").join(",");
     const rows = db
       .prepare(
-        `SELECT employee_no, worker_name, work_group FROM workers WHERE work_group IN (${placeholders}) ORDER BY seq, employee_no`
+        `SELECT w.employee_no, w.worker_name, w.work_group, w.process_code, p.process_name FROM workers w LEFT JOIN processes p ON p.process_code = w.process_code WHERE w.work_group IN (${placeholders}) ORDER BY w.seq, w.employee_no`
       )
       .all(...leaderWorkGroups);
     return NextResponse.json(rows);
   }
 
   const rows = db
-    .prepare("SELECT employee_no, worker_name, work_group FROM workers ORDER BY seq, employee_no")
+    .prepare("SELECT w.employee_no, w.worker_name, w.work_group, w.process_code, p.process_name FROM workers w LEFT JOIN processes p ON p.process_code = w.process_code ORDER BY w.seq, w.employee_no")
     .all();
   return NextResponse.json(rows);
 }

@@ -124,7 +124,21 @@ function addInto(target: WorkHoursLookupTotals, src: WorkHoursLookupTotals) {
 // employeeNo(특정 1명 지정) 또는 workGroup(그 공정 소속 전원) 기준으로 조회 대상 사번
 // 목록을 구한다. 조장 세션(leaderWorkGroups)이 있으면 그 소속공정 밖은 결과에서 빠진다
 // (권한 밖 요청이어도 에러 대신 그냥 빈 목록 — /api/workers의 조장 스코프 방식과 동일).
+// processCode(공정코드, 예: P220)를 주면 작업자정보(BASE-09)의 공정코드가 같은 작업자만 남긴다(2026-10-21 사용자 요청, 그리드 필터).
+// 작업자 1명을 직접 고른 경우(employeeNo)에는 적용하지 않는다.
 export function resolveEmployeeNos(
+  db: DatabaseSync,
+  params: { workGroup: string; employeeNo: string; leaderWorkGroups: string[] | null; processCode?: string }
+): string[] {
+  const nos = resolveEmployeeNosByGroup(db, params);
+  if (!params.processCode || params.employeeNo) return nos;
+  const keep = new Set(
+    (db.prepare("SELECT employee_no FROM workers WHERE process_code = ?").all(params.processCode) as { employee_no: string }[]).map((r) => r.employee_no)
+  );
+  return nos.filter((n) => keep.has(n));
+}
+
+function resolveEmployeeNosByGroup(
   db: DatabaseSync,
   params: { workGroup: string; employeeNo: string; leaderWorkGroups: string[] | null }
 ): string[] {

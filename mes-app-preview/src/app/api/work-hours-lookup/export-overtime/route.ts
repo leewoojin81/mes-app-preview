@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const workGroup = params.get("workGroup") ?? "";
   const employeeNo = params.get("employeeNo") ?? "";
+  const processCode = params.get("processCode") ?? "";
   const dateFrom = params.get("dateFrom");
   const dateTo = params.get("dateTo");
   const onlyExcess = params.get("onlyExcess") === "1";
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
   const leaderWorkGroups = session?.r === "leader" ? processCodesFromSession(session) : null;
 
-  const employeeNos = resolveEmployeeNos(db, { workGroup, employeeNo, leaderWorkGroups });
+  const employeeNos = resolveEmployeeNos(db, { workGroup, employeeNo, leaderWorkGroups, processCode });
   if (employeeNos.length * days > MAX_LOOKUP_CELLS) {
     return NextResponse.json(
       { error: "조회 대상이 너무 많습니다. 공정을 좁히거나 조회기간을 줄여 주세요." },
