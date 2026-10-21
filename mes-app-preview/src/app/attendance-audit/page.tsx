@@ -6,6 +6,7 @@ import { useTabState } from "@/lib/use-tab-state";
 import BizAuditTab from "@/components/BizAuditTab";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
 import { formatHoursClock } from "@/lib/format-hours";
+import { LEAVE_TYPE_OPTIONS } from "@/lib/work-hours-leave";
 import type {
   AttendanceAuditItem,
   AttendanceAuditResult,
@@ -17,6 +18,8 @@ import type {
 // No.·사번·성명·공정·근무조·휴가·일자·출근시간·퇴근시간·저장상태(10) + 대사항목6×3(18) +
 // 참고항목3×1(3) + 종합상태(1)
 const TABLE_COL_COUNT = 32;
+
+const NO_LEAVE = "__none__";
 
 interface Me {
   role: string;
@@ -370,6 +373,8 @@ export default function AttendanceAuditPage() {
   const [mismatchOnly, setMismatchOnly] = useTabState("aaMismatchOnly", false);
   const [nameErrorOnly, setNameErrorOnly] = useTabState("aaNameErrorOnly", false);
   const [searchText, setSearchText] = useTabState("aaSearchText", "");
+  // "" = 전체, NO_LEAVE = 휴가 없음(정상 출근), 그 외 = LEAVE_TYPE_OPTIONS 값
+  const [leaveFilter, setLeaveFilter] = useTabState("aaLeaveFilter", "");
   // 근태대사(PSN-01 ↔ 세콤 카드) / 비즈 대사(PSN-01 ↔ 비즈 업로드) 탭(2026-10-01 사용자 요청)
   const [activeTab, setActiveTab] = useTabState<"audit" | "biz">("aaActiveTab", "audit");
 
@@ -431,6 +436,8 @@ export default function AttendanceAuditPage() {
   const visibleRows = allRows.filter((r) => {
     if (mismatchOnly && r.status !== "불일치") return false;
     if (nameErrorOnly && r.status !== "매칭오류") return false;
+    if (leaveFilter === NO_LEAVE && r.leave_type) return false;
+    if (leaveFilter && leaveFilter !== NO_LEAVE && r.leave_type !== leaveFilter) return false;
     if (
       search &&
       !r.employee_no.toLowerCase().includes(search) &&
@@ -511,6 +518,21 @@ export default function AttendanceAuditPage() {
         >
           <option value="">전체 공정</option>
           {WORK_GROUP_OPTIONS.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <select
+          value={leaveFilter}
+          onChange={(e) => setLeaveFilter(e.target.value)}
+          className={`border rounded-md px-2.5 py-2 text-sm bg-white ${
+            leaveFilter ? "border-navy text-navy font-medium" : "border-slate-300 text-slate-600"
+          }`}
+        >
+          <option value="">전체 휴가</option>
+          <option value={NO_LEAVE}>휴가 없음</option>
+          {LEAVE_TYPE_OPTIONS.map((v) => (
             <option key={v} value={v}>
               {v}
             </option>
