@@ -27,10 +27,11 @@ export default function SalesMonthlyTargetPage() {
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 탭을 전환했다 돌아와도 보고 있던 필터는 유지되도록 세션 단위로 저장한다.
-  const [yearFilter, setYearFilter] = useTabState("yearFilter", "");
+  // 화면에 들어올 때마다 당해년도·당월이 기본 기준이다(2026-10-21 사용자 요청) — 그래서 연도·월은
+  // 탭 상태로 저장하지 않고 매번 오늘 기준으로 시작한다. 고객사 필터만 탭 전환 시 유지한다.
   // 월 필터(2026-10-01 사용자 요청) — 연도·월·고객사 세 조건으로 목록을 좁힌다.
-  const [monthFilter, setMonthFilter] = useTabState("monthFilter", "");
+  const [yearFilter, setYearFilter] = useState(() => String(new Date().getFullYear()));
+  const [monthFilter, setMonthFilter] = useState(() => String(new Date().getMonth() + 1));
   const [customerFilter, setCustomerFilter] = useTabState("customerFilter", "");
 
   const [showForm, setShowForm] = useState(false);
@@ -66,7 +67,7 @@ export default function SalesMonthlyTargetPage() {
   }, []);
 
   const yearOptions = useMemo(
-    () => Array.from(new Set(rows.map((r) => r.year))).sort((a, b) => b - a),
+    () => Array.from(new Set([...rows.map((r) => r.year), new Date().getFullYear()])).sort((a, b) => b - a),
     [rows]
   );
 
