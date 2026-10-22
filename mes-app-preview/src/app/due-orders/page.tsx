@@ -32,13 +32,13 @@ const CSS = `
 .po .cnt{font-size:12px;color:var(--fg-3);margin-left:auto}
 .po .tbl-wrap{background:var(--surface);border:1px solid var(--line);border-radius:6px;overflow:auto}
 .po table{border-collapse:collapse;width:100%;font-size:13px}
-.po th{position:sticky;top:0;background:var(--surface-2);color:var(--fg-2);font-weight:600;font-size:12px;text-align:left;padding:4px 8px;line-height:1.25;border-bottom:1px solid var(--line);white-space:nowrap}
-.po td{padding:2px 8px;line-height:1.25;border-bottom:1px solid var(--line-2);white-space:nowrap;color:var(--fg)}
+.po th{position:sticky;top:0;background:var(--surface-2);color:var(--fg-2);font-weight:600;font-size:12px;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+.po td{padding:7px 10px;border-bottom:1px solid var(--line-2);white-space:nowrap;color:var(--fg)}
 .po th.r,.po td.r{text-align:right}
 .po th.grp{text-align:center;cursor:pointer;user-select:none;border-bottom:1px solid var(--line);color:var(--navy)}
 .po th.grp:hover{background:var(--blue-bg)}
-.po thead tr.h2 th{top:24px}
-.po thead tr.h1 th{height:24px}
+.po thead tr.h2 th{top:35px}
+.po thead tr.h1 th{height:35px}
 .po tbody tr.row{cursor:pointer}.po tbody tr.row:hover{background:var(--surface-2)}.po tbody tr.row.sel{background:var(--blue-bg)}
 .po tbody tr.row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .po .so{font-family:var(--mono);font-size:12.5px;color:var(--accent);font-weight:500}
@@ -119,7 +119,7 @@ function StageFlow({ wip }: { wip: number[] }) {
 
 type Detail = { row: DueOrderRow | null; lines: DueOrderLine[] };
 
-function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => void; base: string }) {
+function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: string; onClose: () => void; base: string; wipOpen: boolean; setWipOpen: (v: boolean) => void }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
@@ -216,10 +216,26 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
               <div className="tbl-wrap">
                 <table>
                   <thead>
-                    <tr>
-                      <th>모델</th><th>품목명</th><th className="r">도수 수</th><th className="r">주문량</th><th className="r">착색재고</th><th className="r">공정재공</th>
-                      <th className="r">출고</th><th className="r">조립투입 필요</th><th className="r">출하부족</th>
+                    <tr className="h1">
+                      <th rowSpan={wipOpen ? 2 : 1}>모델</th><th rowSpan={wipOpen ? 2 : 1}>품목명</th><th className="r" rowSpan={wipOpen ? 2 : 1}>도수 수</th><th className="r" rowSpan={wipOpen ? 2 : 1}>주문량</th><th className="r" rowSpan={wipOpen ? 2 : 1}>착색재고</th>
+                      {wipOpen ? (
+                        <th className="grp" colSpan={STAGES.length} onClick={() => setWipOpen(false)} title="누르면 공정재공 합계 1칸으로 접습니다">
+                          공정재공 (조립 ~ 출하포장) ▾
+                        </th>
+                      ) : (
+                        <th className="r grp" onClick={() => setWipOpen(true)} title="누르면 조립 ~ 출하포장 공정별로 펼칩니다">
+                          공정재공 ▸
+                        </th>
+                      )}
+                      <th className="r" rowSpan={wipOpen ? 2 : 1}>출고</th><th className="r" rowSpan={wipOpen ? 2 : 1}>조립투입 필요</th><th className="r" rowSpan={wipOpen ? 2 : 1}>출하부족</th>
                     </tr>
+                    {wipOpen && (
+                      <tr className="h2">
+                        {STAGES.map((st) => (
+                          <th key={st} className="r">{st}</th>
+                        ))}
+                      </tr>
+                    )}
                   </thead>
                   <tbody>
                     {models.map((m) => (
@@ -229,21 +245,29 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
                         <td className="r num">{m.n}</td>
                         <td className="r num">{fmt(m.qty)}</td>
                         <td className="r num"><Z n={m.color} /></td>
-                        <td className="r num"><Z n={sum(m.wip)} /></td>
+                        {wipOpen ? (
+                          m.wip.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))
+                        ) : (
+                          <td className="r num"><Z n={sum(m.wip)} /></td>
+                        )}
                         <td className="r num"><Z n={m.shipped} /></td>
                         <td className={`r num ${m.assy > 0 ? "need" : ""}`}><Z n={m.assy} /></td>
                         <td className="r num"><Z n={m.short} /></td>
                       </tr>
                     ))}
                     {models.length === 0 && (
-                      <tr><td colSpan={9} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>품목 줄이 없습니다.</td></tr>
+                      <tr><td colSpan={wipOpen ? 8 + STAGES.length : 9} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>품목 줄이 없습니다.</td></tr>
                     )}
                     {models.length > 0 && (
                       <tr className="tot">
                         <td colSpan={3}>합계</td>
                         <td className="r num">{fmt(sum(models.map((m) => m.qty)))}</td>
                         <td className="r num">{fmt(sum(models.map((m) => m.color)))}</td>
-                        <td className="r num">{fmt(sum(models.map((m) => sum(m.wip))))}</td>
+                        {wipOpen ? (
+                          STAGES.map((_, i) => (<td key={i} className="r num">{fmt(sum(models.map((m) => m.wip[i])))}</td>))
+                        ) : (
+                          <td className="r num">{fmt(sum(models.map((m) => sum(m.wip))))}</td>
+                        )}
                         <td className="r num">{fmt(sum(models.map((m) => m.shipped)))}</td>
                         <td className="r num">{fmt(sum(models.map((m) => m.assy)))}</td>
                         <td className="r num">{fmt(sum(models.map((m) => m.short)))}</td>
@@ -493,7 +517,7 @@ export default function DueOrdersPage() {
         순위는 납기일 → 생산순위지정(PLAN-01) 작업순서 순입니다.
       </p>
 
-      {selected && <DetailPanel key={selected} soNo={selected} onClose={() => setSelected(null)} base={base} />}
+      {selected && <DetailPanel key={selected} soNo={selected} onClose={() => setSelected(null)} base={base} wipOpen={wipOpen} setWipOpen={setWipOpen} />}
     </div>
   );
 }
