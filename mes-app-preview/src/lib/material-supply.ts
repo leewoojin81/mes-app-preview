@@ -92,6 +92,39 @@ export interface MaterialSupplyResult {
   warehouses: string[];
 }
 
+/** 수주 한 건의 자재 한 종류 일정 — 그 수주의 모델 줄·자재 중 가장 나쁜 상태 */
+export interface OrderMaterialStatus {
+  /** none = 이 수주 모델들의 BOM에 그 종류 자재가 없음 */
+  status: "ok" | "po" | "late" | "order" | "none";
+  /** po·late — 모자라는 만큼을 채우는 발주 중 가장 늦은 입고예정일(다 들어오는 날) */
+  eta: string | null;
+  /** order — 발주해야 하는 수량 합 */
+  order_qty: number;
+}
+
+/** 납기별수주현황(PLAN-04) 자재일정 열용 — 자재수급 줄을 수주번호별로 묶어 종류별 상태를 요약한다 */
+export function summarizeByOrder(rows: MaterialRow[]): Record<string, { kinds: Record<MaterialKind, OrderMaterialStatus>; rows: MaterialRow[] }> {
+  const rank = { none: -1, ok: 0, po: 1, late: 2, order: 3 } as const;
+  const out: Record<string, { kinds: Record<MaterialKind, OrderMaterialStatus>; rows: MaterialRow[] }> = {};
+  for (const r of rows) {
+    const o = (out[r.so_no] ??= {
+      kinds: Object.fromEntries(MATERIAL_KINDS.map((k) => [k.key, { status: "none", eta: null, order_qty: 0 }])) as Record<MaterialKind, OrderMaterialStatus>,
+      rows: [],
+    });
+    o.rows.push(r);
+    for (const k of MATERIAL_KINDS) {
+      const s = o.kinds[k.key];
+      for (const c of r.cells[k.key]) {
+        const st = c.state === "order" ? "order" : c.late ? "late" : c.state === "po" ? "po" : "ok";
+        if (rank[st] > rank[s.status]) s.status = st;
+        if (c.state === "po" && c.eta && (!s.eta || c.eta > s.eta)) s.eta = c.eta;
+        if (c.state === "order") s.order_qty += c.order_qty;
+      }
+    }
+  }
+  return out;
+}
+
 export function ensureSettingsTable(db: DatabaseSync) {
   db.exec(`CREATE TABLE IF NOT EXISTS material_supply_settings (
     key TEXT PRIMARY KEY,

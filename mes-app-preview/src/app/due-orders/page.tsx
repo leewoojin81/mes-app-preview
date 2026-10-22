@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, ReactNode } from "react";
 import { useTabState } from "@/lib/use-tab-state";
 import type { AssemblyRecord, ColorStockLot, DueOrderLine, DueOrderRow, DueOrdersResult, ItemChangeCandidate } from "@/lib/due-orders";
+import type { MaterialCell, MaterialKind, MaterialRow, OrderMaterialStatus } from "@/lib/material-supply";
 
 // 생산계획 "납기별수주현황(PLAN-04)" — 생산계획 엑셀 「납기별」 시트 + 수주별 시트를 한 화면으로 옮긴 것.
 // 목록에서 수주를 누르면 오른쪽 상세 창에서 품목(모델)별 요약 → 모델을 누르면 도수별 공정재공·부족분·조립투입을 본다.
@@ -124,6 +125,10 @@ const CSS = `
 .po .help ul{margin:0;padding-left:18px}
 .po .help .ex{background:var(--surface-2);border:1px solid var(--line-2);border-radius:6px;padding:8px 12px;margin-top:4px}
 .po .copied{margin-left:6px;font-size:11px;color:var(--green);font-weight:600}
+.po button.mat{display:grid;grid-template-columns:auto auto;gap:2px 10px;background:none;border:0;padding:0;font:inherit;cursor:pointer;text-align:left}
+.po button.mat:hover .ml{color:var(--accent)}
+.po .mat .mi{display:flex;align-items:center;gap:4px;font-size:11.5px}
+.po .mat .ml{color:var(--fg-3);min-width:3.2em}
 .po .note{font-size:12px;color:var(--fg-3);line-height:1.6}
 `;
 
@@ -137,6 +142,7 @@ const GRID_COLS: { key: string; label: string }[] = [
   { key: "due", label: "납기일" },
   { key: "status", label: "상태" },
   { key: "pack", label: "포장" },
+  { key: "mat", label: "자재일정" },
   { key: "qty", label: "주문량" },
   { key: "color", label: "착색재고" },
   { key: "wip", label: "공정재공" },
@@ -503,6 +509,129 @@ function ItemChangeHelp({ onClose }: { onClose: () => void }) {
   );
 }
 
+// 자재일정 — 자재수급(PUR-03, lib/material-supply.ts) 계산을 수주별로 묶은 것. 종류 순서·이름은 MATERIAL_KINDS와 같다
+const MAT_KINDS: { key: MaterialKind; label: string }[] = [
+  { key: "seal", label: "실링지" },
+  { key: "box", label: "단상자" },
+  { key: "label", label: "라벨" },
+  { key: "manual", label: "설명서" },
+];
+type OrderMaterials = { kinds: Record<MaterialKind, OrderMaterialStatus>; rows: MaterialRow[] };
+const mmdd = (iso: string | null) => (iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "납기미정");
+
+function MatStatus({ s }: { s: OrderMaterialStatus }) {
+  if (s.status === "none") return <span className="zero" title="BOM에 이 종류 자재가 없습니다">-</span>;
+  if (s.status === "ok") return <span className="pill p-grn">충족</span>;
+  if (s.status === "order") return <span className="pill p-red" title={`미입고 발주로도 모자랍니다 — 발주 필요 ${fmt(s.order_qty)}`}>발주필요</span>;
+  return (
+    <span className={`pill ${s.status === "late" ? "p-red" : "p-amb"}`} title={s.status === "late" ? "입고예정일이 수주 납기일보다 늦습니다" : "미입고 발주로 충당"}>
+      {mmdd(s.eta)}{s.status === "late" ? " 납기후" : ""}
+    </span>
+  );
+}
+
+function MatCellPill({ c }: { c: MaterialCell }) {
+  if (c.state === "ok") return <span className="pill p-grn">충족</span>;
+  if (c.state === "po") return <span className={`pill ${c.late ? "p-red" : "p-amb"}`}>{mmdd(c.eta)} 입고{c.late ? " (납기후)" : ""}</span>;
+  return <span className="pill p-red">발주필요 {fmt(c.order_qty)}</span>;
+}
+
+function MaterialModal({ row, mats, onClose }: { row: DueOrderRow; mats: OrderMaterials | undefined; onClose: () => void }) {
+  const lines = (mats?.rows ?? []).flatMap((r) => MAT_KINDS.flatMap((k) => r.cells[k.key].map((c) => ({ r, k, c }))));
+  return (
+    <>
+      <div className="modal-scrim" onClick={onClose} />
+      <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(1280px, calc(100% - 32px))" }}>
+        <div className="mh">
+          <h3>
+            자재일정
+            <span className="num" style={{ fontSize: 12.5, color: "var(--fg-2)", fontWeight: 400 }}>{row.so_no}</span>
+            <small>
+              {row.customer ?? ""} {row.brand ? `· ${row.brand}` : ""} · 납기 <span className="num">{(row.due_date ?? "").slice(0, 10) || "-"}</span>
+              {mats && (
+                <>
+                  {" · "}
+                  {MAT_KINDS.map((k) => (
+                    <span key={k.key} style={{ marginRight: 8 }}>{k.label} <MatStatus s={mats.kinds[k.key]} /></span>
+                  ))}
+                </>
+              )}
+            </small>
+          </h3>
+          <button className="x" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        <div className="mb">
+          {!mats && <div className="empty">이 수주의 자재일정이 없습니다(자재수급 계산 대상 아님).</div>}
+          {mats && (
+            <table>
+              <thead>
+                <tr>
+                  <th>모델</th><th>품목명</th><th className="sep">자재</th><th>자재코드</th><th>품명</th>
+                  <th className="r sep">소요량</th><th className="r">현재고</th><th className="r">과부족</th>
+                  <th className="sep">상태</th><th>발주번호</th><th>발주일자</th><th>납기일자</th><th>입고일자</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map(({ r, k, c }) => (
+                  <tr key={`${r.model}|${k.key}|${c.code}`}>
+                    <td className="num">{r.model}</td>
+                    <td>{r.item_name ?? "-"}</td>
+                    <td className="sep">{k.label}</td>
+                    <td className="num">{c.code}</td>
+                    <td>{c.name ?? "-"}</td>
+                    <td className="r num sep">{fmt(c.need)}</td>
+                    <td className="r num">{fmt(c.stock)}</td>
+                    <td className="r num" style={c.balance < 0 ? { color: "var(--red)" } : undefined}>{fmt(c.balance)}</td>
+                    <td className="sep"><MatCellPill c={c} /></td>
+                    <td className="num">{c.po_no ?? c.ref?.po_no ?? "-"}</td>
+                    <td className="num">{c.ref?.order_date ?? "-"}</td>
+                    <td className="num">{c.eta ?? c.ref?.due ?? "-"}</td>
+                    <td className="num">{c.ref?.receipt_date ?? "-"}</td>
+                  </tr>
+                ))}
+                {lines.length === 0 && (
+                  <tr><td colSpan={13} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>BOM에 실링지·단상자·라벨·설명서가 없습니다.</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** 자재일정 계산 기준 — 계산은 lib/material-supply.ts(자재수급 PUR-03)와 같다 */
+function MaterialHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <HelpModal title="자재일정 계산 기준" onClose={onClose}>
+      <h4>무엇을 보여주나</h4>
+      <ul>
+        <li>수주마다 <b>실링지 · 단상자 · 라벨 · 설명서</b>가 충분한지, 모자라면 언제 들어오는지입니다.</li>
+        <li>계산은 <b>자재수급(PUR-03)</b> 화면과 같습니다. 두 화면 숫자는 항상 같습니다.</li>
+      </ul>
+      <h4>필요 수량</h4>
+      <ul>
+        <li>실링지는 실링 부족분, 단상자 · 라벨 · 설명서는 출하부족 기준입니다(순위대로 쌓아 앞 수주가 재고를 먼저 씀).</li>
+        <li>소요량 = 필요 수량 × BOM 개당 사용량 × Loss(PUR-03에서 설정)를 올림합니다.</li>
+      </ul>
+      <h4>상태</h4>
+      <ul>
+        <li><span className="pill p-grn">충족</span> 현재고(원.부자재창고 · 포장창고 · 조립창고)로 충분</li>
+        <li><span className="pill p-amb">10/28</span> 미입고 발주로 채움 — 다 들어오는 날(가장 늦은 입고예정일)</li>
+        <li><span className="pill p-red">10/30 납기후</span> 발주로 채우지만 입고예정일이 수주 납기일보다 늦음</li>
+        <li><span className="pill p-red">발주필요</span> 미입고 발주로도 모자람</li>
+        <li><span className="zero">-</span> 이 수주 모델들의 BOM에 그 자재가 없음</li>
+      </ul>
+      <h4>참고</h4>
+      <ul>
+        <li>한 수주에 모델 · 자재가 여럿이면 가장 나쁜 상태로 표시합니다.</li>
+        <li>칸을 누르면 모델별 · 자재별 소요량 · 현재고 · 과부족 · 발주번호 · 입고예정일을 볼 수 있습니다.</li>
+      </ul>
+    </HelpModal>
+  );
+}
+
 function ItemChangeModal({ line, onClose }: { line: DueOrderLine; onClose: () => void }) {
   const [data, setData] = useState<{ item_code: string; power: number | null; tolerance: number; candidates: ItemChangeCandidate[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -847,12 +976,13 @@ function sanitizeLayout(v: unknown): Layout {
   const o = (v ?? {}) as Partial<Layout>;
   const order = [...new Set((Array.isArray(o.order) ? o.order : []).filter((k): k is string => typeof k === "string" && GRID_KEYS.has(k)))];
   const hidden = (Array.isArray(o.hidden) ? o.hidden : []).filter((k): k is string => typeof k === "string" && GRID_KEYS.has(k));
-  // 저장 이후 새로 생긴 열은 맨 뒤에 붙이고, 처음엔 기본값(숨김 여부)을 따른다
-  for (const c of GRID_COLS) {
-    if (order.includes(c.key)) continue;
-    order.push(c.key);
+  // 저장 이후 새로 생긴 열은 기본 순서상 바로 앞 열 뒤에 끼우고(없으면 맨 뒤), 처음엔 기본값(숨김 여부)을 따른다
+  GRID_COLS.forEach((c, i) => {
+    if (order.includes(c.key)) return;
+    const prev = i > 0 ? order.indexOf(GRID_COLS[i - 1].key) : -1;
+    order.splice(prev >= 0 ? prev + 1 : order.length, 0, c.key);
     if (DEFAULT_LAYOUT.hidden.includes(c.key) && !hidden.includes(c.key)) hidden.push(c.key);
-  }
+  });
   return { order, hidden, wipOpen: !!o.wipOpen, progOpen: !!o.progOpen };
 }
 
@@ -878,6 +1008,10 @@ export default function DueOrdersPage() {
   const [dueSoon, setDueSoon] = useTabState("dueOrdDueSoon", false);
   const [hideDone, setHideDone] = useTabState("dueOrdHideDone", true);
   const [selected, setSelected] = useState<string | null>(null);
+  const [mats, setMats] = useState<Record<string, OrderMaterials> | null>(null);
+  const [matsError, setMatsError] = useState(false);
+  const [matOf, setMatOf] = useState<DueOrderRow | null>(null);
+  const [matHelp, setMatHelp] = useState(false);
 
   const [layout, setLayoutState] = useState<Layout>(DEFAULT_LAYOUT);
   const [layoutReady, setLayoutReady] = useState(false);
@@ -977,13 +1111,28 @@ export default function DueOrdersPage() {
         setError("납기별 수주 데이터를 불러오지 못했습니다.");
         setLoading(false);
       });
+  // 자재일정은 자재수급(PUR-03) 계산이라 목록보다 무거워 따로 불러온다(목록 먼저 표시)
+  const requestMats = () =>
+    fetch("/api/due-orders?materials=1", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { orders: Record<string, OrderMaterials> }) => {
+        setMats(d.orders);
+        setMatsError(false);
+      })
+      .catch(() => setMatsError(true));
   const load = (fresh = false) => {
     setLoading(true);
-    request(fresh);
+    request(fresh).then(requestMats);
   };
   useEffect(() => {
-    request(false);
+    request(false).then(requestMats);
   }, []);
+  useEffect(() => {
+    if (!matOf && !matHelp) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (matHelp ? setMatHelp(false) : setMatOf(null));
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [matOf, matHelp]);
 
   const base = today();
   const customers = useMemo(() => [...new Set((data?.rows ?? []).map((r) => r.customer ?? ""))].filter(Boolean).sort(), [data]);
@@ -1037,6 +1186,13 @@ export default function DueOrdersPage() {
         </th>
       );
     }
+    if (k === "mat") {
+      return (
+        <th key={k} {...dnd(k)} className={dt(k).trim() || undefined} rowSpan={rs}>
+          <button className="hh" onClick={() => setMatHelp(true)} title="누르면 자재일정 계산 기준이 열립니다">{LABELS[k]}</button>
+        </th>
+      );
+    }
     return (
       <th key={k} {...dnd(k)} className={`${RIGHT.has(k) ? "r" : ""}${dt(k)}`.trim() || undefined} rowSpan={rs}>
         {LABELS[k]}
@@ -1063,6 +1219,26 @@ export default function DueOrdersPage() {
         return <td key={k}>{r.status}</td>;
       case "pack":
         return <td key={k}>{r.pack_method ?? ""}</td>;
+      case "mat": {
+        const m = mats?.[r.so_no];
+        if (!m) return <td key={k}><span className="zero">{mats ? "-" : matsError ? "불러오기 실패" : "…"}</span></td>;
+        return (
+          <td key={k}>
+            <button
+              className="mat"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMatOf(r);
+              }}
+              title="누르면 모델별·자재별 상세가 열립니다"
+            >
+              {MAT_KINDS.map((x) => (
+                <span key={x.key} className="mi"><span className="ml">{x.label}</span><MatStatus s={m.kinds[x.key]} /></span>
+              ))}
+            </button>
+          </td>
+        );
+      }
       case "qty":
         return <td key={k} className="r num">{fmt(r.order_qty)}</td>;
       case "color":
@@ -1223,6 +1399,8 @@ export default function DueOrdersPage() {
         도수별 상세의 도수변경 = 최근 1개월(조립일자 기준) 그 도수로 변경되어 조립된 작업지시 건수입니다.
       </p>
 
+      {matHelp && <MaterialHelp onClose={() => setMatHelp(false)} />}
+      {matOf && <MaterialModal row={matOf} mats={mats?.[matOf.so_no]} onClose={() => setMatOf(null)} />}
       {selected && (
         <DetailPanel
           key={selected}
