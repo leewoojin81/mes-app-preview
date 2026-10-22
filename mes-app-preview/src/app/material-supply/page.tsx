@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useTabState } from "@/lib/use-tab-state";
 import type { MaterialCell, MaterialKind, MaterialRow, MaterialSupplyResult } from "@/lib/material-supply";
 
 // 구매관리 "자재수급(PUR-03)" — 자재수급일정 엑셀(출하검토 시트)을 MES 데이터로 자동 계산해 보여주는 화면.
@@ -36,9 +37,10 @@ const CSS = `
 .ms th.grp{text-align:center;border-bottom:3px solid var(--gc);color:var(--gc)}
 .ms thead tr.h1 th{height:35px}
 .ms thead tr.h2 th{top:35px}
-.ms td.gs,.ms th.gs{border-left:1px solid var(--line)}
-.ms td .ln{min-height:20px;line-height:20px}
-.ms td .ln+.ln{border-top:1px dashed var(--line-2)}
+.ms .tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line)}
+.ms .tab{font:inherit;font-size:13.5px;font-weight:600;color:var(--fg-2);background:transparent;border:0;border-bottom:3px solid transparent;padding:8px 16px;cursor:pointer;display:inline-flex;gap:6px;align-items:center;margin-bottom:-1px}
+.ms .tab[aria-selected="true"]{color:var(--gc,var(--navy));border-bottom-color:var(--gc,var(--navy))}
+.ms .tab:hover{background:var(--blue-bg)}
 .ms tbody tr.sf td{box-shadow:inset 0 1.5px 0 var(--navy)}
 .ms tbody tr.sf:first-child td{box-shadow:none}
 .ms .so{font-family:var(--mono);font-size:12.5px;color:var(--accent);font-weight:500}
@@ -87,6 +89,16 @@ function shortDate(iso: string | null): string {
   return `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
 }
 
+type CellStatus = "ok" | "po" | "late" | "order";
+const cellStatus = (c: MaterialCell): CellStatus => (c.state === "order" ? "order" : c.late ? "late" : c.state === "po" ? "po" : "ok");
+const RANK: Record<CellStatus, number> = { ok: 0, po: 1, late: 2, order: 3 };
+
+// 요약 탭 — 자재 한 종류(품번이 여럿이면 가장 나쁜 것 기준)를 한 알약으로
+function SumPill({ cells }: { cells: MaterialCell[] }) {
+  const c = cells.reduce((w, x) => (RANK[cellStatus(x)] > RANK[cellStatus(w)] ? x : w), cells[0]);
+  return <Pill c={c} />;
+}
+
 function Pill({ c }: { c: MaterialCell }) {
   if (c.state === "ok") return <span className="pill p-grn">충족</span>;
   if (c.state === "po")
@@ -98,6 +110,39 @@ function Pill({ c }: { c: MaterialCell }) {
   return <span className="pill p-red" title="미입고 발주로도 모자랍니다">발주필요 {fmt(c.order_qty)}</span>;
 }
 
+// 모든 탭 공통 앞 열 — NO. · SO번호 · MO번호 · 고객사 · 브랜드 · 대표품목 · 수주량 · 납기일자(SALES-02) · 비고
+const LEAD_COLS = 9;
+function LeadHead() {
+  return (
+    <>
+      <th className="r">NO.</th>
+      <th>SO번호</th>
+      <th>MO번호</th>
+      <th>고객사</th>
+      <th>브랜드</th>
+      <th>대표품목</th>
+      <th className="r">수주량</th>
+      <th>납기일자</th>
+      <th>비고</th>
+    </>
+  );
+}
+function LeadCells({ no, r, base }: { no: number; r: MaterialRow; base: string }) {
+  return (
+    <>
+      <td className="r num zero">{no}</td>
+      <td className="so">{r.so_no}</td>
+      <td className="num" style={{ fontSize: 12.5 }}>{r.mo_no ?? ""}</td>
+      <td>{r.customer ?? ""}</td>
+      <td>{r.brand ?? ""}</td>
+      <td title={r.item_name ?? ""}><span className="code">{r.model}</span></td>
+      <td className="r num">{fmt(r.order_qty)}</td>
+      <td><span className="num">{(r.due_date ?? "").slice(0, 10)}</span> <DueBadge due={r.due_date} base={base} /></td>
+      <td>{r.memo ?? ""}</td>
+    </>
+  );
+}
+
 export default function MaterialSupplyPage() {
   const [data, setData] = useState<MaterialSupplyResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +150,7 @@ export default function MaterialSupplyPage() {
   const [search, setSearch] = useState("");
   const [customer, setCustomer] = useState("");
   const [status, setStatus] = useState("");
+  const [tab, setTab] = useTabState<"all" | MaterialKind>("msTab", "all");
   const [dueSoon, setDueSoon] = useState(false);
   const [hideDone, setHideDone] = useState(true);
   const [lossOpen, setLossOpen] = useState(false);
@@ -149,12 +195,25 @@ export default function MaterialSupplyPage() {
       if (hideDone && r.remain <= 0) return false;
       if (dueSoon && (dday(r.due_date, base) ?? 999) > 14) return false;
       if (customer && r.customer !== customer) return false;
-      if (status && r.status !== status) return false;
       if (!kw) return true;
       const codes = KINDS.flatMap((k) => r.cells[k.key].map((c) => c.code));
-      return [r.so_no, r.mo_no, r.customer, r.brand, r.model, r.item_name, ...codes].some((v) => (v ?? "").toLowerCase().includes(kw));
+      return [r.so_no, r.mo_no, r.customer, r.brand, r.model, r.item_name, r.memo, ...codes].some((v) => (v ?? "").toLowerCase().includes(kw));
     });
-  }, [data, search, customer, status, dueSoon, hideDone, base]);
+  }, [data, search, customer, dueSoon, hideDone, base]);
+  const summaryRows = useMemo(() => rows.filter((r) => !status || r.status === status), [rows, status]);
+  const kindRows = useMemo(() => {
+    if (tab === "all") return [];
+    return rows.flatMap((r) => r.cells[tab].map((c) => ({ r, c }))).filter((x) => !status || cellStatus(x.c) === status);
+  }, [rows, tab, status]);
+  const tabs = [
+    { key: "all" as "all" | MaterialKind, label: "요약", color: "#002060", warn: rows.filter((r) => r.status === "order" || r.status === "late").length },
+    ...KINDS.map((k) => ({
+      key: k.key as "all" | MaterialKind,
+      label: k.label,
+      color: k.color,
+      warn: rows.reduce((n, r) => n + r.cells[k.key].filter((c) => cellStatus(c) === "order" || cellStatus(c) === "late").length, 0),
+    })),
+  ];
 
   const count = (s: MaterialRow["status"]) => rows.filter((r) => r.status === s).length;
   const orderCodes = new Set(rows.flatMap((r) => KINDS.flatMap((k) => r.cells[k.key].filter((c) => c.state === "order").map((c) => c.code))));
@@ -223,75 +282,82 @@ export default function MaterialSupplyPage() {
             </>
           )}
         </div>
-        <span className="cnt">{rows.length.toLocaleString("ko-KR")}건 표시</span>
+        <span className="cnt">{(tab === "all" ? summaryRows : kindRows).length.toLocaleString("ko-KR")}건 표시</span>
       </div>
 
-      <div className="tbl-wrap" style={{ maxHeight: "calc(100vh - 330px)" }}>
+      <div className="tabs" role="tablist">
+        {tabs.map((t) => (
+          <button key={t.key} role="tab" aria-selected={tab === t.key} className="tab" style={{ ["--gc" as string]: t.color }} onClick={() => { setTab(t.key); setStatus(""); }}>
+            {t.label}
+            {t.warn > 0 && <span className="pill p-red">{t.warn}</span>}
+          </button>
+        ))}
+      </div>
+
+      <div className="tbl-wrap" style={{ maxHeight: "calc(100vh - 380px)" }}>
         {loading ? (
           <div className="empty" style={{ border: 0 }}>계산 중… (수주·BOM·재고·발주를 모두 읽어 몇 초 걸립니다)</div>
         ) : error ? (
           <div className="empty" style={{ border: 0 }}><b>{error}</b></div>
-        ) : (
+        ) : tab === "all" ? (
           <table>
             <thead>
-              <tr className="h1">
-                <th rowSpan={2}>납기일</th>
-                <th rowSpan={2}>SO번호</th>
-                <th rowSpan={2}>MO번호</th>
-                <th rowSpan={2}>고객사</th>
-                <th rowSpan={2}>브랜드</th>
-                <th rowSpan={2}>모델</th>
-                <th className="r" rowSpan={2}>미출하</th>
-                <th rowSpan={2}>상태</th>
-                {KINDS.map((k) => (
-                  <th key={k.key} className="grp gs" colSpan={5} style={{ ["--gc" as string]: k.color }}>{k.label}</th>
-                ))}
-              </tr>
-              <tr className="h2">
-                {KINDS.map((k) => (
-                  <Fragment key={k.key}>
-                    <th className="gs">품번</th>
-                    <th className="r">소요량</th>
-                    <th className="r">현재고</th>
-                    <th className="r">과부족</th>
-                    <th>입고</th>
-                  </Fragment>
-                ))}
+              <tr>
+                <LeadHead />
+                <th className="r">미출하</th>
+                {KINDS.map((k) => (<th key={k.key} className="grp" style={{ ["--gc" as string]: k.color }}>{k.label}</th>))}
+                <th>종합</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
-                <tr key={`${r.so_no}|${r.model}`} className={i > 0 && rows[i - 1].so_no !== r.so_no ? "sf" : undefined}>
-                  <td><span className="num">{(r.due_date ?? "").slice(0, 10)}</span> <DueBadge due={r.due_date} base={base} /></td>
-                  <td className="so">{r.so_no}</td>
-                  <td className="num" style={{ fontSize: 12.5 }}>{r.mo_no ?? ""}</td>
-                  <td>{r.customer ?? ""}</td>
-                  <td>{r.brand ?? ""}</td>
-                  <td title={r.item_name ?? ""}><span className="code">{r.model}</span></td>
+              {summaryRows.map((r, i) => (
+                <tr key={`${r.so_no}|${r.model}`} className={i > 0 && summaryRows[i - 1].so_no !== r.so_no ? "sf" : undefined}>
+                  <LeadCells no={i + 1} r={r} base={base} />
                   <td className="r num">{r.remain > 0 ? fmt(r.remain) : <span className="zero">0</span>}</td>
+                  {KINDS.map((k) => (
+                    <td key={k.key} className="c">
+                      {r.cells[k.key].length === 0 ? <span className="zero">{r.has_bom ? "-" : "BOM 없음"}</span> : <SumPill cells={r.cells[k.key]} />}
+                    </td>
+                  ))}
                   <td><span className={`pill ${r.status === "ok" ? "p-grn" : r.status === "po" ? "p-amb" : "p-red"}`}>{STATUS_LABEL[r.status]}</span></td>
-                  {KINDS.map((k) => {
-                    const cs = r.cells[k.key];
-                    if (cs.length === 0)
-                      return (
-                        <Fragment key={k.key}>
-                          <td className="gs zero" colSpan={5}>{r.has_bom ? "해당없음" : "BOM 없음"}</td>
-                        </Fragment>
-                      );
-                    return (
-                      <Fragment key={k.key}>
-                        <td className="gs">{cs.map((c) => (<div key={c.code} className="ln code" title={c.name ?? ""}>{c.code}</div>))}</td>
-                        <td className="r num">{cs.map((c) => (<div key={c.code} className="ln">{fmt(c.need)}</div>))}</td>
-                        <td className="r num">{cs.map((c) => (<div key={c.code} className="ln">{fmt(c.stock)}</div>))}</td>
-                        <td className="r num">{cs.map((c) => (<div key={c.code} className={`ln ${c.balance < 0 ? "neg" : ""}`}>{fmt(c.balance)}</div>))}</td>
-                        <td>{cs.map((c) => (<div key={c.code} className="ln"><Pill c={c} /></div>))}</td>
-                      </Fragment>
-                    );
-                  })}
                 </tr>
               ))}
-              {rows.length === 0 && (
-                <tr><td colSpan={28} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 줄이 없습니다. 필터를 해제해 보세요.</td></tr>
+              {summaryRows.length === 0 && (
+                <tr><td colSpan={LEAD_COLS + 6} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 줄이 없습니다. 필터를 해제해 보세요.</td></tr>
+              )}
+            </tbody>
+          </table>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <LeadHead />
+                <th>품번</th>
+                <th className="r">소요량</th>
+                <th className="r">현재고</th>
+                <th className="r">과부족</th>
+                <th>판정</th>
+                <th>발주일자</th>
+                <th>발주납기</th>
+                <th>입고일자</th>
+              </tr>
+            </thead>
+            <tbody>
+              {kindRows.map((x, i) => (
+                <tr key={`${x.r.so_no}|${x.r.model}|${x.c.code}`} className={i > 0 && kindRows[i - 1].r.so_no !== x.r.so_no ? "sf" : undefined}>
+                  <LeadCells no={i + 1} r={x.r} base={base} />
+                  <td className="code" title={x.c.name ?? ""}>{x.c.code}</td>
+                  <td className="r num">{fmt(x.c.need)}</td>
+                  <td className="r num">{fmt(x.c.stock)}</td>
+                  <td className={`r num ${x.c.balance < 0 ? "neg" : ""}`}>{fmt(x.c.balance)}</td>
+                  <td><Pill c={x.c} /></td>
+                  <td className="num">{x.c.ref?.order_date ?? <span className="zero">-</span>}{x.c.ref?.status && <> <span className={`pill ${x.c.ref.status === "완료" ? "p-grn" : "p-amb"}`} title={`발주번호 ${x.c.ref.po_no}`}>{x.c.ref.status}</span></>}</td>
+                  <td className="num">{x.c.ref?.due ?? <span className="zero">-</span>}</td>
+                  <td className="num">{x.c.ref?.receipt_date ?? <span className="zero">-</span>}</td>
+                </tr>
+              ))}
+              {kindRows.length === 0 && (
+                <tr><td colSpan={LEAD_COLS + 8} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 줄이 없습니다. 필터를 해제해 보세요.</td></tr>
               )}
             </tbody>
           </table>
@@ -300,7 +366,9 @@ export default function MaterialSupplyPage() {
 
       <p className="note">
         자재수급일정 엑셀(출하검토)과 같은 방식입니다: 소요량 = 필요 수량 × BOM 개당 사용량 × Loss%(올림), 현재고는 같은 자재의 앞 줄 과부족을 이어받고(과부족 = 현재고 − 소요량),
-        모자라는 만큼은 납기 빠른 미입고 발주(구매발주등록 상태 &lsquo;발주&rsquo;·&lsquo;입고&rsquo;)부터 채워 입고일을 보여줍니다. 입고일이 수주 납기일보다 늦으면 &lsquo;납기후&rsquo;로 빨갛게 표시합니다.
+        모자라는 만큼은 납기 빠른 미입고 발주(구매발주등록 상태 &lsquo;발주&rsquo;)부터 채워 입고일을 보여줍니다. 입고일이 수주 납기일보다 늦으면 &lsquo;납기후&rsquo;로 빨갛게 표시합니다.
+        발주일자·발주현황·발주납기는 구매발주등록(PUR-01), 입고일자는 구매입고등록(PUR-02) 기준이며, 모자라는 만큼을 채우는 발주(없으면 그 자재의 가장 최근 발주)를 보여주고
+        입고일자는 그 발주일자 이후 가장 최근 입고일입니다(입고 전표에 발주번호가 없어 자재코드·날짜로 잇습니다).
         필요 수량: 실링지는 실링 부족분, 단상자·라벨·설명서는 출하부족(납기별수주현황 PLAN-04 기준, 앞 수주가 재고를 먼저 씁니다).
         현재고는 {data?.warehouses.join("·") ?? "원.부자재창고·포장창고·조립창고"} 재고 합입니다. 순서는 납기일 → 생산순위지정(PLAN-01) 작업순서 순입니다.
       </p>
