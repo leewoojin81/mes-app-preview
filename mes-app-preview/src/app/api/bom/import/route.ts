@@ -39,21 +39,28 @@ export async function POST(req: NextRequest) {
     | null
   )[][];
   const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).replace(/[▲▼]/g, "").trim()));
-  const idx = (name: string) => header.indexOf(name);
-  const iParentCode = idx("상위품목코드");
-  const iParentName = idx("상위품목명");
-  const iChildCode = idx("하위품목코드");
-  const iChildName = idx("하위품목명");
-  const iChildCat = idx("하위구분");
+  // 내려받기 형식(상위품목코드…)과 ERP "BOM요약조회" 원본 형식(모품목코드/자품목코드/계정/소요원수)을 모두 받는다.
+  const idx = (...names: string[]) => {
+    for (const n of names) {
+      const i = header.indexOf(n);
+      if (i !== -1) return i;
+    }
+    return -1;
+  };
+  const iParentCode = idx("상위품목코드", "모품목코드");
+  const iParentName = idx("상위품목명", "모품목정보", "모품목명");
+  const iChildCode = idx("하위품목코드", "자품목코드");
+  const iChildName = idx("하위품목명", "자품목명");
+  const iChildCat = idx("하위구분", "계정");
   const iSpec = idx("규격");
-  const iQty = idx("소요량");
+  const iQty = idx("소요량", "소요원수");
   const iUnit = idx("단위");
 
   if (iParentCode === -1 || iChildCode === -1 || iQty === -1) {
     return NextResponse.json(
       {
         error:
-          '첫 시트의 1행에서 "상위품목코드"·"하위품목코드"·"소요량" 컬럼을 찾을 수 없습니다.',
+          '첫 시트의 1행에서 "상위품목코드(모품목코드)"·"하위품목코드(자품목코드)"·"소요량(소요원수)" 컬럼을 찾을 수 없습니다.',
       },
       { status: 400 }
     );
@@ -69,7 +76,7 @@ export async function POST(req: NextRequest) {
     `INSERT INTO bom (bom_id, parent_item_code, child_item_code, qty_per, unit)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(parent_item_code, child_item_code) DO UPDATE SET
-       qty_per = excluded.qty_per, unit = excluded.unit`
+       qty_per = excluded.qty_per, unit = COALESCE(excluded.unit, bom.unit)`
   );
   const existingPairs = new Set(
     (
