@@ -1452,6 +1452,9 @@ export function getDb(): DatabaseSync {
   }
   if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
   const db = new DatabaseSync(DB_PATH);
+  // 다른 프로세스(스크립트·자동 업로드 등)가 쓰기 잠금을 잡고 있으면 바로 "database is locked"로
+  // 실패하지 않고 최대 30초까지 기다린다.
+  db.exec("PRAGMA busy_timeout = 30000;");
   db.exec("PRAGMA foreign_keys = ON;");
   // 대용량 DB(약 2GB) 조회 속도용: 페이지 캐시 256MB, 메모리맵 2GB, 임시 정렬/집계는 메모리.
   // (journal_mode는 WAL로 바꾸지 않는다 — 파일 복사 백업/동기화 시 -wal 누락 위험)
