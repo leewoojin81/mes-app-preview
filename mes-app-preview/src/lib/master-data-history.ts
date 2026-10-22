@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-// "기준정보 변경이력"(BASE-10) — 품목/자재/BOM/설비/거래처/창고/작업자 등 모든 기준정보의
+// "기준정보 변경이력"(BASE-20) — 품목/자재/BOM/설비/거래처/창고/작업자 등 모든 기준정보의
 // 필드 변경을 하나의 master_data_change_history 테이블에 entity_type(대상유형)+entity_id
 // (대상ID)로 구분해 쌓는 범용 로거. 지금은 작업자(workers)만 실제로 연결돼 있고, 다른
 // 기준정보를 추가로 연결할 땐 그 화면의 API에서 logFieldChanges를 똑같이 호출하고

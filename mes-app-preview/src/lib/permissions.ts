@@ -26,7 +26,7 @@ export const ALL_SCREEN_CODES: string[] = NAV_GROUPS.flatMap((g) => g.children.m
 // 새 화면을 추가할 때는 이 목록에 코드를 넣지 말 것(INV-06/INV-07이 첫 적용 사례).
 // 권한을 열어줄 때 개별 예외(user_permissions)로 처리하며, 화면을 정식 오픈하기로 하면 그때 이 목록에 추가한다.
 const ADMIN_DEFAULT_CODES = new Set([
-  "BASE-01", "BASE-02", "BASE-03", "BASE-04", "BASE-05", "BASE-06", "BASE-07", "BASE-08", "BASE-09", "BASE-10",
+  "BASE-01", "BASE-02", "BASE-03", "BASE-04", "BASE-05", "BASE-06", "BASE-07", "BASE-08", "BASE-09", "BASE-20",
   "PSN-01", "PSN-02", "PSN-03", "PSN-04", "PSN-05", "PSN-06", "PSN-07",
   "SALES-01", "SALES-02", "SALES-03",
   "PLAN-01", "PLAN-02", "PLAN-03",
@@ -104,7 +104,7 @@ const CODE_API_PREFIXES: Record<string, string[]> = {
   "BASE-07": ["/api/warehouses"],
   "BASE-08": ["/api/production-calendar", "/api/process-calendar"],
   "BASE-09": ["/api/workers"],
-  "BASE-10": ["/api/master-data-change-history"],
+  "BASE-20": ["/api/master-data-change-history"],
   "PSN-01": ["/api/work-hours"],
   "PSN-02": ["/api/attendance-card-status"],
   "PSN-03": ["/api/ppe-items", "/api/ppe-issuances", "/api/ppe-status"],

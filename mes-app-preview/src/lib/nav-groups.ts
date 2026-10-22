@@ -16,7 +16,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/warehouses", label: "창고정보", code: "BASE-07" },
       { href: "/production-calendar", label: "생산캘린더", code: "BASE-08" },
       { href: "/workers", label: "작업자정보", code: "BASE-09" },
-      { href: "/master-data-change-history", label: "기준정보변경이력", code: "BASE-10" },
+      { href: "/master-data-change-history", label: "기준정보변경이력", code: "BASE-20" },
     ],
   },
   {

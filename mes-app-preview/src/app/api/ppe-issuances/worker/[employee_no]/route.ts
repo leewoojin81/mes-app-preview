@@ -68,7 +68,7 @@ export async function PUT(
         | undefined;
       const after = body.remark.trim() || null;
       db.prepare("UPDATE workers SET remark = ? WHERE employee_no = ?").run(after, employeeNo);
-      // 특이사항 변경은 기준정보 변경이력(BASE-10)에 남긴다
+      // 특이사항 변경은 기준정보 변경이력(BASE-20)에 남긴다
       logFieldChanges(db, {
         entityType: ENTITY_TYPE_WORKER,
         entityId: employeeNo,

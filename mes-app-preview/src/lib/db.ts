@@ -770,7 +770,7 @@ CREATE TABLE IF NOT EXISTS shift_time_slots (
   updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
--- "기준정보 변경이력"(BASE-10, 2026-09-09 신설, 처음엔 "작업자 변경이력"으로 좁게
+-- "기준정보 변경이력"(BASE-20 — 2026-10-22 BASE-10에서 코드 변경, 2026-09-09 신설, 처음엔 "작업자 변경이력"으로 좁게
 -- 설계했다가 같은 날 바로 범용 통합 이력으로 재설계됨) — 품목/자재/BOM/설비/거래처/
 -- 창고/작업자 등 모든 기준정보(BASE-0x)의 필드 변경을 entity_type(대상유형, "작업자"
 -- 등 한글 라벨 그대로) + entity_id(대상ID, 사번/품목코드 등 그 유형의 식별자) 조합으로
@@ -835,6 +835,8 @@ CREATE TABLE IF NOT EXISTS process_uph_target (
 
 function migrate(db: DatabaseSync) {
   migrateMasterTimestamps(db);
+  // 기준정보변경이력 화면코드 BASE-10 → BASE-20 변경(2026-10-22) — 저장된 사용자별 권한 예외도 따라간다.
+  db.exec("UPDATE user_permissions SET screen_code = 'BASE-20' WHERE screen_code = 'BASE-10'");
   const cols = db.prepare("PRAGMA table_info(items)").all() as { name: string }[];
   const colNames = new Set(cols.map((c) => c.name));
   if (!colNames.has("warehouse")) {

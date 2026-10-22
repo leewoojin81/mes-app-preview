@@ -131,7 +131,7 @@ export interface AttendanceAuditRow {
   worker_name: string;
   work_group: string | null;
   /** 근무조(workers.team, 1조/2조/3조/주간고정) — 공정과 마찬가지로 작업자 변경이력
-   *  (BASE-10)을 참조해 그 날짜 기준 "그 당시 값"을 보여준다(2026-09-10 사용자 요청). */
+   *  (BASE-20)을 참조해 그 날짜 기준 "그 당시 값"을 보여준다(2026-09-10 사용자 요청). */
   team: string | null;
   /** PSN-01(일일근태입력) 휴가구분 — 세콤 근거가 없어 참고 표시 전용(일치/불일치 판정
    *  대상 아님). 그 날짜 저장분이 없으면(has_record=false) null. */
@@ -353,7 +353,7 @@ export function fetchAttendanceAudit(
   const employeeNos = workers.map((w) => w.employee_no);
   const dates = dateRange(params.dateFrom, params.dateTo);
 
-  // 공정(work_group)은 작업자 변경이력(BASE-10)을 참조해 그 날짜 기준 "그 당시 값"을
+  // 공정(work_group)은 작업자 변경이력(BASE-20)을 참조해 그 날짜 기준 "그 당시 값"을
   // 보여준다(2026-09-09 사용자 요청) — 이 화면은 이미 (작업자, 날짜) 그리드라 날짜별로
   // 정확히 스냅샷할 수 있다(PSN-05처럼 조회기간 하나로 뭉뚱그리지 않아도 됨). 대상 작업자를
   // 고르는 필터(workGroup/leaderWorkGroups)는 그대로 현재 소속 기준을 유지한다 — "이

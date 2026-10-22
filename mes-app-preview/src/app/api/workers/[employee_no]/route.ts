@@ -165,7 +165,7 @@ export async function PATCH(
       employeeNo
     );
 
-    // 기준정보 변경이력(BASE-10) — 추적 대상 필드(WORKER_TRACKED_FIELDS) 중 바뀐 것만 자동 기록.
+    // 기준정보 변경이력(BASE-20) — 추적 대상 필드(WORKER_TRACKED_FIELDS) 중 바뀐 것만 자동 기록.
     logFieldChanges(db, {
       entityType: ENTITY_TYPE_WORKER,
       entityId: employeeNo,

@@ -91,7 +91,7 @@ export interface Worker {
   created_at: string;
 }
 
-// "기준정보 변경이력"(BASE-10) — 품목/자재/BOM/설비/거래처/창고/작업자 등 모든 기준정보의
+// "기준정보 변경이력"(BASE-20) — 품목/자재/BOM/설비/거래처/창고/작업자 등 모든 기준정보의
 // 필드 변경을 entity_type(대상유형)+entity_id(대상ID)로 함께 쌓는 통합 이력(지금은
 // entity_type="작업자"만 실제로 로깅됨, master-data-history.ts 참고). entity_name은
 // 조회 화면에서 entity_type에 맞는 마스터(작업자면 workers 등)를 조인해 참고용으로만

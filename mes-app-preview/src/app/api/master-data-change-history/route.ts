@@ -5,7 +5,7 @@ import { ENTITY_TYPE_WORKER, MASTER_DATA_ENTITY_TYPES } from "@/lib/master-data-
 
 export const runtime = "nodejs";
 
-// "기준정보 변경이력"(BASE-10) 조회 — master_data_change_history를 대상유형에 맞는
+// "기준정보 변경이력"(BASE-20) 조회 — master_data_change_history를 대상유형에 맞는
 // 마스터(지금은 entity_type="작업자"일 때만 workers)와 조인해 대상명(현재값, 이력
 // 테이블 자체엔 없음)을 참고용으로 붙여 내려준다. 대상유형/대상ID/변경항목/기존값/
 // 신규값/변경일자/변경자로 필터링한다(2026-09-09 사용자 요청 — 처음엔 작업자 전용으로

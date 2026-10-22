@@ -240,7 +240,7 @@ export function fetchWorkHoursLookup(
   }[];
   const supportByKey = new Map(supportRows.map((r) => [`${r.employee_no}|${r.work_date}`, r.support_hours]));
 
-  // 공정(work_group)은 작업자 변경이력(BASE-10)을 참조해 조회기간 종료일(dateTo) 기준
+  // 공정(work_group)은 작업자 변경이력(BASE-20)을 참조해 조회기간 종료일(dateTo) 기준
   // "그 당시 값"을 보여준다(2026-09-09 사용자 요청) — workers의 현재값을 그대로 보여주면
   // 과거 기간을 조회할 때 지금 소속으로 잘못 표시될 수 있다. 화면이 작업자당 공정을 한
   // 값만 보여주는 구조(일자별로 다시 나누지 않음)라 dateTo를 기준일로 쓴다.
