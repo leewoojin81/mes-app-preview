@@ -47,6 +47,10 @@ export interface DueOrderLine {
   /** 분리3~출하 부족분 10개 — null은 "완료" */
   shorts: (number | null)[];
   assy_in: number;
+  /** 품목정보(BASE-01) 사용여부 — null은 BASE-01에 없는 품목코드(상세 조회에서만 채움) */
+  use_yn?: string | null;
+  /** 수주에 없는 도수 — 도수변경 재공을 보려고 상세에 기본 도수표로 덧붙인 줄(주문·부족분·조립투입 없음) */
+  extra?: boolean;
 }
 
 export interface DueOrderRow {
@@ -293,9 +297,67 @@ export function fetchDueOrders(db: DatabaseSync, fresh = false): DueOrdersResult
   return load(db, fresh).result;
 }
 
+/** 상세 기본 도수표(품목코드 끝 4자리) — 0.00 ~ -6.00은 0.25, -6.50 ~ -10.00은 0.50 간격(BASE-01 품목의 도수 구성과 같다) */
+const POWER_GRID = [
+  ...Array.from({ length: 25 }, (_, i) => i * 25),
+  ...Array.from({ length: 8 }, (_, i) => 650 + i * 50),
+].map((n) => String(n).padStart(4, "0"));
+
 export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOrderRow | null; lines: DueOrderLine[] } {
   const c = load(db);
-  return { row: c.result.rows.find((r) => r.so_no === soNo) ?? null, lines: c.lines.get(soNo) ?? [] };
+  const lines = c.lines.get(soNo) ?? [];
+  if (lines.length === 0) return { row: c.result.rows.find((r) => r.so_no === soNo) ?? null, lines };
+
+  // 고객 요청 도수(예: 0.00, -0.50) 외에 도수변경(-0.25 등)으로 생긴 재공도 보이도록, 수주에 든 모델마다
+  // 기본 도수표 + 재공이 있는 도수를 덧붙인다. 덧붙인 줄은 수주 계산(주문·부족분·조립투입)에 들어가지 않는다.
+  const like = (m: string) => `${m}-%`;
+  const models = [...new Set(lines.map((l) => l.model))];
+  const items = new Map<string, { use_yn: string; name: string | null }>();
+  const wip = new Map<string, number[]>();
+  const base = new Map<string, number>();
+  const stageSql = STAGES.map((s, i) => `SUM(COALESCE(CAST(json_extract(detail, '$."${s}"') AS REAL), 0)) s${i}`).join(", ");
+  for (const m of models) {
+    for (const r of db.prepare("SELECT item_code, use_yn, item_name FROM items WHERE item_code LIKE ?").all(like(m)) as { item_code: string; use_yn: string; item_name: string | null }[]) {
+      items.set(r.item_code, { use_yn: r.use_yn, name: r.item_name });
+    }
+    for (const r of db.prepare(`SELECT item_code, ${stageSql} FROM process_wip_status WHERE item_code LIKE ? GROUP BY item_code`).all(like(m)) as Record<string, number | string>[]) {
+      wip.set(String(r.item_code), STAGES.map((_, i) => Number(r[`s${i}`]) || 0));
+    }
+    for (const r of db
+      .prepare(`SELECT item_code, SUM(COALESCE(stock_qty, 0)) q FROM inventory_status WHERE item_code LIKE ? AND warehouse IN (${BASE_WAREHOUSES.map(() => "?").join(",")}) GROUP BY item_code`)
+      .all(like(m), ...BASE_WAREHOUSES) as { item_code: string; q: number }[]) {
+      base.set(r.item_code, r.q ?? 0);
+    }
+  }
+
+  const out: DueOrderLine[] = lines.map((l) => ({ ...l, use_yn: items.get(l.item_code)?.use_yn ?? null }));
+  const have = new Set(lines.map((l) => l.item_code));
+  for (const m of models) {
+    const colorStock = lines.find((l) => l.model === m)?.color_stock ?? 0;
+    const withWip = [...wip.entries()].filter(([code, w]) => code.startsWith(`${m}-`) && w.some((v) => v > 0)).map(([code]) => code);
+    const codes = new Set([...POWER_GRID.map((p) => `${m}-${p}`), ...withWip]);
+    for (const code of codes) {
+      if (have.has(code)) continue;
+      out.push({
+        item_code: code,
+        model: m,
+        power: powerOf(code),
+        item_name: items.get(code)?.name ?? null,
+        order_qty: 0,
+        cum_order: 0,
+        wip: wip.get(code) ?? STAGES.map(() => 0),
+        shipped: 0,
+        cum_shipped: 0,
+        base_stock: base.get(code) ?? 0,
+        color_stock: colorStock,
+        shorts: SHORT_NAMES.map(() => null),
+        assy_in: 0,
+        use_yn: items.get(code)?.use_yn ?? null,
+        extra: true,
+      });
+    }
+  }
+  return { row: c.result.rows.find((r) => r.so_no === soNo) ?? null, lines: out };
 }
 
 /** 자재수급(PUR-03)처럼 수주별 품목 줄까지 한꺼번에 쓰는 화면용 — 같은 30초 캐시를 쓴다 */

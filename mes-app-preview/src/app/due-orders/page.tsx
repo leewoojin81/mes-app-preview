@@ -66,7 +66,10 @@ const CSS = `
 .po .pop .hint{margin-top:6px;padding-top:6px;border-top:1px solid var(--line-2);font-size:11.5px;color:var(--fg-3);max-width:260px;white-space:normal;line-height:1.4}
 .po .zero{color:var(--fg-3)}.po .need{color:var(--red);font-weight:600}
 .po .scrim{position:fixed;inset:0;background:rgba(10,18,40,.35);z-index:40}
-.po .drawer{position:fixed;top:0;right:0;bottom:0;width:min(980px,100%);background:var(--bg);border-left:1px solid var(--line);display:flex;flex-direction:column;box-shadow:-12px 0 30px rgba(0,20,60,.18);z-index:41;animation:po-slide .18s ease-out}
+.po .drawer{position:fixed;top:0;right:0;bottom:0;width:min(980px,100%);background:var(--bg);border-left:1px solid var(--line);display:flex;flex-direction:column;box-shadow:-12px 0 30px rgba(0,20,60,.18);z-index:41;animation:po-slide .18s ease-out;transition:width .18s ease-out}
+.po .drawer.wide{width:min(1720px,100%)}
+.po .pwtbl{table-layout:fixed;min-width:1480px}
+.po .pwtbl th,.po .pwtbl td{padding-left:7px;padding-right:7px;overflow:hidden;text-overflow:ellipsis}
 @keyframes po-slide{from{transform:translateX(24px);opacity:.6}to{transform:none;opacity:1}}
 .po .dh{background:var(--surface);border-bottom:1px solid var(--line);padding:14px 18px;display:flex;gap:12px;align-items:flex-start}
 .po .dh .t{flex:1;min-width:0}
@@ -87,6 +90,10 @@ const CSS = `
 .po .empty{background:var(--surface);border:1px dashed var(--line);border-radius:6px;padding:22px;text-align:center;color:var(--fg-2)}
 .po td.pw{font-weight:600}
 .po tr.tot td{background:var(--surface-2);font-weight:600;border-top:1px solid var(--line)}
+.po tr.off td{background:#e6e9ef;color:var(--fg-3)}
+.po tr.extra td.pw{font-weight:400;color:var(--fg-2)}
+.po .legend{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--fg-3);font-weight:400}
+.po .legend i{display:inline-block;width:12px;height:12px;border-radius:2px;background:#e6e9ef;border:1px solid var(--line)}
 .po .picker{position:relative}
 .po .pop{position:absolute;top:calc(100% + 4px);left:0;z-index:30;background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px rgba(0,20,60,.16);padding:8px 10px;min-width:250px;display:flex;flex-direction:column;gap:2px}
 .po .pop label{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 2px;cursor:pointer;white-space:nowrap}
@@ -188,6 +195,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
   const models = useMemo(() => {
     const g = new Map<string, { model: string; name: string | null; n: number; qty: number; wip: number[]; color: number; shipped: number; assy: number; short: number }>();
     for (const l of detail?.lines ?? []) {
+      if (l.extra) continue; // 수주에 없는 도수(도수변경 재공 확인용)는 모델 요약에 넣지 않는다
       const x = g.get(l.model) ?? { model: l.model, name: l.item_name, n: 0, qty: 0, wip: STAGES.map(() => 0), color: l.color_stock, shipped: 0, assy: 0, short: 0 };
       x.n += 1;
       x.qty += l.order_qty;
@@ -201,13 +209,17 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
   }, [detail]);
 
   const row = detail?.row;
-  const powers = (detail?.lines ?? []).filter((l) => l.model === model);
+  // 도수별 상세 = 수주 도수 + 기본 도수표(0.00 ~ -10.00) — 도수 높은 순(0.00이 위)
+  const powers = (detail?.lines ?? [])
+    .filter((l) => l.model === model)
+    .sort((a, b) => (b.power ?? -99) - (a.power ?? -99) || (a.item_code < b.item_code ? -1 : 1));
+  const orderedPowers = powers.filter((l) => !l.extra).length;
   const pw = STAGES.map((_, i) => sum(powers.map((l) => l.wip[i])));
 
   return (
     <>
       <div className="scrim" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true">
+      <aside className={`drawer${detail && model ? " wide" : ""}`} role="dialog" aria-modal="true">
         <div className="dh">
           <div className="t">
             <h2>
@@ -328,10 +340,19 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
             <div className="sec">
               <h3>
                 <button className="back" onClick={() => setModel(null)}>← 모델 목록</button>
-                <span className="num">{model}</span> 도수별 상세 <small>{powers.length}개 도수</small>
+                <span className="num">{model}</span> 도수별 상세 <small>수주 {orderedPowers}개 도수 · 전체 {powers.length}개</small>
+                <span className="legend"><i />BASE-01 미사용·미등록</span>
               </h3>
               <div className="tbl-wrap">
-                <table>
+                <table className="pwtbl">
+                  {/* 열 폭 고정: 도수·품목코드는 내용만큼, 주문량~착색재고 / 조립~출고 / 검사부족~출하부족은 묶음끼리 같은 폭 */}
+                  <colgroup>
+                    <col style={{ width: "4.6%" }} />
+                    <col style={{ width: "7.7%" }} />
+                    {[0, 1, 2].map((i) => (<col key={`o${i}`} style={{ width: "5.4%" }} />))}
+                    {[...STAGES, "기초재고", "출고"].map((s) => (<col key={s} style={{ width: "4.3%" }} />))}
+                    {[0, 1, 2].map((i) => (<col key={`s${i}`} style={{ width: "5.2%" }} />))}
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r">착색재고</th>
@@ -341,18 +362,22 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                   </thead>
                   <tbody>
                     {powers.map((l) => (
-                      <tr key={l.item_code}>
+                      <tr
+                        key={l.item_code}
+                        className={`${l.use_yn !== "Y" ? "off" : ""}${l.extra ? " extra" : ""}`}
+                        title={l.use_yn == null ? "BASE-01에 없는 품목코드" : l.use_yn !== "Y" ? "BASE-01 사용여부: 미사용" : l.extra ? "수주에 없는 도수 — 재공·재고만 표시" : undefined}
+                      >
                         <td className="num pw">{powerText(l.power)}</td>
                         <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{l.item_code}</td>
                         <td className="r num"><Z n={l.order_qty} /></td>
-                        <td className="r num"><Z n={l.cum_order} /></td>
+                        <td className="r num">{l.extra ? <span className="zero">-</span> : <Z n={l.cum_order} />}</td>
                         <td className="r num"><Z n={l.color_stock} /></td>
                         {l.wip.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
                         <td className="r num"><Z n={l.base_stock} /></td>
                         <td className="r num"><Z n={l.shipped} /></td>
-                        <td className="r">{l.shorts[2] == null ? <span className="pill p-grn">완료</span> : <span className="num">{fmt(l.shorts[2])}</span>}</td>
-                        <td className={`r num ${l.assy_in > 0 ? "need" : ""}`}><Z n={l.assy_in} /></td>
-                        <td className="r">{l.shorts[9] == null ? <span className="pill p-grn">완료</span> : <span className="pill p-red">{fmt(l.shorts[9])}</span>}</td>
+                        <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[2] == null ? <span className="pill p-grn">완료</span> : <span className="num">{fmt(l.shorts[2])}</span>}</td>
+                        <td className={`r num ${l.assy_in > 0 ? "need" : ""}`}>{l.extra ? <span className="zero">-</span> : <Z n={l.assy_in} />}</td>
+                        <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[9] == null ? <span className="pill p-grn">완료</span> : <span className="pill p-red">{fmt(l.shorts[9])}</span>}</td>
                       </tr>
                     ))}
                     <tr className="tot">
