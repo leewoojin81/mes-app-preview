@@ -31,3 +31,7 @@ mes-app-preview/UsersAdministratorDesktopmes-systemmes-app-previewdatames-previe
 
 # 자동 업로드 — 암호화된 계정 파일/상태/로그는 커밋 금지
 /auto-upload/.local/
+
+# 업무 참고 자료 폴더 (소스 아님)
+/다운로드/
+/기준정보/
