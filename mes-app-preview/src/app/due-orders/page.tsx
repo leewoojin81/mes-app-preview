@@ -308,7 +308,7 @@ function ColorStockModal({ model, power, onClose }: { model: string; power: numb
             <table>
               <thead>
                 <tr>
-                  <th>구분</th><th>품목코드</th><th>품목명</th><th>LOT No</th><th>Location</th><th className="r">현재고</th><th className="sep">판정 근거(인쇄 호기)</th>
+                  <th>구분</th><th>품목코드</th><th>품목명</th><th>LOT No</th><th>Location</th><th className="r">현재고</th><th className="sep" title="BASE 인쇄 실적의 호기 — 자동Base 호기면 무도수용">BASE 설비</th><th title="착색 인쇄 실적의 호기 — BASE 실적이 없을 때 자동인쇄 호기면 무도수용">착색 설비</th>
                 </tr>
               </thead>
               <tbody>
@@ -321,13 +321,14 @@ function ColorStockModal({ model, power, onClose }: { model: string; power: numb
                     <td className="num">{l.location ?? "-"}</td>
                     <td className="r num">{fmt(l.stock_qty)}</td>
                     <td className="sep" style={{ fontSize: 12.5 }}>
-                      {l.basis}
+                      {l.base_lines.length ? l.base_lines.join(", ") : <span className="zero">실적 없음</span>}
                       {l.pending && <span className="pill p-amb" style={{ marginLeft: 6 }} title="BASE를 자동Base·Back 호기 양쪽에서 인쇄 — 처리 보류, 우선 유도수용">보류</span>}
                     </td>
+                    <td style={{ fontSize: 12.5 }}>{l.color_lines.length ? l.color_lines.join(", ") : <span className="zero">실적 없음</span>}</td>
                   </tr>
                 ))}
                 {data.lots.length === 0 && (
-                  <tr><td colSpan={7} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조립창고에 착색 재고가 없습니다.</td></tr>
+                  <tr><td colSpan={8} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조립창고에 착색 재고가 없습니다.</td></tr>
                 )}
               </tbody>
             </table>

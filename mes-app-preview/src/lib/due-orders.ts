@@ -512,8 +512,10 @@ export interface ColorStockLot {
   stock_qty: number;
   /** 무도수용(0.00·유도수 모두 사용) / 유도수용(유도수만) */
   use: "무도수용" | "유도수용";
-  /** 판정 근거 — BASE·착색 인쇄 호기 */
-  basis: string;
+  /** 판정 근거 — BASE 인쇄 호기(실적 없으면 빈 배열) */
+  base_lines: string[];
+  /** 착색 인쇄 호기(실적 없으면 빈 배열) */
+  color_lines: string[];
   /** BASE 인쇄를 자동Base·Back 호기 양쪽에서 한 LOT(처리 보류, 우선 유도수용) */
   pending: boolean;
 }
@@ -555,12 +557,7 @@ export function fetchColorStock(db: DatabaseSync, model: string): { model: strin
     const color = [...(p?.color ?? [])].sort();
     const pending = base.some(isAuto) && !base.every(isAuto);
     const mu = base.length ? base.every(isAuto) : color.some(isAuto);
-    const basis = base.length
-      ? `BASE ${base.join(", ")}`
-      : color.length
-        ? `BASE 실적 없음 · 착색 ${color.join(", ")}`
-        : "인쇄 실적 없음";
-    return { item_code: s.item_code, item_name: s.item_name, lot_no: s.lot_no, location: s.loc, stock_qty: s.q, use: mu ? "무도수용" : "유도수용", basis, pending };
+    return { item_code: s.item_code, item_name: s.item_name, lot_no: s.lot_no, location: s.loc, stock_qty: s.q, use: mu ? "무도수용" : "유도수용", base_lines: base, color_lines: color, pending };
   });
   lots.sort((a, b) => (a.use !== b.use ? (a.use === "무도수용" ? -1 : 1) : a.item_code !== b.item_code ? (a.item_code < b.item_code ? -1 : 1) : a.lot_no < b.lot_no ? -1 : 1));
   return { model, lots };
