@@ -35,6 +35,10 @@ const CSS = `
 .po th{position:sticky;top:0;background:var(--surface-2);color:var(--fg-2);font-weight:600;font-size:12px;text-align:left;padding:4px 8px;line-height:1.25;border-bottom:1px solid var(--line);white-space:nowrap}
 .po td{padding:2px 8px;line-height:1.25;border-bottom:1px solid var(--line-2);white-space:nowrap;color:var(--fg)}
 .po th.r,.po td.r{text-align:right}
+.po th.grp{text-align:center;cursor:pointer;user-select:none;border-bottom:1px solid var(--line);color:var(--navy)}
+.po th.grp:hover{background:var(--blue-bg)}
+.po thead tr.h2 th{top:24px}
+.po thead tr.h1 th{height:24px}
 .po tbody tr.row{cursor:pointer}.po tbody tr.row:hover{background:var(--surface-2)}.po tbody tr.row.sel{background:var(--blue-bg)}
 .po tbody tr.row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .po .so{font-family:var(--mono);font-size:12.5px;color:var(--accent);font-weight:500}
@@ -314,6 +318,7 @@ export default function DueOrdersPage() {
   const [needOnly, setNeedOnly] = useTabState("dueOrdNeedOnly", false);
   const [dueSoon, setDueSoon] = useTabState("dueOrdDueSoon", false);
   const [hideDone, setHideDone] = useTabState("dueOrdHideDone", true);
+  const [wipOpen, setWipOpen] = useTabState("dueOrdWipOpen", false);
   const [selected, setSelected] = useState<string | null>(null);
 
   const request = (fresh: boolean) =>
@@ -405,10 +410,38 @@ export default function DueOrdersPage() {
         ) : (
           <table>
             <thead>
-              <tr>
-                <th className="r">순위</th><th>SO번호</th><th>MO번호</th><th>고객사</th><th>브랜드</th><th>납기일</th><th>포장</th>
-                <th className="r">주문량</th><th className="r">착색재고</th><th className="r">공정재공</th><th className="r">출고</th><th className="r">조립투입 필요</th><th className="r">출하부족</th><th>진행률</th><th>상세</th>
+              <tr className="h1">
+                <th className="r" rowSpan={wipOpen ? 2 : 1}>순위</th>
+                <th rowSpan={wipOpen ? 2 : 1}>SO번호</th>
+                <th rowSpan={wipOpen ? 2 : 1}>MO번호</th>
+                <th rowSpan={wipOpen ? 2 : 1}>고객사</th>
+                <th rowSpan={wipOpen ? 2 : 1}>브랜드</th>
+                <th rowSpan={wipOpen ? 2 : 1}>납기일</th>
+                <th rowSpan={wipOpen ? 2 : 1}>포장</th>
+                <th className="r" rowSpan={wipOpen ? 2 : 1}>주문량</th>
+                <th className="r" rowSpan={wipOpen ? 2 : 1}>착색재고</th>
+                {wipOpen ? (
+                  <th className="grp" colSpan={STAGES.length} onClick={() => setWipOpen(false)} title="누르면 공정재공 합계 1칸으로 접습니다">
+                    공정재공 (조립 ~ 출하포장) ▾
+                  </th>
+                ) : (
+                  <th className="r grp" onClick={() => setWipOpen(true)} title="누르면 조립 ~ 출하포장 공정별로 펼칩니다">
+                    공정재공 ▸
+                  </th>
+                )}
+                <th className="r" rowSpan={wipOpen ? 2 : 1}>출고</th>
+                <th className="r" rowSpan={wipOpen ? 2 : 1}>조립투입 필요</th>
+                <th className="r" rowSpan={wipOpen ? 2 : 1}>출하부족</th>
+                <th rowSpan={wipOpen ? 2 : 1}>진행률</th>
+                <th rowSpan={wipOpen ? 2 : 1}>상세</th>
               </tr>
+              {wipOpen && (
+                <tr className="h2">
+                  {STAGES.map((st) => (
+                    <th key={st} className="r">{st}</th>
+                  ))}
+                </tr>
+              )}
             </thead>
             <tbody>
               {rows.map((r) => {
@@ -430,7 +463,11 @@ export default function DueOrdersPage() {
                     <td>{r.pack_method ?? ""}</td>
                     <td className="r num">{fmt(r.order_qty)}</td>
                     <td className="r num"><Z n={r.color_stock} /></td>
-                    <td className="r num"><Z n={sum(r.wip)} /></td>
+                    {wipOpen ? (
+                      r.wip.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))
+                    ) : (
+                      <td className="r num"><Z n={sum(r.wip)} /></td>
+                    )}
                     <td className="r num"><Z n={r.shipped} /></td>
                     <td className={`r num ${r.assy_in > 0 ? "need" : ""}`}><Z n={r.assy_in} /></td>
                     <td className="r num"><Z n={r.ship_short} /></td>
@@ -443,7 +480,7 @@ export default function DueOrdersPage() {
                 );
               })}
               {rows.length === 0 && (
-                <tr><td colSpan={15} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 수주가 없습니다. 필터를 해제해 보세요.</td></tr>
+                <tr><td colSpan={wipOpen ? 14 + STAGES.length : 15} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 수주가 없습니다. 필터를 해제해 보세요.</td></tr>
               )}
             </tbody>
           </table>
