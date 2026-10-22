@@ -349,15 +349,17 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                   <colgroup>
                     <col style={{ width: "4.6%" }} />
                     <col style={{ width: "7.7%" }} />
-                    {[0, 1, 2].map((i) => (<col key={`o${i}`} style={{ width: "5.4%" }} />))}
-                    {[...STAGES, "기초재고", "출고"].map((s) => (<col key={s} style={{ width: "4.3%" }} />))}
-                    {[0, 1, 2].map((i) => (<col key={`s${i}`} style={{ width: "5.2%" }} />))}
+                    {[0, 1, 2].map((i) => (<col key={`o${i}`} style={{ width: "5.3%" }} />))}
+                    {[...STAGES, "기초재고", "출고"].map((s) => (<col key={s} style={{ width: "4%" }} />))}
+                    {[0, 1, 2, 3].map((i) => (<col key={`s${i}`} style={{ width: "4.9%" }} />))}
                   </colgroup>
                   <thead>
                     <tr>
                       <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r">착색재고</th>
                       {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
-                      <th className="r">기초재고</th><th className="r">출고</th><th className="r">검사부족</th><th className="r">조립투입</th><th className="r">출하부족</th>
+                      <th className="r">기초재고</th><th className="r">출고</th><th className="r">검사부족</th>
+                      <th className="r" title="최근 1개월 조립일자 기준, 이 도수로 변경되어 조립된 작업지시 건수">도수변경</th>
+                      <th className="r">조립투입</th><th className="r">출하부족</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -376,6 +378,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                         <td className="r num"><Z n={l.base_stock} /></td>
                         <td className="r num"><Z n={l.shipped} /></td>
                         <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[2] == null ? <span className="pill p-grn">완료</span> : <span className="num">{fmt(l.shorts[2])}</span>}</td>
+                        <td className="r">{l.dosu_changes ? <span className="pill p-amb">{fmt(l.dosu_changes)}건</span> : <span className="zero">-</span>}</td>
                         <td className={`r num ${l.assy_in > 0 ? "need" : ""}`}>{l.extra ? <span className="zero">-</span> : <Z n={l.assy_in} />}</td>
                         <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[9] == null ? <span className="pill p-grn">완료</span> : <span className="pill p-red">{fmt(l.shorts[9])}</span>}</td>
                       </tr>
@@ -389,6 +392,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       <td />
                       <td className="r num">{fmt(sum(powers.map((l) => l.shipped)))}</td>
                       <td />
+                      <td className="r num">{fmt(sum(powers.map((l) => l.dosu_changes ?? 0)))}건</td>
                       <td className="r num">{fmt(sum(powers.map((l) => l.assy_in)))}</td>
                       <td className="r num">{fmt(sum(powers.map((l) => l.shorts[9] ?? 0)))}</td>
                     </tr>
@@ -790,6 +794,7 @@ export default function DueOrdersPage() {
         조립투입 = 검사부족분 ÷ 직진율 − 조립 − 분리3 − 습윤 − 외관검사×108%(60 단위 올림). 공정재공은 품목코드 기준이라 같은 품목을 가진 수주에 똑같이 보입니다.
         진행률 = (주문량 − 출하부족) ÷ 주문량, 공정별 진행률 = (주문량 − 그 공정 부족분) ÷ 주문량입니다.
         순위는 납기일 → 생산순위지정(PLAN-01) 작업순서 순입니다.
+        도수별 상세의 도수변경 = 최근 1개월(조립일자 기준) 그 도수로 변경되어 조립된 작업지시 건수입니다.
       </p>
 
       {selected && (

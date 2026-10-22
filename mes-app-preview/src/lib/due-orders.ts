@@ -51,6 +51,8 @@ export interface DueOrderLine {
   use_yn?: string | null;
   /** 수주에 없는 도수 — 도수변경 재공을 보려고 상세에 기본 도수표로 덧붙인 줄(주문·부족분·조립투입 없음) */
   extra?: boolean;
+  /** 최근 1개월(조립일자 기준) 이 품목코드로 도수변경된 작업지시 건수(상세 조회에서만 채움) */
+  dosu_changes?: number;
 }
 
 export interface DueOrderRow {
@@ -357,6 +359,30 @@ export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOr
       });
     }
   }
+
+  // 도수변경 건수 — 조립일자("조립 실적 입력시각"의 날짜, 지시일자와 다른 경우가 많다)가 최근 1개월인
+  // 이전도수 있는 행을 작업지시번호로 중복 제거해 센다(QC-01과 같은 변경 판정). 품목코드는 변경 후(실제로 조립된) 도수의 품목이다.
+  // 입력시각이 비어 깨진 문자로 들어온 행은 날짜 범위에 걸리지 않아 저절로 빠진다.
+  const d = new Date();
+  const ymd = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+  const to = ymd(d);
+  d.setMonth(d.getMonth() - 1);
+  const from = ymd(d);
+  const changes = new Map<string, number>();
+  for (const m of models) {
+    for (const r of db
+      .prepare(
+        `SELECT item_code, COUNT(DISTINCT wo_no) n FROM dosu_change_status
+          WHERE item_code LIKE ?
+            AND replace(substr(json_extract(detail, '$."조립 실적 입력시각"'), 1, 10), '.', '-') BETWEEN ? AND ?
+            AND json_extract(detail, '$."이전도수"') IS NOT NULL AND json_extract(detail, '$."이전도수"') != ''
+          GROUP BY item_code`
+      )
+      .all(like(m), from, to) as { item_code: string; n: number }[]) {
+      changes.set(r.item_code, r.n);
+    }
+  }
+  for (const l of out) l.dosu_changes = changes.get(l.item_code) ?? 0;
   return { row: c.result.rows.find((r) => r.so_no === soNo) ?? null, lines: out };
 }
 
