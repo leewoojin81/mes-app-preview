@@ -406,7 +406,7 @@ export default function DueOrdersPage() {
           <table>
             <thead>
               <tr>
-                <th className="r">순위</th><th>SO번호</th><th>고객</th><th>브랜드</th><th>납기일</th><th>포장</th>
+                <th className="r">순위</th><th>SO번호</th><th>MO번호</th><th>고객</th><th>브랜드</th><th>납기일</th><th>포장</th>
                 <th className="r">주문량</th><th className="r">착색재고</th><th className="r">공정재공</th><th className="r">출고</th><th className="r">조립투입 필요</th><th className="r">출하부족</th><th>진행률</th><th>상세</th>
               </tr>
             </thead>
@@ -423,6 +423,7 @@ export default function DueOrdersPage() {
                   >
                     <td className="r num">{r.rank}</td>
                     <td className="so">{r.so_no}</td>
+                    <td className="num" style={{ fontSize: 12.5 }}>{r.mo_no ?? ""}</td>
                     <td>{r.customer ?? ""}</td>
                     <td>{r.brand ?? ""}</td>
                     <td><span className="num">{(r.due_date ?? "").slice(0, 10)}</span> <DueBadge row={r} base={base} /></td>
@@ -442,7 +443,7 @@ export default function DueOrdersPage() {
                 );
               })}
               {rows.length === 0 && (
-                <tr><td colSpan={14} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 수주가 없습니다. 필터를 해제해 보세요.</td></tr>
+                <tr><td colSpan={15} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 수주가 없습니다. 필터를 해제해 보세요.</td></tr>
               )}
             </tbody>
           </table>
