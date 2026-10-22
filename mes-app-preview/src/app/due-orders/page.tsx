@@ -8,7 +8,7 @@ import type { AssemblyRecord, DueOrderLine, DueOrderRow, DueOrdersResult } from 
 // 생산계획 "납기별수주현황(PLAN-04)" — 생산계획 엑셀 「납기별」 시트 + 수주별 시트를 한 화면으로 옮긴 것.
 // 목록에서 수주를 누르면 오른쪽 상세 창에서 품목(모델)별 요약 → 모델을 누르면 도수별 공정재공·부족분·조립투입을 본다.
 // 계산식과 데이터 출처는 lib/due-orders.ts 머리 주석 참고.
-// 화면 디자인은 시안 「메디오스 MES 납기별 수주현황.html」의 CSS를 .po 아래로 옮겨 그대로 맞췄다(착색재고 = 모델별 BOM 착색 반제품의 조립창고 재고, 도수 상세는 0.00 무도수 / 그 외 유도수).
+// 화면 디자인은 시안 「메디오스 MES 납기별 수주현황.html」의 CSS를 .po 아래로 옮겨 그대로 맞췄다(착색재고 = 모델별 BOM 착색 반제품의 조립창고 재고, 도수 상세는 0.00 무도수용 / 그 외 무도수용+유도수용).
 
 const CSS = `
 @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
@@ -448,7 +448,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                   </colgroup>
                   <thead>
                     <tr>
-                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r" title="0.00 줄은 무도수 착색재고, -0.25 ~ -10.00 줄은 유도수 착색재고(같은 모델의 유도수 줄은 같은 값)">착색재고</th>
+                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r" title="0.00 줄은 무도수용 착색만, -0.25 ~ -10.00 줄은 무도수용 + 유도수용 착색(무도수용은 유도수에도 쓸 수 있음, 같은 모델의 유도수 줄은 같은 값)">착색재고</th>
                       {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r">검사부족</th>
                       <th className="r" title="최근 1개월 조립일자 기준, 이 도수로 변경되어 조립된 작업지시 건수">도수변경</th>

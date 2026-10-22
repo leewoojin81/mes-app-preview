@@ -20,8 +20,9 @@ import type { DatabaseSync } from "node:sqlite";
 //  - 착색재고 = 모델(품목코드 앞 9자리 = BOM 대표코드)의 직접 구성품 중 반제품·품목군 "착색"인 품목의 조립창고 재고.
 //    LOT마다 무도수/유도수로 나눈다 — BASE 인쇄를 자동Base 호기에서만 했거나, BASE 인쇄 실적 없이 착색 인쇄를 자동인쇄 호기에서
 //    했으면 무도수, 나머지(수동 Back 호기 BASE, 실적 없음)는 유도수. LOT No는 BASE 인쇄 → 착색 인쇄까지 그대로 이어진다.
-//    도수 줄은 0.00이면 무도수, -0.25 ~ -10.00이면 유도수 재고(같은 모델의 유도수 줄은 같은 값)이고,
-//    모델·수주 단위는 무도수 + 유도수, 수주 단위는 그 수주에 든 모델별 값의 합이다.
+//    무도수용 착색은 유도수에도 쓸 수 있지만 유도수용은 무도수로 못 쓴다 — 그래서 도수 줄은 0.00이면 무도수용,
+//    -0.25 ~ -10.00이면 무도수용 + 유도수용(같은 모델의 유도수 줄은 같은 값)이고,
+//    모델·수주 단위는 무도수용 + 유도수용, 수주 단위는 그 수주에 든 모델별 값의 합이다.
 // 엑셀의 조정값(Z열, 손입력)은 아직 넣지 않았다.
 
 export const STAGES = ["조립", "분리3", "습윤", "외관검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "마킹", "출하포장"] as const;
@@ -45,7 +46,7 @@ export interface DueOrderLine {
   shipped: number;
   cum_shipped: number;
   base_stock: number;
-  /** 이 도수가 쓸 착색재고 — 0.00은 무도수, 그 외 도수는 유도수(같은 모델의 유도수 줄은 같은 값) */
+  /** 이 도수에 쓸 수 있는 착색재고 — 0.00은 무도수용만, 그 외 도수는 무도수용 + 유도수용(무도수용은 혼용 가능) */
   color_stock: number;
   /** 모델 단위 착색재고(무도수 + 유도수) */
   model_color_stock: number;
@@ -102,11 +103,11 @@ function soBase(soNo: string): string {
  */
 const COLOR_MU = `(l.base_auto = 1 OR (l.has_base IS NULL AND l.color_auto = 1))`;
 
-/** 도수 줄의 착색재고 — 0.00은 무도수, 그 외(도수 없는 품목코드 포함)는 유도수 */
+/** 도수 줄의 착색재고 — 0.00은 무도수용만, 그 외(도수 없는 품목코드 포함)는 무도수용 + 유도수용 */
 function colorStockOf(c: { mu: number; yu: number } | undefined, power: number | null): { color_stock: number; model_color_stock: number } {
   const mu = c?.mu ?? 0;
   const yu = c?.yu ?? 0;
-  return { color_stock: power === 0 ? mu : yu, model_color_stock: mu + yu };
+  return { color_stock: power === 0 ? mu : mu + yu, model_color_stock: mu + yu };
 }
 
 export function powerOf(itemCode: string): number | null {
