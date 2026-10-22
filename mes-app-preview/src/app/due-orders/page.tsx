@@ -7,15 +7,74 @@ import type { DueOrderLine, DueOrderRow, DueOrdersResult } from "@/lib/due-order
 // 생산계획 "납기별수주현황(PLAN-04)" — 생산계획 엑셀 「납기별」 시트 + 수주별 시트를 한 화면으로 옮긴 것.
 // 목록에서 수주를 누르면 오른쪽 상세 창에서 품목(모델)별 요약 → 모델을 누르면 도수별 공정재공·부족분·조립투입을 본다.
 // 계산식과 데이터 출처는 lib/due-orders.ts 머리 주석 참고.
+// 화면 디자인은 시안 「메디오스 MES 납기별 수주현황.html」의 CSS를 .po 아래로 옮겨 그대로 맞췄다(착색재고는 데이터 미연결이라 열 제외).
+
+const CSS = `
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+.po{--navy:#002060;--accent:#2457d6;--bg:#f3f5f9;--surface:#fff;--surface-2:#f7f9fc;--line:#dfe4ee;--line-2:#eef1f6;--fg:#16203a;--fg-2:#4a5672;--fg-3:#7c88a3;--red:#c62f2f;--red-bg:#fdecec;--amber:#a86400;--amber-bg:#fff4e0;--green:#1d7a46;--green-bg:#e6f5ec;--blue-bg:#e9efff;
+ --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+ font-family:var(--sans);font-size:14px;line-height:1.45;color:var(--fg);background:var(--bg);display:flex;flex-direction:column;gap:14px;padding:20px 16px 40px;min-height:100%}
+.po *{box-sizing:border-box}
+.po .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.po .head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:10px}
+.po h1{margin:0;font-size:22px;font-weight:700;color:var(--fg)}
+.po .crumb{font-size:12px;color:var(--fg-3);margin-bottom:2px}
+.po .meta{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--fg-2);align-items:center}
+.po .meta b{color:var(--fg);font-weight:600}
+.po .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.po .kpi{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.po .kpi .l{font-size:12px;color:var(--fg-3)}.po .kpi .v{font-size:20px;font-weight:600}.po .kpi .s{font-size:11.5px;color:var(--fg-3)}
+.po .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.po .tools input,.po .tools select{font:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--fg);min-width:0}
+.po .tools input{width:220px;max-width:100%}
+.po .chip{font:inherit;font-size:12.5px;border:1px solid var(--line);background:var(--surface);color:var(--fg-2);border-radius:999px;padding:5px 11px;cursor:pointer}
+.po .chip[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.po .cnt{font-size:12px;color:var(--fg-3);margin-left:auto}
+.po .tbl-wrap{background:var(--surface);border:1px solid var(--line);border-radius:6px;overflow:auto}
+.po table{border-collapse:collapse;width:100%;font-size:13px}
+.po th{position:sticky;top:0;background:var(--surface-2);color:var(--fg-2);font-weight:600;font-size:12px;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+.po td{padding:7px 10px;border-bottom:1px solid var(--line-2);white-space:nowrap;color:var(--fg)}
+.po th.r,.po td.r{text-align:right}
+.po tbody tr.row{cursor:pointer}.po tbody tr.row:hover{background:var(--surface-2)}.po tbody tr.row.sel{background:var(--blue-bg)}
+.po tbody tr.row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.po .so{font-family:var(--mono);font-size:12.5px;color:var(--accent);font-weight:500}
+.po .pill{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 7px;border-radius:3px;font-family:var(--mono)}
+.po .p-red{background:var(--red-bg);color:var(--red)}.po .p-amb{background:var(--amber-bg);color:var(--amber)}.po .p-grn{background:var(--green-bg);color:var(--green)}.po .p-gry{background:var(--line-2);color:var(--fg-3)}
+.po .bar{width:90px;height:6px;background:var(--line-2);border-radius:3px;overflow:hidden;display:inline-block;vertical-align:middle}
+.po .bar i{display:block;height:100%;background:var(--accent)}
+.po .zero{color:var(--fg-3)}.po .need{color:var(--red);font-weight:600}
+.po .scrim{position:fixed;inset:0;background:rgba(10,18,40,.35);z-index:40}
+.po .drawer{position:fixed;top:0;right:0;bottom:0;width:min(980px,100%);background:var(--bg);border-left:1px solid var(--line);display:flex;flex-direction:column;box-shadow:-12px 0 30px rgba(0,20,60,.18);z-index:41;animation:po-slide .18s ease-out}
+@keyframes po-slide{from{transform:translateX(24px);opacity:.6}to{transform:none;opacity:1}}
+.po .dh{background:var(--surface);border-bottom:1px solid var(--line);padding:14px 18px;display:flex;gap:12px;align-items:flex-start}
+.po .dh .t{flex:1;min-width:0}
+.po .dh h2{margin:0;font-size:18px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.po .dh .sub{font-size:12.5px;color:var(--fg-2);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 14px}
+.po .x{font:inherit;font-size:20px;border:0;background:transparent;color:var(--fg-2);cursor:pointer;padding:2px 8px;border-radius:4px}
+.po .db{overflow-y:auto;padding:16px 18px 30px;display:flex;flex-direction:column;gap:16px}
+.po .sec h3{margin:0 0 8px;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.po .sec h3 small{font-weight:400;color:var(--fg-3);font-size:12px}
+.po .flow{display:grid;grid-template-columns:repeat(11,minmax(64px,1fr));gap:4px;overflow-x:auto}
+.po .st{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:6px 6px 7px;text-align:center;min-width:64px}
+.po .st .n{font-size:11px;color:var(--fg-3)}.po .st .v{font-size:14px;font-weight:600}
+.po .st.has{border-color:var(--accent);background:var(--blue-bg)}
+.po .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.po .fact{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:7px 10px}
+.po .fact .l{font-size:11.5px;color:var(--fg-3)}.po .fact .v{font-size:14px;font-weight:600}
+.po .back{font:inherit;font-size:12.5px;border:1px solid var(--line);background:var(--surface);color:var(--fg-2);border-radius:4px;padding:3px 9px;cursor:pointer}
+.po .empty{background:var(--surface);border:1px dashed var(--line);border-radius:6px;padding:22px;text-align:center;color:var(--fg-2)}
+.po td.pw{font-weight:600}
+.po tr.tot td{background:var(--surface-2);font-weight:600;border-top:1px solid var(--line)}
+.po .note{font-size:12px;color:var(--fg-3);line-height:1.6}
+`;
 
 const STAGES = ["조립", "분리3", "습윤", "외관검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "마킹", "출하포장"];
-const th = "px-2 py-2 border border-slate-300 bg-[#B4C6E7] text-xs font-semibold text-slate-800 text-center whitespace-nowrap";
-const td = "px-2 py-1.5 border border-slate-200 text-xs text-slate-700 whitespace-nowrap";
-const num = `${td} text-right tabular-nums`;
 
 const fmt = (n: number) => Math.round(n).toLocaleString("ko-KR");
-const dash = (n: number) => (n > 0 ? fmt(n) : "-");
 const sum = (a: number[]) => a.reduce((s, v) => s + v, 0);
+function Z({ n }: { n: number }) {
+  return n > 0 ? <>{fmt(n)}</> : <span className="zero">0</span>;
+}
 
 function today(): string {
   const d = new Date();
@@ -26,24 +85,28 @@ function dday(due: string | null, base: string): number | null {
   return Math.round((new Date(due.slice(0, 10) + "T00:00:00").getTime() - new Date(base + "T00:00:00").getTime()) / 864e5);
 }
 function DueBadge({ row, base }: { row: DueOrderRow; base: string }) {
-  if (row.order_qty > 0 && row.shipped >= row.order_qty) return <span className="ml-1 px-1.5 rounded bg-emerald-100 text-emerald-700 text-[11px] font-semibold">출하완료</span>;
+  if (row.order_qty > 0 && row.shipped >= row.order_qty) return <span className="pill p-grn">출하완료</span>;
   const n = dday(row.due_date, base);
-  if (n == null) return null;
-  const cls = n < 0 ? "bg-red-100 text-red-700" : n <= 14 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500";
-  return <span className={`ml-1 px-1.5 rounded text-[11px] font-semibold tabular-nums ${cls}`}>{n < 0 ? `D+${-n}` : n === 0 ? "D-day" : `D-${n}`}</span>;
+  if (n == null) return <span className="pill p-gry">미정</span>;
+  const cls = n < 0 ? "p-red" : n <= 14 ? "p-amb" : "p-gry";
+  return <span className={`pill ${cls}`}>{n < 0 ? `D+${-n}` : n === 0 ? "D-day" : `D-${n}`}</span>;
 }
 function powerText(p: number | null): string {
   if (p == null) return "-";
   return p > 0 ? `+${p.toFixed(2)}` : p.toFixed(2);
 }
+function progress(r: DueOrderRow): number {
+  if (!r.order_qty) return 0;
+  return Math.max(0, Math.min(1, (r.order_qty - r.ship_short) / r.order_qty));
+}
 
 function StageFlow({ wip }: { wip: number[] }) {
   return (
-    <div className="grid grid-cols-11 gap-1 min-w-[720px]">
+    <div className="flow">
       {STAGES.map((s, i) => (
-        <div key={s} className={`rounded border px-1 py-1.5 text-center ${wip[i] > 0 ? "border-[#002060] bg-[#E8EEF9]" : "border-slate-200 bg-white"}`}>
-          <div className="text-[11px] text-slate-500">{s}</div>
-          <div className="text-sm font-semibold tabular-nums text-slate-800">{wip[i] > 0 ? fmt(wip[i]) : "·"}</div>
+        <div key={s} className={`st${wip[i] > 0 ? " has" : ""}`}>
+          <div className="n">{s}</div>
+          <div className="v num">{wip[i] > 0 ? fmt(wip[i]) : "·"}</div>
         </div>
       ))}
     </div>
@@ -94,93 +157,89 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
   const pw = STAGES.map((_, i) => sum(powers.map((l) => l.wip[i])));
 
   return (
-    <div className="fixed inset-0 z-40">
-      <div className="absolute inset-0 modal-overlay-bg" onClick={onClose} />
-      <aside className="absolute top-0 right-0 bottom-0 w-full max-w-[1100px] bg-slate-50 shadow-2xl flex flex-col" role="dialog" aria-modal="true">
-        <div className="bg-white border-b border-slate-200 px-5 py-3 flex items-start gap-3">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-base font-bold text-navy">
-              {soNo} {row && <DueBadge row={row} base={base} />}
+    <>
+      <div className="scrim" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-modal="true">
+        <div className="dh">
+          <div className="t">
+            <h2>
+              <span className="num">{soNo}</span> {row && <DueBadge row={row} base={base} />}
             </h2>
             {row && (
-              <p className="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                <span>고객 <b className="text-slate-700">{row.customer ?? "-"}</b></span>
-                <span>브랜드 <b className="text-slate-700">{row.brand ?? "-"}</b></span>
-                <span>납기 <b className="text-slate-700">{row.due_date ?? "-"}</b></span>
-                <span>순위 {row.rank}</span>
-                {row.mo_no && <span>{row.mo_no}</span>}
+              <div className="sub">
+                <span>고객 <b>{row.customer ?? "-"}</b></span>
+                <span>브랜드 <b>{row.brand ?? "-"}</b></span>
+                <span>납기 <b className="num">{row.due_date ?? "-"}</b></span>
                 {row.pack_method && <span>포장 {row.pack_method}</span>}
-              </p>
+                <span>순위 {row.rank}</span>
+                {row.mo_no && <span className="num">{row.mo_no}</span>}
+              </div>
             )}
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none px-1" aria-label="닫기">
-            ×
-          </button>
+          <button className="x" onClick={onClose} aria-label="닫기">×</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {error && <div className="text-sm text-red-600">{error}</div>}
-          {!detail && !error && <div className="text-sm text-slate-400">불러오는 중…</div>}
+        <div className="db">
+          {error && <div className="empty"><b>{error}</b></div>}
+          {!detail && !error && <div className="empty">불러오는 중…</div>}
           {row && (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                {[
+              <div className="facts">
+                {([
                   ["주문량", fmt(row.order_qty), ""],
                   ["출고", fmt(row.shipped), ""],
-                  ["조립투입 필요", fmt(row.assy_in), row.assy_in > 0 ? "text-red-600" : ""],
+                  ["조립투입 필요", fmt(row.assy_in), row.assy_in > 0 ? "need" : ""],
                   ["출하부족(누적)", fmt(row.ship_short), ""],
                   ["품목 수", `${row.line_count}개`, ""],
-                ].map(([l, v, c]) => (
-                  <div key={l} className="bg-white border border-slate-200 rounded px-3 py-2">
-                    <div className="text-[11px] text-slate-500">{l}</div>
-                    <div className={`text-base font-semibold tabular-nums ${c}`}>{v}</div>
+                ] as const).map(([l, v, c]) => (
+                  <div key={l} className="fact">
+                    <div className="l">{l}</div>
+                    <div className={`v num ${c}`}>{v}</div>
                   </div>
                 ))}
               </div>
-              <div>
-                <h3 className="text-sm font-semibold text-slate-700 mb-1.5">공정별 재공</h3>
-                <div className="overflow-x-auto">
-                  <StageFlow wip={model ? pw : row.wip} />
-                </div>
+              <div className="sec">
+                <h3>공정별 재공 <small>{model ? `${model} 모델 합계` : "수주 전체"}</small></h3>
+                <StageFlow wip={model ? pw : row.wip} />
               </div>
             </>
           )}
 
           {detail && !model && (
-            <div>
-              <h3 className="text-sm font-semibold text-slate-700 mb-1.5">
-                품목(모델)별 요약 <span className="font-normal text-xs text-slate-400">모델을 누르면 도수별 상세가 열립니다</span>
-              </h3>
-              <div className="bg-white border border-slate-200 rounded overflow-x-auto">
-                <table className="w-full border-collapse">
+            <div className="sec">
+              <h3>품목(모델)별 요약 <small>모델을 누르면 도수별 상세가 열립니다</small></h3>
+              <div className="tbl-wrap">
+                <table>
                   <thead>
                     <tr>
-                      <th className={th}>모델</th>
-                      <th className={th}>품목명</th>
-                      <th className={th}>도수 수</th>
-                      <th className={th}>주문량</th>
-                      <th className={th}>공정재공</th>
-                      <th className={th}>출고</th>
-                      <th className={th}>조립투입</th>
-                      <th className={th}>출하부족</th>
+                      <th>모델</th><th>품목명</th><th className="r">도수 수</th><th className="r">주문량</th><th className="r">공정재공</th>
+                      <th className="r">출고</th><th className="r">조립투입 필요</th><th className="r">출하부족</th>
                     </tr>
                   </thead>
                   <tbody>
                     {models.map((m) => (
-                      <tr key={m.model} className="hover:bg-slate-50 cursor-pointer" onClick={() => setModel(m.model)}>
-                        <td className={`${td} text-[#0070C0] font-medium`}>{m.model}</td>
-                        <td className={`${td} max-w-[280px] truncate`} title={m.name ?? ""}>{m.name ?? ""}</td>
-                        <td className={num}>{m.n}</td>
-                        <td className={num}>{fmt(m.qty)}</td>
-                        <td className={num}>{dash(sum(m.wip))}</td>
-                        <td className={num}>{dash(m.shipped)}</td>
-                        <td className={`${num} ${m.assy > 0 ? "text-red-600 font-semibold" : ""}`}>{dash(m.assy)}</td>
-                        <td className={num}>{dash(m.short)}</td>
+                      <tr key={m.model} className="row" tabIndex={0} onClick={() => setModel(m.model)} onKeyDown={(e) => e.key === "Enter" && setModel(m.model)}>
+                        <td className="so">{m.model}</td>
+                        <td style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" }} title={m.name ?? ""}>{m.name ?? ""}</td>
+                        <td className="r num">{m.n}</td>
+                        <td className="r num">{fmt(m.qty)}</td>
+                        <td className="r num"><Z n={sum(m.wip)} /></td>
+                        <td className="r num"><Z n={m.shipped} /></td>
+                        <td className={`r num ${m.assy > 0 ? "need" : ""}`}><Z n={m.assy} /></td>
+                        <td className="r num"><Z n={m.short} /></td>
                       </tr>
                     ))}
                     {models.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="p-6 text-center text-sm text-slate-400">품목 줄이 없습니다.</td>
+                      <tr><td colSpan={8} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>품목 줄이 없습니다.</td></tr>
+                    )}
+                    {models.length > 0 && (
+                      <tr className="tot">
+                        <td colSpan={3}>합계</td>
+                        <td className="r num">{fmt(sum(models.map((m) => m.qty)))}</td>
+                        <td className="r num">{fmt(sum(models.map((m) => sum(m.wip))))}</td>
+                        <td className="r num">{fmt(sum(models.map((m) => m.shipped)))}</td>
+                        <td className="r num">{fmt(sum(models.map((m) => m.assy)))}</td>
+                        <td className="r num">{fmt(sum(models.map((m) => m.short)))}</td>
                       </tr>
                     )}
                   </tbody>
@@ -190,71 +249,54 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
           )}
 
           {detail && model && (
-            <div>
-              <h3 className="text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
-                <button onClick={() => setModel(null)} className="px-2 py-0.5 text-xs border border-slate-300 rounded bg-white hover:bg-slate-50">
-                  ← 모델 목록
-                </button>
-                {model} 도수별 상세 <span className="font-normal text-xs text-slate-400">{powers.length}개 도수</span>
+            <div className="sec">
+              <h3>
+                <button className="back" onClick={() => setModel(null)}>← 모델 목록</button>
+                <span className="num">{model}</span> 도수별 상세 <small>{powers.length}개 도수</small>
               </h3>
-              <div className="bg-white border border-slate-200 rounded overflow-x-auto">
-                <table className="w-full border-collapse">
+              <div className="tbl-wrap">
+                <table>
                   <thead>
                     <tr>
-                      <th className={th}>도수</th>
-                      <th className={th}>품목코드</th>
-                      <th className={th}>주문량</th>
-                      <th className={th}>누적주문</th>
-                      {STAGES.map((s) => (
-                        <th key={s} className={th}>{s}</th>
-                      ))}
-                      <th className={th}>기초재고</th>
-                      <th className={th}>출고</th>
-                      <th className={th}>검사부족</th>
-                      <th className={th}>조립투입</th>
-                      <th className={th}>출하부족</th>
+                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th>
+                      {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
+                      <th className="r">기초재고</th><th className="r">출고</th><th className="r">검사부족</th><th className="r">조립투입</th><th className="r">출하부족</th>
                     </tr>
                   </thead>
                   <tbody>
                     {powers.map((l) => (
-                      <tr key={l.item_code} className="hover:bg-slate-50">
-                        <td className={`${td} font-semibold tabular-nums`}>{powerText(l.power)}</td>
-                        <td className={`${td} text-slate-500`}>{l.item_code}</td>
-                        <td className={num}>{fmt(l.order_qty)}</td>
-                        <td className={num}>{fmt(l.cum_order)}</td>
-                        {l.wip.map((v, i) => (
-                          <td key={i} className={num}>{dash(v)}</td>
-                        ))}
-                        <td className={num}>{dash(l.base_stock)}</td>
-                        <td className={num}>{dash(l.shipped)}</td>
-                        <td className={num}>{l.shorts[2] == null ? <span className="text-emerald-600">완료</span> : fmt(l.shorts[2])}</td>
-                        <td className={`${num} ${l.assy_in > 0 ? "text-red-600 font-semibold" : ""}`}>{dash(l.assy_in)}</td>
-                        <td className={num}>{l.shorts[9] == null ? <span className="text-emerald-600">완료</span> : fmt(l.shorts[9])}</td>
+                      <tr key={l.item_code}>
+                        <td className="num pw">{powerText(l.power)}</td>
+                        <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{l.item_code}</td>
+                        <td className="r num"><Z n={l.order_qty} /></td>
+                        <td className="r num"><Z n={l.cum_order} /></td>
+                        {l.wip.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
+                        <td className="r num"><Z n={l.base_stock} /></td>
+                        <td className="r num"><Z n={l.shipped} /></td>
+                        <td className="r">{l.shorts[2] == null ? <span className="pill p-grn">완료</span> : <span className="num">{fmt(l.shorts[2])}</span>}</td>
+                        <td className={`r num ${l.assy_in > 0 ? "need" : ""}`}><Z n={l.assy_in} /></td>
+                        <td className="r">{l.shorts[9] == null ? <span className="pill p-grn">완료</span> : <span className="pill p-red">{fmt(l.shorts[9])}</span>}</td>
                       </tr>
                     ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-[#B4C6E7] font-semibold">
-                      <td colSpan={2} className={`${td} text-center bg-[#B4C6E7]`}>합계</td>
-                      <td className={`${num} bg-[#B4C6E7]`}>{fmt(sum(powers.map((l) => l.order_qty)))}</td>
-                      <td className={`${td} bg-[#B4C6E7]`} />
-                      {pw.map((v, i) => (
-                        <td key={i} className={`${num} bg-[#B4C6E7]`}>{dash(v)}</td>
-                      ))}
-                      <td className={`${td} bg-[#B4C6E7]`} />
-                      <td className={`${num} bg-[#B4C6E7]`}>{dash(sum(powers.map((l) => l.shipped)))}</td>
-                      <td className={`${td} bg-[#B4C6E7]`} />
-                      <td className={`${num} bg-[#B4C6E7]`}>{dash(sum(powers.map((l) => l.assy_in)))}</td>
-                      <td className={`${num} bg-[#B4C6E7]`}>{dash(sum(powers.map((l) => l.shorts[9] ?? 0)))}</td>
+                    <tr className="tot">
+                      <td colSpan={2}>합계</td>
+                      <td className="r num">{fmt(sum(powers.map((l) => l.order_qty)))}</td>
+                      <td />
+                      {pw.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
+                      <td />
+                      <td className="r num">{fmt(sum(powers.map((l) => l.shipped)))}</td>
+                      <td />
+                      <td className="r num">{fmt(sum(powers.map((l) => l.assy_in)))}</td>
+                      <td className="r num">{fmt(sum(powers.map((l) => l.shorts[9] ?? 0)))}</td>
                     </tr>
-                  </tfoot>
+                  </tbody>
                 </table>
               </div>
             </div>
           )}
         </div>
       </aside>
-    </div>
+    </>
   );
 }
 
@@ -265,6 +307,7 @@ export default function DueOrdersPage() {
   const [search, setSearch] = useTabState("dueOrdSearch", "");
   const [customer, setCustomer] = useTabState("dueOrdCustomer", "");
   const [needOnly, setNeedOnly] = useTabState("dueOrdNeedOnly", false);
+  const [dueSoon, setDueSoon] = useTabState("dueOrdDueSoon", false);
   const [hideDone, setHideDone] = useTabState("dueOrdHideDone", true);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -295,139 +338,112 @@ export default function DueOrdersPage() {
     return (data?.rows ?? []).filter((r) => {
       if (hideDone && r.order_qty > 0 && r.shipped >= r.order_qty) return false;
       if (needOnly && r.assy_in <= 0) return false;
+      if (dueSoon && (dday(r.due_date, base) ?? 999) > 14) return false;
       if (customer && r.customer !== customer) return false;
       if (!kw) return true;
       return [r.so_no, r.mo_no, r.customer, r.brand].some((v) => (v ?? "").toLowerCase().includes(kw));
     });
-  }, [data, search, customer, needOnly, hideDone]);
+  }, [data, search, customer, needOnly, dueSoon, hideDone, base]);
 
-  const kpi = {
-    count: rows.length,
-    qty: sum(rows.map((r) => r.order_qty)),
-    need: rows.filter((r) => r.assy_in > 0).length,
-    assy: sum(rows.map((r) => r.assy_in)),
-    late: rows.filter((r) => (dday(r.due_date, base) ?? 1) < 0 && r.shipped < r.order_qty).length,
-  };
+  const kpis = [
+    ["진행 수주", `${rows.length}건`, "표시 중인 수주"],
+    ["총 주문량", fmt(sum(rows.map((r) => r.order_qty))), "렌즈 매수"],
+    ["조립투입 필요", `${rows.filter((r) => r.assy_in > 0).length}건`, `${fmt(sum(rows.map((r) => r.assy_in)))} 매`],
+    ["공정재공", fmt(sum(rows.map((r) => sum(r.wip)))), "조립~출하포장"],
+    ["납기 경과·미출하", `${rows.filter((r) => (dday(r.due_date, base) ?? 1) < 0 && r.shipped < r.order_qty).length}건`, "출하부족 남은 수주"],
+  ];
 
   return (
-    <div className="w-full px-4 sm:px-6 py-6 space-y-4">
-      <div className="flex items-start justify-between flex-wrap gap-3">
+    <div className="po">
+      <style>{CSS}</style>
+      <div className="head">
         <div>
-          <h1 className="text-xl font-bold text-navy">납기별수주현황</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            PLAN-04 · 수주등록·공정재공현황·현재고현황·제품출고 데이터로 자동 계산 · 직진율 {Math.round((data?.straight_rate ?? 0.88) * 100)}%
-            {data && ` · 공정재공 기준 ${data.as_of.wip ?? "-"} · 출고 ${data.as_of.shipment ?? "-"}까지`}
-          </p>
+          <div className="crumb">생산계획 › 납기별 수주현황</div>
+          <h1>납기별 수주현황</h1>
         </div>
-        <button
-          onClick={() => load(true)}
-          className="px-3.5 py-2 rounded-md text-sm font-medium bg-[#002060] text-white hover:bg-[#0b2f7a] transition-colors"
-        >
-          다시 계산
-        </button>
+        <div className="meta">
+          <span>PLAN-04</span>
+          <span>직진율 <b>{Math.round((data?.straight_rate ?? 0.88) * 100)}%</b></span>
+          {data && <span>공정재공 <b>{data.as_of.wip ?? "-"}</b></span>}
+          {data && <span>출고 <b>{data.as_of.shipment ?? "-"}</b></span>}
+          <button className="chip" onClick={() => load(true)}>다시 계산</button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-        {[
-          ["진행 수주", `${kpi.count}건`],
-          ["총 주문량", fmt(kpi.qty)],
-          ["조립투입 필요", `${kpi.need}건`],
-          ["조립투입 수량", fmt(kpi.assy)],
-          ["납기 경과·미출하", `${kpi.late}건`],
-        ].map(([l, v]) => (
-          <div key={l} className="bg-white border border-slate-200 rounded-lg px-3 py-2">
-            <div className="text-xs text-slate-500">{l}</div>
-            <div className="text-lg font-semibold tabular-nums text-slate-800">{v}</div>
+      <div className="kpis">
+        {kpis.map(([l, v, s]) => (
+          <div key={l} className="kpi">
+            <span className="l">{l}</span>
+            <span className="v num">{v}</span>
+            <span className="s">{s}</span>
           </div>
         ))}
       </div>
 
-      <div className="flex items-center gap-3 flex-wrap">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="수주번호·MO·고객·브랜드 검색"
-          className="px-3 py-1.5 text-sm border border-slate-300 rounded-md w-64"
-        />
-        <select value={customer} onChange={(e) => setCustomer(e.target.value)} className="px-2 py-1.5 text-sm border border-slate-300 rounded-md">
+      <div className="tools">
+        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="SO번호·MO·고객·브랜드 검색" aria-label="검색" />
+        <select value={customer} onChange={(e) => setCustomer(e.target.value)} aria-label="고객 선택">
           <option value="">전체 고객</option>
-          {customers.map((c) => (
-            <option key={c}>{c}</option>
-          ))}
+          {customers.map((c) => (<option key={c}>{c}</option>))}
         </select>
-        <label className="flex items-center gap-1.5 text-sm text-slate-600">
-          <input type="checkbox" checked={needOnly} onChange={(e) => setNeedOnly(e.target.checked)} />
-          조립투입 필요만
-        </label>
-        <label className="flex items-center gap-1.5 text-sm text-slate-600">
-          <input type="checkbox" checked={hideDone} onChange={(e) => setHideDone(e.target.checked)} />
-          출하 완료 수주 숨기기
-        </label>
-        <span className="text-xs text-slate-400 ml-auto">{rows.length.toLocaleString("ko-KR")}건 · 수주를 누르면 품목·도수별 상세가 열립니다</span>
+        <button className="chip" aria-pressed={needOnly} onClick={() => setNeedOnly(!needOnly)}>조립투입 필요만</button>
+        <button className="chip" aria-pressed={dueSoon} onClick={() => setDueSoon(!dueSoon)}>납기 14일 이내</button>
+        <button className="chip" aria-pressed={hideDone} onClick={() => setHideDone(!hideDone)}>출하 완료 숨기기</button>
+        <span className="cnt">{rows.length.toLocaleString("ko-KR")}건 표시</span>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-lg overflow-auto max-h-[calc(100vh-300px)]">
+      <div className="tbl-wrap" style={{ maxHeight: "calc(100vh - 330px)" }}>
         {loading ? (
-          <div className="p-6 text-sm text-slate-400">계산 중… (수주·재공·재고·출고를 모두 읽어 몇 초 걸립니다)</div>
+          <div className="empty" style={{ border: 0 }}>계산 중… (수주·재공·재고·출고를 모두 읽어 몇 초 걸립니다)</div>
         ) : error ? (
-          <div className="p-6 text-sm text-red-600">{error}</div>
+          <div className="empty" style={{ border: 0 }}><b>{error}</b></div>
         ) : (
-          <table className="w-full border-collapse">
-            <thead className="sticky top-0 z-10">
+          <table>
+            <thead>
               <tr>
-                <th className={th}>순위</th>
-                <th className={th}>수주번호</th>
-                <th className={th}>고객</th>
-                <th className={th}>브랜드</th>
-                <th className={th}>납기일</th>
-                <th className={th}>포장</th>
-                <th className={th}>주문량</th>
-                {STAGES.map((s) => (
-                  <th key={s} className={th}>{s}</th>
-                ))}
-                <th className={th}>출고</th>
-                <th className={th}>조립투입<br />필요</th>
-                <th className={th}>출하부족</th>
+                <th className="r">순위</th><th>SO번호</th><th>고객</th><th>브랜드</th><th>납기일</th><th>포장</th>
+                <th className="r">주문량</th><th className="r">공정재공</th><th className="r">출고</th><th className="r">조립투입 필요</th><th className="r">출하부족</th><th>진행률</th><th>상세</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr
-                  key={r.so_no}
-                  tabIndex={0}
-                  onClick={() => setSelected(r.so_no)}
-                  onKeyDown={(e) => e.key === "Enter" && setSelected(r.so_no)}
-                  className={`cursor-pointer hover:bg-slate-50 ${selected === r.so_no ? "bg-[#E8EEF9]" : ""}`}
-                >
-                  <td className={`${td} text-center bg-[#FFFFCC]`}>{r.rank}</td>
-                  <td className={`${td} text-[#0070C0] font-medium`}>{r.so_no}</td>
-                  <td className={`${td} text-[#002060]`}>{r.customer ?? ""}</td>
-                  <td className={td}>{r.brand ?? ""}</td>
-                  <td className={td}>
-                    {r.due_date ?? ""}
-                    <DueBadge row={r} base={base} />
-                  </td>
-                  <td className={`${td} text-center`}>{r.pack_method ?? ""}</td>
-                  <td className={num}>{fmt(r.order_qty)}</td>
-                  {r.wip.map((v, i) => (
-                    <td key={i} className={num}>{dash(v)}</td>
-                  ))}
-                  <td className={num}>{dash(r.shipped)}</td>
-                  <td className={`${num} ${r.assy_in > 0 ? "text-red-600 font-semibold" : ""}`}>{dash(r.assy_in)}</td>
-                  <td className={num}>{dash(r.ship_short)}</td>
-                </tr>
-              ))}
+              {rows.map((r) => {
+                const p = progress(r);
+                return (
+                  <tr
+                    key={r.so_no}
+                    className={`row${selected === r.so_no ? " sel" : ""}`}
+                    tabIndex={0}
+                    onClick={() => setSelected(r.so_no)}
+                    onKeyDown={(e) => e.key === "Enter" && setSelected(r.so_no)}
+                  >
+                    <td className="r num">{r.rank}</td>
+                    <td className="so">{r.so_no}</td>
+                    <td>{r.customer ?? ""}</td>
+                    <td>{r.brand ?? ""}</td>
+                    <td><span className="num">{(r.due_date ?? "").slice(0, 10)}</span> <DueBadge row={r} base={base} /></td>
+                    <td>{r.pack_method ?? ""}</td>
+                    <td className="r num">{fmt(r.order_qty)}</td>
+                    <td className="r num"><Z n={sum(r.wip)} /></td>
+                    <td className="r num"><Z n={r.shipped} /></td>
+                    <td className={`r num ${r.assy_in > 0 ? "need" : ""}`}><Z n={r.assy_in} /></td>
+                    <td className="r num"><Z n={r.ship_short} /></td>
+                    <td>
+                      <span className="bar"><i style={{ width: `${(p * 100).toFixed(0)}%` }} /></span>{" "}
+                      <span className="num" style={{ fontSize: 12 }}>{(p * 100).toFixed(0)}%</span>
+                    </td>
+                    <td><span className="pill p-grn">열기</span></td>
+                  </tr>
+                );
+              })}
               {rows.length === 0 && (
-                <tr>
-                  <td colSpan={21} className="p-6 text-center text-sm text-slate-400">조건에 맞는 수주가 없습니다.</td>
-                </tr>
+                <tr><td colSpan={13} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 수주가 없습니다. 필터를 해제해 보세요.</td></tr>
               )}
             </tbody>
           </table>
         )}
       </div>
 
-      <p className="text-xs text-slate-400 leading-relaxed">
+      <p className="note">
         엑셀 수주별 시트 계산식과 같습니다: 공정 부족분 = 누적주문 − 기초재고(제품창고A+조립창고) − 누적출고 − 다음 공정~출하포장 재공,
         조립투입 = 검사부족분 ÷ 직진율 − 조립 − 분리3 − 습윤 − 외관검사×108%(60 단위 올림). 공정재공은 품목코드 기준이라 같은 품목을 가진 수주에 똑같이 보입니다.
         순위는 납기일 → 생산순위지정(PLAN-01) 작업순서 순입니다.
