@@ -116,6 +116,13 @@ const CSS = `
 .po button.cp{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:copy}
 .po button.cp:hover{color:var(--accent);text-decoration:underline}
 .po button.p-grn:hover{background:#d3eedd}
+.po button.hh{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
+.po button.hh:hover{color:var(--accent)}
+.po .help{padding:14px 18px 18px;font-size:13.5px;line-height:1.65;color:var(--fg)}
+.po .help h4{margin:14px 0 4px;font-size:13.5px;color:var(--navy)}
+.po .help h4:first-child{margin-top:0}
+.po .help ul{margin:0;padding-left:18px}
+.po .help .ex{background:var(--surface-2);border:1px solid var(--line-2);border-radius:6px;padding:8px 12px;margin-top:4px}
 .po .copied{margin-left:6px;font-size:11px;color:var(--green);font-weight:600}
 .po .note{font-size:12px;color:var(--fg-3);line-height:1.6}
 `;
@@ -379,6 +386,53 @@ function ColorStockModal({ model, power, onClose }: { model: string; power: numb
   );
 }
 
+/** 품목변경 열 헤더를 누르면 보여줄 운영 기준 — 계산은 lib/due-orders.ts의 itemChangeCandidates·fitsPower(허용오차 ITEM_CHANGE_TOLERANCE) */
+function ItemChangeHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <>
+      <div className="modal-scrim" onClick={onClose} />
+      <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(640px, calc(100% - 32px))" }}>
+        <div className="mh">
+          <h3>품목변경 계산 기준</h3>
+          <button className="x" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        <div className="mb help">
+          <h4>무엇을 보여주나</h4>
+          <ul>
+            <li>검사부족이 있는 도수에서, 조립 투입 대신 <b>다른 도수 재공을 품목변경해 채울 수 있는 수량</b>입니다.</li>
+            <li>검사부족이 없는 도수는 <span className="zero">-</span>로 표시합니다.</li>
+          </ul>
+          <h4>후보 재공</h4>
+          <ul>
+            <li>같은 모델의 다른 도수 중 <b>외관검사를 마친 공정재공</b>(이재기 · 실링 · 멸균 · 입고대기 · 중간창고 · 마킹 · 출하포장)을 작업지시 단위로 봅니다.</li>
+          </ul>
+          <h4>판정 조건</h4>
+          <ul>
+            <li>그 작업지시의 외관검사 측정값 <b>도수1 · 도수2 · 도수3이 모두</b> 목표 도수 <b>±0.225</b> 안에 들어야 합니다.</li>
+          </ul>
+          <div className="ex">
+            예) -2.00이 50개 부족 → 허용 범위 <b className="num">1.775 ~ 2.225</b><br />
+            -2.25 작업지시의 측정값이 2.12 / 2.12 / 2.12 → 세 값 모두 범위 안 → 그 재공 수량이 -2.00 품목변경으로 잡힘<br />
+            -1.75 작업지시의 측정값이 1.75 / 1.87 / 2.00 → 1.75가 범위 밖 → 제외
+          </div>
+          <h4>빠지는 재고</h4>
+          <ul>
+            <li>제품창고A 재고 — LOT가 포장 LOT라 외관검사 측정값과 연결되지 않습니다.</li>
+            <li>2025년 1월 이전 작업지시 — 외관검사 실적 데이터가 없습니다.</li>
+          </ul>
+          <h4>참고</h4>
+          <ul>
+            <li>후보 재공이 원래 도수의 수주에 필요한지는 따지지 않은 전체 수량입니다.</li>
+            <li>품목변경 수량은 조립투입 계산에 반영하지 않습니다.</li>
+            <li>한 재공이 여러 도수의 후보가 될 수 있어 합계 줄은 비워 둡니다.</li>
+            <li>숫자를 누르면 후보 작업지시 · LOT · 공정 · 측정값을 볼 수 있습니다.</li>
+          </ul>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function ItemChangeModal({ line, onClose }: { line: DueOrderLine; onClose: () => void }) {
   const [data, setData] = useState<{ item_code: string; power: number | null; tolerance: number; candidates: ItemChangeCandidate[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -464,6 +518,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
   const [changeOf, setChangeOf] = useState<DueOrderLine | null>(null);
   const [colorOf, setColorOf] = useState<DueOrderLine | null>(null);
   const [swapOf, setSwapOf] = useState<DueOrderLine | null>(null);
+  const [swapHelp, setSwapHelp] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -478,10 +533,10 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
 
   useEffect(() => {
     // Esc는 작업지시 목록 창이 열려 있으면 그 창만 닫는다
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (swapOf ? setSwapOf(null) : colorOf ? setColorOf(null) : changeOf ? setChangeOf(null) : onClose());
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (swapHelp ? setSwapHelp(false) : swapOf ? setSwapOf(null) : colorOf ? setColorOf(null) : changeOf ? setChangeOf(null) : onClose());
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, changeOf, colorOf, swapOf]);
+  }, [onClose, changeOf, colorOf, swapOf, swapHelp]);
 
   const models = useMemo(() => {
     const g = new Map<string, { model: string; name: string | null; n: number; qty: number; wip: number[]; color: number; shipped: number; assy: number; short: number }>();
@@ -649,7 +704,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r" title="0.00 줄은 무도수용 착색만, -0.25 ~ -10.00 줄은 무도수용 + 유도수용 착색(무도수용은 유도수에도 쓸 수 있음, 같은 모델의 유도수 줄은 같은 값)">착색재고</th>
                       {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r">검사부족</th>
-                      <th className="r" title="검사부족인 도수만 — 같은 모델 다른 도수의 외관검사 이후 재공 중, 외관검사 도수1~3이 모두 이 도수 ±0.225 안인 수량">품목변경</th>
+                      <th className="r"><button className="hh" onClick={() => setSwapHelp(true)} title="누르면 품목변경 계산 기준이 열립니다">품목변경</button></th>
                       <th className="r" title="최근 1개월 조립일자 기준, 이 도수로 변경되어 조립된 작업지시 건수">도수변경</th>
                       <th className="r">조립투입</th><th className="r">출하부족</th>
                     </tr>
@@ -699,6 +754,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
         </div>
       </aside>
       {changeOf && <DosuChangeModal itemCode={changeOf.item_code} power={changeOf.power} onClose={() => setChangeOf(null)} />}
+      {swapHelp && <ItemChangeHelp onClose={() => setSwapHelp(false)} />}
       {swapOf && <ItemChangeModal line={swapOf} onClose={() => setSwapOf(null)} />}
       {colorOf && <ColorStockModal model={colorOf.model} power={colorOf.power} onClose={() => setColorOf(null)} />}
     </>
