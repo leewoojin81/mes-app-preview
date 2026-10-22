@@ -32,8 +32,8 @@ const CSS = `
 .po .cnt{font-size:12px;color:var(--fg-3);margin-left:auto}
 .po .tbl-wrap{background:var(--surface);border:1px solid var(--line);border-radius:6px;overflow:auto}
 .po table{border-collapse:collapse;width:100%;font-size:13px}
-.po th{position:sticky;top:0;background:var(--surface-2);color:var(--fg-2);font-weight:600;font-size:12px;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
-.po td{padding:7px 10px;border-bottom:1px solid var(--line-2);white-space:nowrap;color:var(--fg)}
+.po th{position:sticky;top:0;background:var(--surface-2);color:var(--fg-2);font-weight:600;font-size:12px;text-align:left;padding:4px 8px;line-height:1.25;border-bottom:1px solid var(--line);white-space:nowrap}
+.po td{padding:2px 8px;line-height:1.25;border-bottom:1px solid var(--line-2);white-space:nowrap;color:var(--fg)}
 .po th.r,.po td.r{text-align:right}
 .po tbody tr.row{cursor:pointer}.po tbody tr.row:hover{background:var(--surface-2)}.po tbody tr.row.sel{background:var(--blue-bg)}
 .po tbody tr.row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
@@ -406,7 +406,7 @@ export default function DueOrdersPage() {
           <table>
             <thead>
               <tr>
-                <th className="r">순위</th><th>SO번호</th><th>MO번호</th><th>고객</th><th>브랜드</th><th>납기일</th><th>포장</th>
+                <th className="r">순위</th><th>SO번호</th><th>MO번호</th><th>고객사</th><th>브랜드</th><th>납기일</th><th>포장</th>
                 <th className="r">주문량</th><th className="r">착색재고</th><th className="r">공정재공</th><th className="r">출고</th><th className="r">조립투입 필요</th><th className="r">출하부족</th><th>진행률</th><th>상세</th>
               </tr>
             </thead>
