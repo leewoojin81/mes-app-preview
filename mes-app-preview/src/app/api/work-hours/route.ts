@@ -13,6 +13,10 @@ import { ENTITY_TYPE_WORKER, fetchFieldHistoryMap, resolveFieldAsOf } from "@/li
 
 export const runtime = "nodejs";
 
+// 직무가 "디자인"이어도 지원공정 "디자인/8시간" 자동 채움에서 뺄 인원(사번) — 김은미(2025040706)·최지은(2026020103)
+// (2026-10-22 사용자 요청: 두 사람은 디자인 지원이 아니라서 미저장인 날에도 지원공정이 채워지면 안 된다).
+const AUTO_DESIGN_SUPPORT_EXCLUDED = new Set(["2025040706", "2026020103"]);
+
 interface WorkerRow {
   employee_no: string;
   erp_code: string | null;
@@ -133,7 +137,7 @@ export async function GET(req: NextRequest) {
     // 그날 근태 행이 이미 저장돼 있으면(d) 지원 기록이 없어도 "지원 없음"으로 저장한 것이니 다시 채우지 않는다
     // (2026-10-21 사용자 요청 — 디자인 직무가 지원공정을 "-"/지원시간 0으로 저장해도 저장 시 지원 행이 지워져
     // 다음 조회 때 디자인/8시간이 되살아나 정상근무가 0이 되던 문제).
-    const isDesignDuty = w.duty === "디자인" && !d;
+    const isDesignDuty = w.duty === "디자인" && !d && !AUTO_DESIGN_SUPPORT_EXCLUDED.has(w.employee_no);
     const supportWorkGroup = support ? support.support_work_group : isDesignDuty ? "디자인" : null;
     const leaveType = d ? d.leave_type : defaultLeaveType;
     // 하루 종일 쉬는 휴가구분(연차/공가/병가/휴무)인 날은 자동 채움·저장분과 무관하게 지원시간 0.
