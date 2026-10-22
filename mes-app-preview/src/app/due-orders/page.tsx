@@ -7,7 +7,7 @@ import type { DueOrderLine, DueOrderRow, DueOrdersResult } from "@/lib/due-order
 // 생산계획 "납기별수주현황(PLAN-04)" — 생산계획 엑셀 「납기별」 시트 + 수주별 시트를 한 화면으로 옮긴 것.
 // 목록에서 수주를 누르면 오른쪽 상세 창에서 품목(모델)별 요약 → 모델을 누르면 도수별 공정재공·부족분·조립투입을 본다.
 // 계산식과 데이터 출처는 lib/due-orders.ts 머리 주석 참고.
-// 화면 디자인은 시안 「메디오스 MES 납기별 수주현황.html」의 CSS를 .po 아래로 옮겨 그대로 맞췄다(착색재고는 데이터 미연결이라 열 제외).
+// 화면 디자인은 시안 「메디오스 MES 납기별 수주현황.html」의 CSS를 .po 아래로 옮겨 그대로 맞췄다(착색재고 = 모델별 BOM 착색 반제품의 조립창고 재고).
 
 const CSS = `
 @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
@@ -138,9 +138,9 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
   }, [onClose]);
 
   const models = useMemo(() => {
-    const g = new Map<string, { model: string; name: string | null; n: number; qty: number; wip: number[]; shipped: number; assy: number; short: number }>();
+    const g = new Map<string, { model: string; name: string | null; n: number; qty: number; wip: number[]; color: number; shipped: number; assy: number; short: number }>();
     for (const l of detail?.lines ?? []) {
-      const x = g.get(l.model) ?? { model: l.model, name: l.item_name, n: 0, qty: 0, wip: STAGES.map(() => 0), shipped: 0, assy: 0, short: 0 };
+      const x = g.get(l.model) ?? { model: l.model, name: l.item_name, n: 0, qty: 0, wip: STAGES.map(() => 0), color: l.color_stock, shipped: 0, assy: 0, short: 0 };
       x.n += 1;
       x.qty += l.order_qty;
       l.wip.forEach((v, i) => (x.wip[i] += v));
@@ -187,6 +187,7 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
               <div className="facts">
                 {([
                   ["주문량", fmt(row.order_qty), ""],
+                  ["착색재고", fmt(row.color_stock), ""],
                   ["출고", fmt(row.shipped), ""],
                   ["조립투입 필요", fmt(row.assy_in), row.assy_in > 0 ? "need" : ""],
                   ["출하부족(누적)", fmt(row.ship_short), ""],
@@ -212,7 +213,7 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
                 <table>
                   <thead>
                     <tr>
-                      <th>모델</th><th>품목명</th><th className="r">도수 수</th><th className="r">주문량</th><th className="r">공정재공</th>
+                      <th>모델</th><th>품목명</th><th className="r">도수 수</th><th className="r">주문량</th><th className="r">착색재고</th><th className="r">공정재공</th>
                       <th className="r">출고</th><th className="r">조립투입 필요</th><th className="r">출하부족</th>
                     </tr>
                   </thead>
@@ -223,6 +224,7 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
                         <td style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" }} title={m.name ?? ""}>{m.name ?? ""}</td>
                         <td className="r num">{m.n}</td>
                         <td className="r num">{fmt(m.qty)}</td>
+                        <td className="r num"><Z n={m.color} /></td>
                         <td className="r num"><Z n={sum(m.wip)} /></td>
                         <td className="r num"><Z n={m.shipped} /></td>
                         <td className={`r num ${m.assy > 0 ? "need" : ""}`}><Z n={m.assy} /></td>
@@ -230,12 +232,13 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
                       </tr>
                     ))}
                     {models.length === 0 && (
-                      <tr><td colSpan={8} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>품목 줄이 없습니다.</td></tr>
+                      <tr><td colSpan={9} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>품목 줄이 없습니다.</td></tr>
                     )}
                     {models.length > 0 && (
                       <tr className="tot">
                         <td colSpan={3}>합계</td>
                         <td className="r num">{fmt(sum(models.map((m) => m.qty)))}</td>
+                        <td className="r num">{fmt(sum(models.map((m) => m.color)))}</td>
                         <td className="r num">{fmt(sum(models.map((m) => sum(m.wip))))}</td>
                         <td className="r num">{fmt(sum(models.map((m) => m.shipped)))}</td>
                         <td className="r num">{fmt(sum(models.map((m) => m.assy)))}</td>
@@ -258,7 +261,7 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
                 <table>
                   <thead>
                     <tr>
-                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th>
+                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r">착색재고</th>
                       {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r">검사부족</th><th className="r">조립투입</th><th className="r">출하부족</th>
                     </tr>
@@ -270,6 +273,7 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
                         <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{l.item_code}</td>
                         <td className="r num"><Z n={l.order_qty} /></td>
                         <td className="r num"><Z n={l.cum_order} /></td>
+                        <td className="r num"><Z n={l.color_stock} /></td>
                         {l.wip.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
                         <td className="r num"><Z n={l.base_stock} /></td>
                         <td className="r num"><Z n={l.shipped} /></td>
@@ -281,6 +285,7 @@ function DetailPanel({ soNo, onClose, base }: { soNo: string; onClose: () => voi
                     <tr className="tot">
                       <td colSpan={2}>합계</td>
                       <td className="r num">{fmt(sum(powers.map((l) => l.order_qty)))}</td>
+                      <td />
                       <td />
                       {pw.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
                       <td />
@@ -402,7 +407,7 @@ export default function DueOrdersPage() {
             <thead>
               <tr>
                 <th className="r">순위</th><th>SO번호</th><th>고객</th><th>브랜드</th><th>납기일</th><th>포장</th>
-                <th className="r">주문량</th><th className="r">공정재공</th><th className="r">출고</th><th className="r">조립투입 필요</th><th className="r">출하부족</th><th>진행률</th><th>상세</th>
+                <th className="r">주문량</th><th className="r">착색재고</th><th className="r">공정재공</th><th className="r">출고</th><th className="r">조립투입 필요</th><th className="r">출하부족</th><th>진행률</th><th>상세</th>
               </tr>
             </thead>
             <tbody>
@@ -423,6 +428,7 @@ export default function DueOrdersPage() {
                     <td><span className="num">{(r.due_date ?? "").slice(0, 10)}</span> <DueBadge row={r} base={base} /></td>
                     <td>{r.pack_method ?? ""}</td>
                     <td className="r num">{fmt(r.order_qty)}</td>
+                    <td className="r num"><Z n={r.color_stock} /></td>
                     <td className="r num"><Z n={sum(r.wip)} /></td>
                     <td className="r num"><Z n={r.shipped} /></td>
                     <td className={`r num ${r.assy_in > 0 ? "need" : ""}`}><Z n={r.assy_in} /></td>
@@ -436,7 +442,7 @@ export default function DueOrdersPage() {
                 );
               })}
               {rows.length === 0 && (
-                <tr><td colSpan={13} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 수주가 없습니다. 필터를 해제해 보세요.</td></tr>
+                <tr><td colSpan={14} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 수주가 없습니다. 필터를 해제해 보세요.</td></tr>
               )}
             </tbody>
           </table>

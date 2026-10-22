@@ -17,7 +17,9 @@ import type { DatabaseSync } from "node:sqlite";
 //    (분리3 부족분은 습윤~출하포장, 검사 부족분은 이재기~출하포장, 완검 부족분은 출하포장, 출하 부족분은 재공 없이 계산)
 //  - 조립투입 = 검사부족분 ÷ 직진율 − 조립 − 분리3 − 습윤 − 외관검사×108%, 0 이하이면 0, 아니면 60 단위 올림
 //  - 공정재공은 품목코드 기준이라 같은 품목을 가진 여러 수주에 똑같이 보인다(엑셀과 동일)
-// 엑셀의 조정값(Z열, 손입력)과 착색재고는 아직 넣지 않았다.
+//  - 착색재고 = 모델(품목코드 앞 9자리 = BOM 대표코드)의 직접 구성품 중 반제품·품목군 "착색"인 품목의 조립창고 재고.
+//    같은 모델의 도수 줄은 모두 같은 값이고, 수주 단위는 그 수주에 든 모델별 값의 합이다(시안 값과 대조해 확인).
+// 엑셀의 조정값(Z열, 손입력)은 아직 넣지 않았다.
 
 export const STAGES = ["조립", "분리3", "습윤", "외관검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "마킹", "출하포장"] as const;
 /** 부족분 이름 — SHORT_NAMES[k-1]이 공정 k(분리3=1 … 출하=10)의 부족분 */
@@ -27,6 +29,7 @@ export const STRAIGHT_RATE = 0.88;
 const INSPECT_FACTOR = 1.08;
 const ASSY_LOT = 60;
 const BASE_WAREHOUSES = ["제품창고A", "조립창고"];
+const COLOR_WAREHOUSE = "조립창고";
 
 export interface DueOrderLine {
   item_code: string;
@@ -39,6 +42,8 @@ export interface DueOrderLine {
   shipped: number;
   cum_shipped: number;
   base_stock: number;
+  /** 모델 단위 착색재고(같은 모델의 도수 줄은 같은 값) */
+  color_stock: number;
   /** 분리3~출하 부족분 10개 — null은 "완료" */
   shorts: (number | null)[];
   assy_in: number;
@@ -57,6 +62,8 @@ export interface DueOrderRow {
   order_qty: number;
   shipped: number;
   wip: number[];
+  /** 수주에 든 모델별 착색재고의 합 */
+  color_stock: number;
   assy_in: number;
   ship_short: number;
   ship_rate: number;
@@ -165,6 +172,21 @@ function compute(db: DatabaseSync): Computed {
     baseMap.set(r.item_code, r.q ?? 0);
   }
 
+  // 3-2) 모델(BOM 대표코드)별 착색재고
+  const colorMap = new Map<string, number>();
+  for (const r of db
+    .prepare(
+      `SELECT c.parent_item_code p, SUM(COALESCE(i.stock_qty, 0)) q
+         FROM (SELECT DISTINCT b.parent_item_code, b.child_item_code
+                 FROM bom b JOIN items it ON it.item_code = b.child_item_code
+                WHERE it.category = '반제품' AND json_extract(it.detail, '$."품목군"') = '착색') c
+         JOIN inventory_status i ON i.item_code = c.child_item_code AND i.warehouse = ?
+        GROUP BY c.parent_item_code`
+    )
+    .all(COLOR_WAREHOUSE) as { p: string; q: number }[]) {
+    colorMap.set(r.p, r.q ?? 0);
+  }
+
   // 4) 수주번호·품목별 출고
   const shipMap = new Map<string, number>();
   for (const r of db
@@ -206,6 +228,7 @@ function compute(db: DatabaseSync): Computed {
         shipped,
         cum_shipped: Y,
         base_stock: base,
+        color_stock: colorMap.get(code.length >= 9 ? code.slice(0, 9) : code) ?? 0,
         shorts,
         assy_in: assyInput(shorts[2], wip),
       });
@@ -229,6 +252,7 @@ function compute(db: DatabaseSync): Computed {
       order_qty,
       shipped,
       wip: STAGES.map((_, i) => ordered_.reduce((s, l) => s + l.wip[i], 0)),
+      color_stock: [...new Map(ls.map((l) => [l.model, l.color_stock])).values()].reduce((s, v) => s + v, 0),
       assy_in: ls.reduce((s, l) => s + l.assy_in, 0),
       ship_short,
       ship_rate: order_qty > 0 ? Math.min(1, Math.max(0, shipped / order_qty)) : 0,
