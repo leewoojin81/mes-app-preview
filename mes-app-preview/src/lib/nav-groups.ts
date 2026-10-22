@@ -87,6 +87,7 @@ export const NAV_GROUPS: NavGroup[] = [
     children: [
       { href: "/purchase-orders", label: "구매발주등록", code: "PUR-01" },
       { href: "/purchase-receipts", label: "구매입고등록", code: "PUR-02" },
+      { href: "/material-supply", label: "자재수급", code: "PUR-03" },
     ],
   },
   {

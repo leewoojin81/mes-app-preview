@@ -138,6 +138,7 @@ const CODE_API_PREFIXES: Record<string, string[]> = {
   "QC-03": ["/api/qc-incoming"],
   "PUR-01": ["/api/purchase-orders"],
   "PUR-02": ["/api/purchase-receipts"],
+  "PUR-03": ["/api/material-supply"],
   "MGMT-01": ["/api/dashboard"],
   "MGMT-02": ["/api/analytics/monthly-orders"],
   "MGMT-03": ["/api/analytics/customers"],

@@ -57,6 +57,8 @@ export interface DueOrderRow {
   brand: string | null;
   due_date: string | null;
   pack_method: string | null;
+  /** 수주등록(SALES-02) 줄 상태 — 줄마다 다르면 '수주/Packing'처럼 이어 붙인다 */
+  status: string;
   seq: number | null;
   line_count: number;
   order_qty: number;
@@ -132,18 +134,19 @@ function compute(db: DatabaseSync): Computed {
     mo: string | null; cname: string | null; grp: string | null; seq: number | null; pm: string | null; item_name: string | null;
   }[];
 
-  type Head = { so_no: string; mo: string | null; cname: string | null; grp: string | null; due: string | null; seq: number | null; pm: string | null; items: Map<string, { qty: number; name: string | null }> };
+  type Head = { so_no: string; mo: string | null; cname: string | null; grp: string | null; due: string | null; seq: number | null; pm: string | null; sts: Set<string>; items: Map<string, { qty: number; name: string | null }> };
   const heads = new Map<string, Head>();
   for (const r of raw) {
     let h = heads.get(r.sono);
     if (!h) {
-      h = { so_no: r.sono, mo: null, cname: null, grp: null, due: null, seq: null, pm: null, items: new Map() };
+      h = { so_no: r.sono, mo: null, cname: null, grp: null, due: null, seq: null, pm: null, sts: new Set(), items: new Map() };
       heads.set(r.sono, h);
     }
     h.mo ??= r.mo;
     h.cname ??= r.cname;
     h.grp ??= r.grp;
     h.pm ??= r.pm;
+    h.sts.add(r.st);
     if (r.due && (!h.due || r.due < h.due)) h.due = r.due;
     if (r.seq != null && (h.seq == null || r.seq < h.seq)) h.seq = r.seq;
     const it = h.items.get(r.item_code) ?? { qty: 0, name: r.item_name };
@@ -249,6 +252,7 @@ function compute(db: DatabaseSync): Computed {
       brand: h.grp,
       due_date: h.due,
       pack_method: h.pm,
+      status: [...h.sts].sort().join("/"),
       seq: h.seq,
       line_count: ls.length,
       order_qty,
@@ -292,4 +296,10 @@ export function fetchDueOrders(db: DatabaseSync, fresh = false): DueOrdersResult
 export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOrderRow | null; lines: DueOrderLine[] } {
   const c = load(db);
   return { row: c.result.rows.find((r) => r.so_no === soNo) ?? null, lines: c.lines.get(soNo) ?? [] };
+}
+
+/** 자재수급(PUR-03)처럼 수주별 품목 줄까지 한꺼번에 쓰는 화면용 — 같은 30초 캐시를 쓴다 */
+export function fetchDueOrdersWithLines(db: DatabaseSync): { rows: DueOrderRow[]; lines: Map<string, DueOrderLine[]>; as_of: DueOrdersResult["as_of"] } {
+  const c = load(db);
+  return { rows: c.result.rows, lines: c.lines, as_of: c.result.as_of };
 }
