@@ -59,6 +59,8 @@ export interface DueOrderLine {
   extra?: boolean;
   /** 최근 1개월(조립일자 기준) 이 품목코드로 도수변경된 작업지시 건수(상세 조회에서만 채움) */
   dosu_changes?: number;
+  /** 품목변경 가능 수량 — 검사부족이 있는 줄만, 같은 모델 다른 도수의 외관검사 이후 재공 중 도수1~3이 모두 이 도수 ±0.225인 것(상세 조회에서만 채움) */
+  item_change?: number;
 }
 
 export interface DueOrderRow {
@@ -405,6 +407,15 @@ export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOr
     }
   }
   for (const l of out) l.dosu_changes = changes.get(l.item_code) ?? 0;
+
+  // 품목변경 — 검사부족이 있는 도수만, 같은 모델의 다른 도수 재공 중 측정 도수가 허용오차 안인 수량
+  for (const m of models) {
+    const cands = itemChangeCandidates(db, m);
+    for (const l of out) {
+      if (l.model !== m || l.extra || !(l.shorts[2] ?? 0) || l.power == null) continue;
+      l.item_change = cands.filter((x) => fitsPower(x, l.power!)).reduce((s, x) => s + x.qty, 0);
+    }
+  }
   return { row: c.result.rows.find((r) => r.so_no === soNo) ?? null, lines: out };
 }
 
@@ -561,6 +572,67 @@ export function fetchColorStock(db: DatabaseSync, model: string): { model: strin
   });
   lots.sort((a, b) => (a.use !== b.use ? (a.use === "무도수용" ? -1 : 1) : a.item_code !== b.item_code ? (a.item_code < b.item_code ? -1 : 1) : a.lot_no < b.lot_no ? -1 : 1));
   return { model, lots };
+}
+
+/** 품목변경 허용오차 — 외관검사 측정 도수(도수1~3)가 모두 목표 도수 ±0.225 안이면 그 도수로 바꿔 쓸 수 있다 */
+export const ITEM_CHANGE_TOLERANCE = 0.225;
+/** 품목변경 후보로 보는 공정 — 외관검사를 마친 뒤(이재기~출하포장). 검사부족 = 이 공정들 재공으로 채우는 부족분이다 */
+const AFTER_INSPECTION = STAGES.slice(STAGES.indexOf("외관검사") + 1);
+
+export interface ItemChangeCandidate {
+  item_code: string;
+  power: number | null;
+  wo_no: string;
+  lot_no: string | null;
+  qty: number;
+  /** 수량이 있는 공정과 그 수량 */
+  stages: { stage: string; qty: number }[];
+  /** 외관검사 측정 도수(도수1~3, 부호 없음 — -2.00 품목은 2.00 근처). 외관검사 실적이 여러 줄이면 모두 모은다 */
+  samples: number[];
+}
+
+/** 모델의 외관검사 이후 재공을 작업지시별로, 그 작업지시의 외관검사 측정값과 함께 — 외관검사 실적이 없는(2025년 이전) 작업지시는 뺀다 */
+function itemChangeCandidates(db: DatabaseSync, model: string): ItemChangeCandidate[] {
+  const glob = `${model}-*`;
+  const samples = new Map<string, number[]>();
+  for (const r of db
+    .prepare(
+      `SELECT item_code, wo_no, json_extract(detail, '$."도수1"') a, json_extract(detail, '$."도수2"') b, json_extract(detail, '$."도수3"') c
+         FROM daily_work_status WHERE item_code GLOB ? AND process_code = 'P360'`
+    )
+    .all(glob) as { item_code: string; wo_no: string; a: unknown; b: unknown; c: unknown }[]) {
+    const k = `${r.item_code}|${r.wo_no}`;
+    const xs = samples.get(k) ?? [];
+    for (const v of [r.a, r.b, r.c]) if (typeof v === "number") xs.push(v);
+    samples.set(k, xs);
+  }
+  const stageSql = AFTER_INSPECTION.map((s, i) => `COALESCE(CAST(json_extract(detail, '$."${s}"') AS REAL), 0) s${i}`).join(", ");
+  const out: ItemChangeCandidate[] = [];
+  for (const r of db.prepare(`SELECT item_code, wo_no, lot_no, ${stageSql} FROM process_wip_status WHERE item_code GLOB ?`).all(glob) as Record<string, string | number | null>[]) {
+    const stages = AFTER_INSPECTION.map((stage, i) => ({ stage, qty: Number(r[`s${i}`]) || 0 })).filter((s) => s.qty > 0);
+    const qty = stages.reduce((s, x) => s + x.qty, 0);
+    const xs = samples.get(`${r.item_code}|${r.wo_no}`);
+    if (qty <= 0 || !xs?.length) continue;
+    const code = String(r.item_code);
+    out.push({ item_code: code, power: powerOf(code), wo_no: String(r.wo_no), lot_no: r.lot_no == null ? null : String(r.lot_no), qty, stages, samples: xs });
+  }
+  return out;
+}
+
+/** 다른 도수의 재공이 목표 도수(power, 예: -2)로 쓸 수 있는지 — 측정값이 모두 |목표| ±0.225(부동소수 오차 감안) */
+function fitsPower(c: ItemChangeCandidate, power: number): boolean {
+  if (c.power === power) return false;
+  const target = -power;
+  return c.samples.every((v) => Math.abs(v - target) <= ITEM_CHANGE_TOLERANCE + 1e-9);
+}
+
+/** 도수별 상세의 품목변경 수량을 누르면 보여줄 후보 재공 */
+export function fetchItemChange(db: DatabaseSync, itemCode: string): { item_code: string; power: number | null; tolerance: number; candidates: ItemChangeCandidate[] } {
+  const power = powerOf(itemCode);
+  const model = itemCode.length >= 9 ? itemCode.slice(0, 9) : itemCode;
+  const candidates = power == null ? [] : itemChangeCandidates(db, model).filter((c) => fitsPower(c, power));
+  candidates.sort((a, b) => (a.item_code !== b.item_code ? (a.item_code < b.item_code ? -1 : 1) : b.qty - a.qty));
+  return { item_code: itemCode, power, tolerance: ITEM_CHANGE_TOLERANCE, candidates };
 }
 
 /** 자재수급(PUR-03)처럼 수주별 품목 줄까지 한꺼번에 쓰는 화면용 — 같은 30초 캐시를 쓴다 */
