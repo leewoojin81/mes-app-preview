@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { fetchAssemblyRecords, fetchDueOrderLines, fetchDueOrders } from "@/lib/due-orders";
+import { fetchAssemblyRecords, fetchColorStock, fetchDueOrderLines, fetchDueOrders } from "@/lib/due-orders";
 
 export const runtime = "nodejs";
 
@@ -9,12 +9,15 @@ export const runtime = "nodejs";
 //  GET /api/due-orders?so=SO...   → 그 수주의 품목·도수별 상세
 //  GET /api/due-orders?fresh=1    → 30초 캐시를 무시하고 다시 계산
 //  GET /api/due-orders?dosu=품목코드 → 그 품목으로 최근 1개월(조립일자) 조립된 작업지시 기록(도수변경 건 표시)
+//  GET /api/due-orders?color=모델   → 그 모델의 착색 현재고(조립창고, LOT별 무도수용/유도수용)
 export async function GET(request: Request) {
   const sp = new URL(request.url).searchParams;
   const so = sp.get("so");
   const db = getDb();
   const dosu = sp.get("dosu");
   if (dosu) return NextResponse.json(fetchAssemblyRecords(db, dosu.trim()));
+  const color = sp.get("color");
+  if (color) return NextResponse.json(fetchColorStock(db, color.trim()));
   if (so) return NextResponse.json(fetchDueOrderLines(db, so.trim()));
   return NextResponse.json(fetchDueOrders(db, sp.get("fresh") === "1"));
 }

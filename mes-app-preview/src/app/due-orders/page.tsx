@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { useTabState } from "@/lib/use-tab-state";
-import type { AssemblyRecord, DueOrderLine, DueOrderRow, DueOrdersResult } from "@/lib/due-orders";
+import type { AssemblyRecord, ColorStockLot, DueOrderLine, DueOrderRow, DueOrdersResult } from "@/lib/due-orders";
 
 // 생산계획 "납기별수주현황(PLAN-04)" — 생산계획 엑셀 「납기별」 시트 + 수주별 시트를 한 화면으로 옮긴 것.
 // 목록에서 수주를 누르면 오른쪽 상세 창에서 품목(모델)별 요약 → 모델을 누르면 도수별 공정재공·부족분·조립투입을 본다.
@@ -110,6 +110,9 @@ const CSS = `
 .po .modal .mb{overflow:auto}
 .po .modal tr.chg td{background:var(--amber-bg)}
 .po .modal th.sep,.po .modal td.sep{border-left:1px solid var(--line)}
+.po .modal tr.na td{color:var(--fg-3)}
+.po button.lnk{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.po button.lnk:hover{color:var(--accent)}
 .po .note{font-size:12px;color:var(--fg-3);line-height:1.6}
 `;
 
@@ -261,11 +264,86 @@ function DosuChangeModal({ itemCode, power, onClose }: { itemCode: string; power
   );
 }
 
+function ColorStockModal({ model, power, onClose }: { model: string; power: number | null; onClose: () => void }) {
+  const [data, setData] = useState<{ model: string; lots: ColorStockLot[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/due-orders?color=${encodeURIComponent(model)}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d) => alive && setData(d))
+      .catch(() => alive && setError("착색 현재고를 불러오지 못했습니다."));
+    return () => {
+      alive = false;
+    };
+  }, [model]);
+
+  const sum = (u: ColorStockLot["use"]) => data?.lots.filter((l) => l.use === u).reduce((s, l) => s + l.stock_qty, 0) ?? 0;
+  const mu = sum("무도수용");
+  const yu = sum("유도수용");
+  const zero = power === 0;
+  return (
+    <>
+      <div className="modal-scrim" onClick={onClose} />
+      <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(1100px, calc(100% - 32px))" }}>
+        <div className="mh">
+          <h3>
+            착색 현재고
+            <span className="num" style={{ fontSize: 12.5, color: "var(--fg-2)", fontWeight: 400 }}>{model} · 조립창고</span>
+            {data && (
+              <small>
+                LOT {data.lots.length}개 · <span className="pill p-grn">무도수용 {fmt(mu)}</span> <span className="pill p-gry">유도수용 {fmt(yu)}</span> ·{" "}
+                <b className="num">{powerText(power)}</b>에 쓸 수 있는 수량 <b className="num">{fmt(zero ? mu : mu + yu)}</b>
+                {zero ? " (유도수용은 0.00에 못 씀)" : " (무도수용 혼용 가능)"}
+              </small>
+            )}
+          </h3>
+          <button className="x" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        <div className="mb">
+          {error && <div className="empty"><b>{error}</b></div>}
+          {!data && !error && <div className="empty">불러오는 중…</div>}
+          {data && (
+            <table>
+              <thead>
+                <tr>
+                  <th>구분</th><th>품목코드</th><th>품목명</th><th>LOT No</th><th>Location</th><th className="r">현재고</th><th className="sep">판정 근거(인쇄 호기)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.lots.map((l) => (
+                  <tr key={`${l.item_code}|${l.lot_no}`} className={zero && l.use === "유도수용" ? "na" : ""} title={zero && l.use === "유도수용" ? "유도수용 — 0.00에는 쓸 수 없음" : undefined}>
+                    <td><span className={`pill ${l.use === "무도수용" ? "p-grn" : "p-gry"}`}>{l.use}</span></td>
+                    <td className="num">{l.item_code}</td>
+                    <td>{l.item_name ?? "-"}</td>
+                    <td className="num">{l.lot_no}</td>
+                    <td className="num">{l.location ?? "-"}</td>
+                    <td className="r num">{fmt(l.stock_qty)}</td>
+                    <td className="sep" style={{ fontSize: 12.5 }}>
+                      {l.basis}
+                      {l.pending && <span className="pill p-amb" style={{ marginLeft: 6 }} title="BASE를 자동Base·Back 호기 양쪽에서 인쇄 — 처리 보류, 우선 유도수용">보류</span>}
+                    </td>
+                  </tr>
+                ))}
+                {data.lots.length === 0 && (
+                  <tr><td colSpan={7} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조립창고에 착색 재고가 없습니다.</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: string; onClose: () => void; base: string; wipOpen: boolean; setWipOpen: (v: boolean) => void }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [changeOf, setChangeOf] = useState<DueOrderLine | null>(null);
+  const [colorOf, setColorOf] = useState<DueOrderLine | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -280,10 +358,10 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
 
   useEffect(() => {
     // Esc는 작업지시 목록 창이 열려 있으면 그 창만 닫는다
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (changeOf ? setChangeOf(null) : onClose());
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (colorOf ? setColorOf(null) : changeOf ? setChangeOf(null) : onClose());
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, changeOf]);
+  }, [onClose, changeOf, colorOf]);
 
   const models = useMemo(() => {
     const g = new Map<string, { model: string; name: string | null; n: number; qty: number; wip: number[]; color: number; shipped: number; assy: number; short: number }>();
@@ -466,7 +544,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                         <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{l.item_code}</td>
                         <td className="r num"><Z n={l.order_qty} /></td>
                         <td className="r num">{l.extra ? <span className="zero">-</span> : <Z n={l.cum_order} />}</td>
-                        <td className="r num"><Z n={l.color_stock} /></td>
+                        <td className="r num">{l.color_stock ? <button className="lnk" onClick={() => setColorOf(l)} title="누르면 착색 현재고(LOT별 무도수용/유도수용)가 열립니다"><Z n={l.color_stock} /></button> : <Z n={l.color_stock} />}</td>
                         {l.wip.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
                         <td className="r num"><Z n={l.base_stock} /></td>
                         <td className="r num"><Z n={l.shipped} /></td>
@@ -497,6 +575,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
         </div>
       </aside>
       {changeOf && <DosuChangeModal itemCode={changeOf.item_code} power={changeOf.power} onClose={() => setChangeOf(null)} />}
+      {colorOf && <ColorStockModal model={colorOf.model} power={colorOf.power} onClose={() => setColorOf(null)} />}
     </>
   );
 }

@@ -504,6 +504,68 @@ export function fetchAssemblyRecords(db: DatabaseSync, itemCode: string): { from
   return { from, to, records };
 }
 
+export interface ColorStockLot {
+  item_code: string;
+  item_name: string | null;
+  lot_no: string;
+  location: string | null;
+  stock_qty: number;
+  /** 무도수용(0.00·유도수 모두 사용) / 유도수용(유도수만) */
+  use: "무도수용" | "유도수용";
+  /** 판정 근거 — BASE·착색 인쇄 호기 */
+  basis: string;
+  /** BASE 인쇄를 자동Base·Back 호기 양쪽에서 한 LOT(처리 보류, 우선 유도수용) */
+  pending: boolean;
+}
+
+/**
+ * 도수별 상세의 착색재고를 누르면 보여줄 현재고 — 모델(BOM 대표코드)의 착색 반제품 조립창고 재고를 LOT별로,
+ * 무도수용/유도수용 판정(colorMap과 같은 규칙)과 근거 호기를 붙여 돌려준다.
+ */
+export function fetchColorStock(db: DatabaseSync, model: string): { model: string; lots: ColorStockLot[] } {
+  const stock = db
+    .prepare(
+      `SELECT i.item_code, it.item_name, i.lot_no, json_extract(i.detail, '$."Location"') loc, SUM(COALESCE(i.stock_qty, 0)) q
+         FROM inventory_status i JOIN items it ON it.item_code = i.item_code
+        WHERE i.warehouse = ? AND i.stock_qty > 0
+          AND i.item_code IN (SELECT b.child_item_code FROM bom b JOIN items c ON c.item_code = b.child_item_code
+                               WHERE b.parent_item_code = ? AND c.category = '반제품' AND json_extract(c.detail, '$."품목군"') = '착색')
+        GROUP BY i.item_code, i.lot_no`
+    )
+    .all(COLOR_WAREHOUSE, model) as { item_code: string; item_name: string | null; lot_no: string; loc: string | null; q: number }[];
+  const prints = new Map<string, { base: Set<string>; color: Set<string> }>();
+  if (stock.length) {
+    const lots = [...new Set(stock.map((s) => s.lot_no))];
+    for (const r of db
+      .prepare(
+        `SELECT DISTINCT lot_no, json_extract(detail, '$."공정명"') p, json_extract(detail, '$."라인"') line
+           FROM daily_work_status
+          WHERE json_extract(detail, '$."공정명"') IN ('Base 인쇄', '착색 인쇄') AND lot_no IN (${lots.map(() => "?").join(",")})`
+      )
+      .all(...lots) as { lot_no: string; p: string; line: string | null }[]) {
+      const x = prints.get(r.lot_no) ?? { base: new Set<string>(), color: new Set<string>() };
+      (r.p === "Base 인쇄" ? x.base : x.color).add(r.line ?? "");
+      prints.set(r.lot_no, x);
+    }
+  }
+  const isAuto = (l: string) => l.startsWith("자동");
+  const lots: ColorStockLot[] = stock.map((s) => {
+    const p = prints.get(s.lot_no);
+    const base = [...(p?.base ?? [])].sort();
+    const color = [...(p?.color ?? [])].sort();
+    const pending = base.some(isAuto) && !base.every(isAuto);
+    const mu = base.length ? base.every(isAuto) : color.some(isAuto);
+    const basis = base.length
+      ? `BASE ${base.join(", ")}`
+      : color.length
+        ? `BASE 실적 없음 · 착색 ${color.join(", ")}`
+        : "인쇄 실적 없음";
+    return { item_code: s.item_code, item_name: s.item_name, lot_no: s.lot_no, location: s.loc, stock_qty: s.q, use: mu ? "무도수용" : "유도수용", basis, pending };
+  });
+  lots.sort((a, b) => (a.use !== b.use ? (a.use === "무도수용" ? -1 : 1) : a.item_code !== b.item_code ? (a.item_code < b.item_code ? -1 : 1) : a.lot_no < b.lot_no ? -1 : 1));
+  return { model, lots };
+}
+
 /** 자재수급(PUR-03)처럼 수주별 품목 줄까지 한꺼번에 쓰는 화면용 — 같은 30초 캐시를 쓴다 */
 export function fetchDueOrdersWithLines(db: DatabaseSync): { rows: DueOrderRow[]; lines: Map<string, DueOrderLine[]>; as_of: DueOrdersResult["as_of"] } {
   const c = load(db);
