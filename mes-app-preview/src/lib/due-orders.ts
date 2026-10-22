@@ -18,7 +18,7 @@ import type { DatabaseSync } from "node:sqlite";
 //  - 조립투입 = 검사부족분 ÷ 직진율 − 조립 − 분리3 − 습윤 − 외관검사×108%, 0 이하이면 0, 아니면 60 단위 올림
 //  - 공정재공은 품목코드 기준이라 같은 품목을 가진 여러 수주에 똑같이 보인다(엑셀과 동일)
 //  - 착색재고 = 모델(품목코드 앞 9자리 = BOM 대표코드)의 직접 구성품 중 반제품·품목군 "착색"인 품목의 조립창고 재고.
-//    LOT마다 무도수/유도수로 나눈다 — BASE 인쇄를 자동Base 호기에서 했거나, BASE 인쇄 실적 없이 착색 인쇄를 자동인쇄 호기에서
+//    LOT마다 무도수/유도수로 나눈다 — BASE 인쇄를 자동Base 호기에서만 했거나, BASE 인쇄 실적 없이 착색 인쇄를 자동인쇄 호기에서
 //    했으면 무도수, 나머지(수동 Back 호기 BASE, 실적 없음)는 유도수. LOT No는 BASE 인쇄 → 착색 인쇄까지 그대로 이어진다.
 //    도수 줄은 0.00이면 무도수, -0.25 ~ -10.00이면 유도수 재고(같은 모델의 유도수 줄은 같은 값)이고,
 //    모델·수주 단위는 무도수 + 유도수, 수주 단위는 그 수주에 든 모델별 값의 합이다.
@@ -96,7 +96,10 @@ function soBase(soNo: string): string {
 }
 
 /** 품목코드 끝 4자리 → 도수(엑셀 J열: -(RIGHT(코드,4)/100)) */
-/** 무도수 착색 LOT 판정(아래 colorMap 쿼리의 LOT 실적 l 기준) — BASE 자동호기, 또는 BASE 실적 없이 착색 자동호기 */
+/**
+ * 무도수 착색 LOT 판정(아래 colorMap 쿼리의 LOT 실적 l 기준) — BASE를 자동호기에서만 했거나, BASE 실적 없이 착색 자동호기.
+ * BASE 실적이 자동Base·Back 호기 양쪽에 있는 LOT(2026-10 기준 9개)는 처리 방법이 보류돼 우선 유도수로 둔다.
+ */
 const COLOR_MU = `(l.base_auto = 1 OR (l.has_base IS NULL AND l.color_auto = 1))`;
 
 /** 도수 줄의 착색재고 — 0.00은 무도수, 그 외(도수 없는 품목코드 포함)는 유도수 */
@@ -211,7 +214,7 @@ function compute(db: DatabaseSync): Computed {
          JOIN inventory_status i ON i.item_code = c.child_item_code AND i.warehouse = ?
          LEFT JOIN (SELECT lot_no,
                            MAX(CASE WHEN json_extract(detail, '$."공정명"') = 'Base 인쇄' THEN 1 END) has_base,
-                           MAX(json_extract(detail, '$."공정명"') = 'Base 인쇄' AND json_extract(detail, '$."라인"') LIKE '자동%') base_auto,
+                           MIN(CASE WHEN json_extract(detail, '$."공정명"') = 'Base 인쇄' THEN json_extract(detail, '$."라인"') LIKE '자동%' END) base_auto,
                            MAX(json_extract(detail, '$."공정명"') = '착색 인쇄' AND json_extract(detail, '$."라인"') LIKE '자동%') color_auto
                       FROM daily_work_status
                      WHERE json_extract(detail, '$."공정명"') IN ('Base 인쇄', '착색 인쇄')
