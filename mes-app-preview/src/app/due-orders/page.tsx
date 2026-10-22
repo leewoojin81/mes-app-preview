@@ -113,6 +113,9 @@ const CSS = `
 .po .modal tr.na td{color:var(--fg-3)}
 .po button.lnk{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
 .po button.lnk:hover{color:var(--accent)}
+.po button.cp{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:copy}
+.po button.cp:hover{color:var(--accent);text-decoration:underline}
+.po .copied{margin-left:6px;font-size:11px;color:var(--green);font-weight:600}
 .po .note{font-size:12px;color:var(--fg-3);line-height:1.6}
 `;
 
@@ -264,9 +267,42 @@ function DosuChangeModal({ itemCode, power, onClose }: { itemCode: string; power
   );
 }
 
+/** 클립보드 복사 — http://IP:3001처럼 보안 연결이 아니면 navigator.clipboard가 없어 textarea + execCommand로 대신한다 */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // 아래 방식으로 다시 시도
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  document.body.removeChild(ta);
+  return ok;
+}
+
 function ColorStockModal({ model, power, onClose }: { model: string; power: number | null; onClose: () => void }) {
   const [data, setData] = useState<{ model: string; lots: ColorStockLot[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const copyLot = async (lot: string) => {
+    if (!(await copyText(lot))) return;
+    setCopied(lot);
+    window.setTimeout(() => setCopied((c) => (c === lot ? null : c)), 1500);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -317,7 +353,10 @@ function ColorStockModal({ model, power, onClose }: { model: string; power: numb
                     <td><span className={`pill ${l.use === "무도수용" ? "p-grn" : "p-gry"}`}>{l.use}</span></td>
                     <td className="num">{l.item_code}</td>
                     <td>{l.item_name ?? "-"}</td>
-                    <td className="num">{l.lot_no}</td>
+                    <td className="num">
+                      <button className="cp" onClick={() => copyLot(l.lot_no)} title="누르면 LOT No가 복사됩니다">{l.lot_no}</button>
+                      {copied === l.lot_no && <span className="copied">복사됨</span>}
+                    </td>
                     <td className="num">{l.location ?? "-"}</td>
                     <td className="r num">{fmt(l.stock_qty)}</td>
                     <td className="sep" style={{ fontSize: 12.5 }}>
