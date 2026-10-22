@@ -5,6 +5,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { NAV_GROUPS } from "./nav-groups";
 import type { Role } from "./auth";
+import { isAdminRole } from "./roles";
 
 // role='leader' 기본 허용 화면 — 작업자등록(BASE-09)/출퇴근등록(옛 PSN-02) 2개뿐이었던
 // 기존 로직을 그대로 기본값으로 유지한다. role='admin'은 전체 화면이 기본값.
@@ -39,7 +40,8 @@ const ADMIN_DEFAULT_CODES = new Set([
 ]);
 
 export function roleDefaultAllowed(role: Role, code: string): boolean {
-  if (role === "admin") return ADMIN_DEFAULT_CODES.has(code);
+  // 운영자는 관리자와 같은 기본 화면권한(그 위에 기준정보 삭제만 더 가진다)
+  if (isAdminRole(role)) return ADMIN_DEFAULT_CODES.has(code);
   return LEADER_DEFAULT_CODES.has(code);
 }
 
@@ -100,6 +102,7 @@ const SHARED_API_PREFIXES = [
 // 위 공유 목록에 없는 API는 화면 하나가 단독으로 쓰므로 그 화면코드로 막는다.
 const CODE_API_PREFIXES: Record<string, string[]> = {
   "BASE-03": ["/api/bom"],
+  "BASE-04": ["/api/production-lines"],
   "BASE-05": ["/api/equipments"],
   "BASE-07": ["/api/warehouses"],
   "BASE-08": ["/api/production-calendar", "/api/process-calendar"],

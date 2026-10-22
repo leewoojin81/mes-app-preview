@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import MasterMetaBadge from "@/components/MasterMetaBadge";
+import { useIsOperator } from "@/lib/use-operator";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { Process } from "@/lib/types";
 import ProcessUphTargetSection from "./uph-target-section";
+import ProductionLinesSection, { type LineRow } from "./lines-section";
 
 const USE_TABS = [
   { label: "전체", value: "" },
@@ -37,6 +39,7 @@ type FormState = {
   shift2_end: string;
   shift2_base_minutes: string;
   apply_work_pattern_yn: "Y" | "N";
+  line_key: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -63,9 +66,19 @@ const EMPTY_FORM: FormState = {
   shift2_end: "",
   shift2_base_minutes: "",
   apply_work_pattern_yn: "Y",
+  line_key: "",
 };
 
+// 화면 탭(2026-10-22) — 공정정보 / 생산 라인 / 목표 UPH
+type PageTab = "process" | "lines" | "uph";
+const PAGE_TABS: { v: PageTab; label: string }[] = [
+  { v: "process", label: "공정정보" },
+  { v: "lines", label: "생산라인" },
+  { v: "uph", label: "목표UPH" },
+];
+
 export default function ProcessMasterPage() {
+  const [pageTab, setPageTab] = useTabState<PageTab>("processPageTab", "process");
   const [rows, setRows] = useState<Process[]>([]);
   const [loading, setLoading] = useState(true);
   // 탭을 전환했다 돌아와도 보고 있던 필터는 유지되도록 세션 단위로 저장한다.
@@ -73,9 +86,12 @@ export default function ProcessMasterPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Process | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Process | null>(null);
+  const isOperator = useIsOperator(); // 기준정보 삭제는 운영자만
   const deleteDrag = useDraggableModal();
   const [deleting, setDeleting] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  const [lines, setLines] = useState<LineRow[]>([]);
+  const [linesLoading, setLinesLoading] = useState(true);
 
   const load = () => {
     setLoading(true);
@@ -87,7 +103,20 @@ export default function ProcessMasterPage() {
       });
   };
 
+  // 생산 라인(라인 열 이름·폼 선택지·생산 라인 섹션) — 라인을 바꾸면 목표 UPH 섹션 이름도 다시 읽는다
+  const loadLines = () => {
+    setLinesLoading(true);
+    fetch("/api/production-lines", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: LineRow[]) => {
+        setLines(data);
+        setLinesLoading(false);
+      });
+  };
+
   useEffect(load, []);
+  useEffect(loadLines, []);
+  const lineByKey = new Map(lines.map((l) => [l.line_key, l]));
 
   const visibleRows = rows.filter((r) => !useFilter || r.use_yn === useFilter);
 
@@ -101,193 +130,231 @@ export default function ProcessMasterPage() {
             <MasterMetaBadge screen="processes" refreshKey={rows} />
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              const params = new URLSearchParams();
-              if (useFilter) params.set("use", useFilter);
-              const qs = params.toString();
-              window.location.href = `/api/processes/export${qs ? `?${qs}` : ""}`;
-            }}
-            className="px-3.5 py-2 rounded-md text-sm font-medium bg-emerald-700 text-white hover:bg-emerald-800 transition-colors"
-          >
-            엑셀 다운로드
-          </button>
-          <button
-            onClick={() => setShowUpload(true)}
-            className="px-3.5 py-2 rounded-md text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:border-navy transition-colors"
-          >
-            엑셀 업로드
-          </button>
-          <button
-            onClick={() => {
-              setEditing(null);
-              setShowForm(true);
-            }}
-            className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white hover:opacity-90 transition-opacity"
-          >
-            공정 추가
-          </button>
-        </div>
+        {pageTab === "process" && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const params = new URLSearchParams();
+                if (useFilter) params.set("use", useFilter);
+                const qs = params.toString();
+                window.location.href = `/api/processes/export${qs ? `?${qs}` : ""}`;
+              }}
+              className="px-3.5 py-2 rounded-md text-sm font-medium bg-emerald-700 text-white hover:bg-emerald-800 transition-colors"
+            >
+              엑셀 다운로드
+            </button>
+            <button
+              onClick={() => setShowUpload(true)}
+              className="px-3.5 py-2 rounded-md text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:border-navy transition-colors"
+            >
+              엑셀 업로드
+            </button>
+            <button
+              onClick={() => {
+                setEditing(null);
+                setShowForm(true);
+              }}
+              className="px-3.5 py-2 rounded-md text-sm font-medium bg-navy text-white hover:opacity-90 transition-opacity"
+            >
+              공정 추가
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="flex items-center gap-2">
-        {USE_TABS.map((tab) => (
+      <div className="flex gap-1 border-b border-slate-200">
+        {PAGE_TABS.map((t) => (
           <button
-            key={tab.label}
-            onClick={() => setUseFilter(tab.value)}
-            className={`px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-              useFilter === tab.value
-                ? tab.value === "N"
-                  ? "bg-rose-700 text-white border-rose-700"
-                  : "bg-navy text-white border-navy"
-                : "bg-white text-slate-600 border-slate-300 hover:border-navy"
+            key={t.v}
+            type="button"
+            onClick={() => setPageTab(t.v)}
+            className={`px-5 py-2 text-sm font-medium -mb-px border-b-2 transition-colors ${
+              pageTab === t.v ? "border-navy text-navy" : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
-            {tab.label}
+            {t.label}
           </button>
         ))}
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
-        {/* 엑셀 틀 고정: 세로 스크롤을 이 컨테이너 안으로 한정해야 sticky 헤더가 동작 */}
-        <div className="overflow-auto max-h-[calc(100vh-13.5rem)]">
-          <table className="w-full text-sm whitespace-nowrap">
-            <thead className="bg-[#D9D9D9] text-slate-500 text-xs">
-              <tr>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">No</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">공정코드</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">공정명</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">조달구분</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">생산성구분</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">공정그룹</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">공정그룹2</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">단공정</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">기본 일CAPA</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">기본 생산수율</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">기본 Lot Size</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">기본 근무패턴</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">패턴적용</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">사용여부</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">등록일자</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">등록자</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">수정일자</th>
-                <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">관리</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading && (
-                <tr>
-                  <td colSpan={18} className="text-center py-10 text-slate-400">
-                    불러오는 중...
-                  </td>
-                </tr>
-              )}
-              {!loading && visibleRows.length === 0 && (
-                <tr>
-                  <td colSpan={18} className="text-center py-10 text-slate-400">
-                    등록된 공정이 없습니다.
-                  </td>
-                </tr>
-              )}
-              {!loading &&
-                visibleRows.map((r, idx) => (
-                  <tr key={r.process_code} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                      {r.process_code}
-                    </td>
-                    <td className="px-4 py-3 font-medium">{r.process_name}</td>
-                    <td className="px-4 py-3 text-slate-500">{r.procure_type ?? "-"}</td>
-                    <td className="px-4 py-3 text-slate-500">{r.productivity_type ?? "-"}</td>
-                    <td className="px-4 py-3 text-slate-500">{r.process_group ?? "-"}</td>
-                    <td className="px-4 py-3 text-slate-500">{r.process_group2 ?? "-"}</td>
-                    <td className="px-4 py-3 text-slate-500">{r.single_process ?? "-"}</td>
-                    <td className="px-4 py-3 text-right text-slate-500">
-                      {r.default_daily_capa != null ? r.default_daily_capa.toLocaleString() : "-"}
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-500">
-                      {r.default_yield_rate != null ? `${r.default_yield_rate}%` : "-"}
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-500">
-                      {r.default_lot_size != null ? r.default_lot_size.toLocaleString() : "-"}
-                    </td>
-                    <td className="px-4 py-3 text-slate-500 text-xs">
-                      {(["1", "2"] as const)
-                        .map((n) => {
-                          const active = n === "1" ? r.shift1_active_yn : r.shift2_active_yn;
-                          const start = n === "1" ? r.shift1_start : r.shift2_start;
-                          const end = n === "1" ? r.shift1_end : r.shift2_end;
-                          const minutes = n === "1" ? r.shift1_base_minutes : r.shift2_base_minutes;
-                          if (active === "N") return `${n}조 중단`;
-                          const time = start && end ? ` ${start}~${end}` : "";
-                          return `${n}조${time} (${minutes ?? 480}분)`;
-                        })
-                        .join(" · ")}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold border ${
-                          r.apply_work_pattern_yn === "N"
-                            ? "bg-rose-50 text-rose-700 border-rose-200"
-                            : "bg-emerald-50 text-emerald-700 border-emerald-200"
-                        }`}
-                      >
-                        {r.apply_work_pattern_yn === "N" ? "N" : "Y"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold border ${
-                          r.use_yn === "Y"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : "bg-rose-50 text-rose-700 border-rose-200"
-                        }`}
-                      >
-                        {r.use_yn === "Y" ? "사용" : "중단"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">{r.reg_date ?? "-"}</td>
-                    <td className="px-4 py-3 text-slate-500">{r.reg_by ?? "-"}</td>
-                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.updated_at ? r.updated_at.slice(0, 16) : "-"}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            setEditing(r);
-                            setShowForm(true);
-                          }}
-                          className="text-xs font-medium text-navy hover:underline"
-                        >
-                          수정
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(r)}
-                          className="text-xs font-medium text-rose-600 hover:underline"
-                        >
-                          삭제
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
-          전체 {rows.length.toLocaleString()}건 중 {visibleRows.length.toLocaleString()}건 표시
-        </div>
-      </div>
+      {pageTab === "process" && (
+        <>
+          <div className="flex items-center gap-2">
+            {USE_TABS.map((tab) => (
+              <button
+                key={tab.label}
+                onClick={() => setUseFilter(tab.value)}
+                className={`px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                  useFilter === tab.value
+                    ? tab.value === "N"
+                      ? "bg-rose-700 text-white border-rose-700"
+                      : "bg-navy text-white border-navy"
+                    : "bg-white text-slate-600 border-slate-300 hover:border-navy"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-      <ProcessUphTargetSection />
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+            {/* 엑셀 틀 고정: 세로 스크롤을 이 컨테이너 안으로 한정해야 sticky 헤더가 동작 */}
+            <div className="overflow-auto max-h-[calc(100vh-16.5rem)]">
+              <table className="w-full text-sm whitespace-nowrap">
+                <thead className="bg-[#D9D9D9] text-slate-500 text-xs">
+                  <tr>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">No</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">관리</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">공정코드</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">공정명</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">조달구분</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">생산성구분</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">공정그룹</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">공정그룹2</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">라인</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">단공정</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">기본 일CAPA</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">기본 생산수율</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">기본 Lot Size</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">기본 근무패턴</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">패턴적용</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">사용여부</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">등록일자</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">등록자</th>
+                    <th className="text-center px-4 py-3 font-semibold sticky top-0 z-10 bg-[#D9D9D9] shadow-[inset_0_-1px_0_#e2e8f0]">수정일자</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {loading && (
+                    <tr>
+                      <td colSpan={19} className="text-center py-10 text-slate-400">
+                        불러오는 중...
+                      </td>
+                    </tr>
+                  )}
+                  {!loading && visibleRows.length === 0 && (
+                    <tr>
+                      <td colSpan={19} className="text-center py-10 text-slate-400">
+                        등록된 공정이 없습니다.
+                      </td>
+                    </tr>
+                  )}
+                  {!loading &&
+                    visibleRows.map((r, idx) => (
+                      <tr key={r.process_code} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => {
+                                setEditing(r);
+                                setShowForm(true);
+                              }}
+                              className="text-xs font-medium text-navy hover:underline"
+                            >
+                              수정
+                            </button>
+                            {isOperator && (
+                              <button
+                                onClick={() => setDeleteTarget(r)}
+                                className="text-xs font-medium text-rose-600 hover:underline"
+                              >
+                                삭제
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-500">
+                          {r.process_code}
+                        </td>
+                        <td className="px-4 py-3 font-medium">{r.process_name}</td>
+                        <td className="px-4 py-3 text-slate-500">{r.procure_type ?? "-"}</td>
+                        <td className="px-4 py-3 text-slate-500">{r.productivity_type ?? "-"}</td>
+                        <td className="px-4 py-3 text-slate-500">{r.process_group ?? "-"}</td>
+                        <td className="px-4 py-3 text-slate-500">{r.process_group2 ?? "-"}</td>
+                        <td className={`px-4 py-3 ${r.line_key && lineByKey.get(r.line_key)?.use_yn !== "N" ? "font-medium text-navy" : "text-slate-400"}`}>
+                          {r.line_key ? (lineByKey.get(r.line_key)?.line_name ?? r.line_key) : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">{r.single_process ?? "-"}</td>
+                        <td className="px-4 py-3 text-right text-slate-500">
+                          {r.default_daily_capa != null ? r.default_daily_capa.toLocaleString() : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-500">
+                          {r.default_yield_rate != null ? `${r.default_yield_rate}%` : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-500">
+                          {r.default_lot_size != null ? r.default_lot_size.toLocaleString() : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 text-xs">
+                          {(["1", "2"] as const)
+                            .map((n) => {
+                              const active = n === "1" ? r.shift1_active_yn : r.shift2_active_yn;
+                              const start = n === "1" ? r.shift1_start : r.shift2_start;
+                              const end = n === "1" ? r.shift1_end : r.shift2_end;
+                              const minutes = n === "1" ? r.shift1_base_minutes : r.shift2_base_minutes;
+                              if (active === "N") return `${n}조 중단`;
+                              const time = start && end ? ` ${start}~${end}` : "";
+                              return `${n}조${time} (${minutes ?? 480}분)`;
+                            })
+                            .join(" · ")}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                              r.apply_work_pattern_yn === "N"
+                                ? "bg-rose-50 text-rose-700 border-rose-200"
+                                : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            }`}
+                          >
+                            {r.apply_work_pattern_yn === "N" ? "N" : "Y"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                              r.use_yn === "Y"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : "bg-rose-50 text-rose-700 border-rose-200"
+                            }`}
+                          >
+                            {r.use_yn === "Y" ? "사용" : "중단"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">{r.reg_date ?? "-"}</td>
+                        <td className="px-4 py-3 text-slate-500">{r.reg_by ?? "-"}</td>
+                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.updated_at ? r.updated_at.slice(0, 16) : "-"}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
+              전체 {rows.length.toLocaleString()}건 중 {visibleRows.length.toLocaleString()}건 표시
+            </div>
+          </div>
+        </>
+      )}
+
+      {pageTab === "lines" && (
+        <ProductionLinesSection
+          lines={lines}
+          processes={rows}
+          loading={linesLoading || loading}
+          onChanged={loadLines}
+        />
+      )}
+
+      {pageTab === "uph" && <ProcessUphTargetSection refreshKey={lines} />}
 
       {showForm && (
         <ProcessFormModal
           editing={editing}
+          lines={lines}
           onClose={() => setShowForm(false)}
           onSaved={() => {
             setShowForm(false);
             load();
+            loadLines();
           }}
         />
       )}
@@ -295,7 +362,10 @@ export default function ProcessMasterPage() {
       {showUpload && (
         <ProcessUploadModal
           onClose={() => setShowUpload(false)}
-          onImported={load}
+          onImported={() => {
+            load();
+            loadLines();
+          }}
         />
       )}
 
@@ -353,10 +423,12 @@ export default function ProcessMasterPage() {
 
 function ProcessFormModal({
   editing,
+  lines,
   onClose,
   onSaved,
 }: {
   editing: Process | null;
+  lines: LineRow[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -386,6 +458,7 @@ function ProcessFormModal({
           shift2_end: editing.shift2_end ?? "",
           shift2_base_minutes: editing.shift2_base_minutes != null ? String(editing.shift2_base_minutes) : "",
           apply_work_pattern_yn: editing.apply_work_pattern_yn === "N" ? "N" : "Y",
+          line_key: editing.line_key ?? "",
         }
       : EMPTY_FORM
   );
@@ -423,6 +496,7 @@ function ProcessFormModal({
       shift2_end: form.shift2_end.trim(),
       shift2_base_minutes: form.shift2_base_minutes.trim(),
       apply_work_pattern_yn: form.apply_work_pattern_yn,
+      line_key: form.line_key,
     };
     const url = editing
       ? `/api/processes/${encodeURIComponent(editing.process_code)}`
@@ -535,6 +609,21 @@ function ProcessFormModal({
               />
             </label>
           </div>
+          <label className="block text-sm">
+            <span className="text-slate-600">
+              라인{" "}
+              <span className="text-xs text-slate-400 font-normal">— 계획정보(PLAN-02) 인원·CAPA를 이 라인으로 묶어 집계</span>
+            </span>
+            <select value={form.line_key} onChange={(e) => set("line_key", e.target.value)} className={`${inputCls} bg-white`}>
+              <option value="">(라인 없음)</option>
+              {lines.map((l) => (
+                <option key={l.line_key} value={l.line_key}>
+                  {l.line_name}
+                  {l.use_yn === "N" ? " (중단)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-sm">
               <span className="text-slate-600">단공정</span>
@@ -800,6 +889,7 @@ function ProcessUploadModal({
                 &quot;엑셀 다운로드&quot;로 받은 것과 같은 컬럼 구성의 .xlsx 첫 시트를
                 읽습니다. 1행은 컬럼 제목이어야 하며 &quot;공정코드&quot;·&quot;공정명&quot;
                 컬럼은 필수입니다. 이미 있는 공정코드는 해당 행 값으로 전체 덮어씁니다.
+                &quot;라인&quot; 컬럼(라인명)은 있을 때만 반영하고, 없는 라인명이 적힌 행은 건너뜁니다.
                 시작/종료시각은 HH:MM 형식이어야 합니다.
               </p>
               <label className="block text-sm">

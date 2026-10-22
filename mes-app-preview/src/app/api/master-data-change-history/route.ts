@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
 import { ENTITY_TYPE_WORKER, MASTER_DATA_ENTITY_TYPES } from "@/lib/master-data-history";
+import { ensureProductionLines } from "@/lib/production-lines";
 
 export const runtime = "nodejs";
 
@@ -14,10 +15,11 @@ export const runtime = "nodejs";
 // 조장은 현재 소속(work_group) 작업자의 이력만 본다(entity_type="작업자"인 행에만
 // 적용 — 다른 대상유형은 조장이 애초에 볼 일이 없는 기준정보라 필터를 걸지 않는다).
 // 대상명 — 대상유형에 맞는 마스터의 현재 이름(기준정보 BASE-01~09 전체, 2026-10-21 확대)
-const NAME_EXPR = "COALESCE(w.worker_name, i.item_name, cu.customer_name, pr.process_name, eq.equipment_name, wh.warehouse_name)";
+const NAME_EXPR = "COALESCE(w.worker_name, i.item_name, cu.customer_name, pr.process_name, eq.equipment_name, wh.warehouse_name, pl.line_name)";
 
 export async function GET(req: NextRequest) {
   const db = getDb();
+  ensureProductionLines(db);
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
   const params = req.nextUrl.searchParams;
 
@@ -98,6 +100,7 @@ export async function GET(req: NextRequest) {
     LEFT JOIN processes pr ON h.entity_type = '공정' AND pr.process_code = h.entity_id
     LEFT JOIN equipments eq ON h.entity_type = '설비' AND CAST(eq.equipment_id AS TEXT) = h.entity_id
     LEFT JOIN warehouses wh ON h.entity_type = '창고' AND wh.warehouse_code = h.entity_id
+    LEFT JOIN production_lines pl ON h.entity_type = '라인' AND pl.line_key = h.entity_id
     LEFT JOIN users u ON h.changed_by = u.username`;
 
   const total = (db.prepare(`SELECT COUNT(*) AS c ${fromClause} ${where}`).get(...args) as { c: number }).c;

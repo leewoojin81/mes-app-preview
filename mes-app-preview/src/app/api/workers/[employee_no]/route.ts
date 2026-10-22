@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { requireOperatorForDelete } from "@/lib/operator";
 import { strOrNull, strVal } from "@/lib/item-fields";
 import { COOKIE_NAME, processCodesFromSession, verifySession } from "@/lib/auth";
 import { ENTITY_TYPE_WORKER, logFieldChanges, WORKER_TRACKED_FIELDS } from "@/lib/master-data-history";
@@ -208,6 +209,8 @@ export async function DELETE(
 ) {
   const { employee_no: employeeNo } = await params;
   const db = getDb();
+  const denied = requireOperatorForDelete(req, db);
+  if (denied) return denied;
   markHistoryActor(db, req, { skipTracked: true });
 
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);

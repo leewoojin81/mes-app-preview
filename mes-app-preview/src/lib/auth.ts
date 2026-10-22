@@ -15,7 +15,8 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
   return timingSafeEqual(candidate, stored);
 }
 
-export type Role = "leader" | "admin";
+import type { Role } from "./roles";
+export type { Role } from "./roles";
 
 export type SessionPayload = {
   u: string; // username

@@ -6,7 +6,7 @@ import { EMPLOYMENT_TYPES, POSITIONS_BY_EMPLOYMENT_TYPE, TEAMS, type EmploymentT
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
 
-const ROLE_LABEL: Record<AppUser["role"], string> = { leader: "조장", admin: "관리자" };
+import { ROLE_LABEL } from "@/lib/roles";
 
 type FormState = {
   username: string;
@@ -141,9 +141,11 @@ export default function UsersPage() {
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold border ${
-                          r.role === "admin"
-                            ? "bg-gold/15 text-gold border-gold/40"
-                            : "bg-slate-100 text-slate-600 border-slate-300"
+                          r.role === "operator"
+                            ? "bg-navy text-white border-navy"
+                            : r.role === "admin"
+                              ? "bg-gold/15 text-gold border-gold/40"
+                              : "bg-slate-100 text-slate-600 border-slate-300"
                         }`}
                       >
                         {ROLE_LABEL[r.role]}
@@ -530,6 +532,7 @@ function UserFormModal({
               >
                 <option value="leader">조장</option>
                 <option value="admin">관리자</option>
+                <option value="operator">운영자 (관리자 + 기준정보 삭제)</option>
               </select>
             </label>
             <label className="block text-sm">

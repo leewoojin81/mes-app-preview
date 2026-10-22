@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import MasterMetaBadge from "@/components/MasterMetaBadge";
+import { useIsOperator } from "@/lib/use-operator";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { Customer } from "@/lib/types";
@@ -103,6 +104,7 @@ export default function CustomerMasterPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
+  const isOperator = useIsOperator(); // 기준정보 삭제는 운영자만
   const [deleting, setDeleting] = useState(false);
   const deleteDrag = useDraggableModal();
 
@@ -262,12 +264,14 @@ export default function CustomerMasterPage() {
                         >
                           수정
                         </button>
-                        <button
-                          onClick={() => setDeleteTarget(r)}
-                          className="text-xs font-medium text-rose-600 hover:underline"
-                        >
-                          삭제
-                        </button>
+                        {isOperator && (
+                          <button
+                            onClick={() => setDeleteTarget(r)}
+                            className="text-xs font-medium text-rose-600 hover:underline"
+                          >
+                            삭제
+                          </button>
+                        )}
                       </div>
                     </td>
                     {COLUMNS.map((c) => {

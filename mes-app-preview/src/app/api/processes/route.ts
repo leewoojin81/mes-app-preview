@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull, strOrNull, strVal, timeOrNull, todayDot } from "@/lib/item-fields";
 import { markHistoryActor } from "@/lib/history-actor";
+import { ensureProductionLines } from "@/lib/production-lines";
 
 export const runtime = "nodejs";
 
@@ -91,13 +92,19 @@ export async function POST(req: NextRequest) {
     );
   }
   const applyWorkPatternYn = body.apply_work_pattern_yn === "N" ? "N" : "Y";
+  // 소속 라인(BASE-04 라인 설정의 라인코드, 비우면 라인 없음)
+  ensureProductionLines(db);
+  const lineKey = strOrNull(body.line_key);
+  if (lineKey && !db.prepare("SELECT 1 FROM production_lines WHERE line_key = ?").get(lineKey)) {
+    return NextResponse.json({ error: `없는 라인입니다: ${lineKey}` }, { status: 400 });
+  }
 
   db.prepare(
     `INSERT INTO processes
        (process_code, process_name, seq, procure_type, productivity_type, process_group, process_group2, single_process, use_yn, reg_date, reg_by, default_daily_capa, default_yield_rate, default_lot_size,
         shift1_active_yn, shift1_start, shift1_end, shift1_base_minutes,
-        shift2_active_yn, shift2_start, shift2_end, shift2_base_minutes, apply_work_pattern_yn)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        shift2_active_yn, shift2_start, shift2_end, shift2_base_minutes, apply_work_pattern_yn, line_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     processCode,
     processName,
@@ -121,7 +128,8 @@ export async function POST(req: NextRequest) {
     shift2Start,
     shift2End,
     shift2BaseMinutes,
-    applyWorkPatternYn
+    applyWorkPatternYn,
+    lineKey
   );
 
   return NextResponse.json({ ok: true, process_code: processCode }, { status: 201 });

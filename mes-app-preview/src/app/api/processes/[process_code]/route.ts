@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { requireOperatorForDelete } from "@/lib/operator";
 import { numOrNull, strOrNull, strVal, timeOrNull } from "@/lib/item-fields";
 import { markHistoryActor } from "@/lib/history-actor";
+import { ensureProductionLines } from "@/lib/production-lines";
 
 export const runtime = "nodejs";
 
@@ -83,6 +85,13 @@ export async function PATCH(
     );
   }
   const applyWorkPatternYn = body.apply_work_pattern_yn === "N" ? "N" : "Y";
+  // 소속 라인 — 보내지 않으면 기존 값 유지
+  ensureProductionLines(db);
+  const hasLineKey = Object.prototype.hasOwnProperty.call(body, "line_key");
+  const lineKey = hasLineKey ? strOrNull(body.line_key) : (existing as { line_key: string | null }).line_key;
+  if (lineKey && !db.prepare("SELECT 1 FROM production_lines WHERE line_key = ?").get(lineKey)) {
+    return NextResponse.json({ error: `없는 라인입니다: ${lineKey}` }, { status: 400 });
+  }
 
   db.prepare(
     `UPDATE processes SET
@@ -91,7 +100,7 @@ export async function PATCH(
        default_daily_capa=?, default_yield_rate=?, default_lot_size=?,
        shift1_active_yn=?, shift1_start=?, shift1_end=?, shift1_base_minutes=?,
        shift2_active_yn=?, shift2_start=?, shift2_end=?, shift2_base_minutes=?,
-       apply_work_pattern_yn=?
+       apply_work_pattern_yn=?, line_key=?
      WHERE process_code=?`
   ).run(
     processName,
@@ -116,6 +125,7 @@ export async function PATCH(
     shift2End,
     shift2BaseMinutes,
     applyWorkPatternYn,
+    lineKey,
     processCode
   );
 
@@ -129,6 +139,8 @@ export async function DELETE(
 ) {
   const { process_code: processCode } = await params;
   const db = getDb();
+  const denied = requireOperatorForDelete(_req, db);
+  if (denied) return denied;
   markHistoryActor(db, _req);
   const result = db.prepare("DELETE FROM processes WHERE process_code = ?").run(processCode);
   if (result.changes === 0) {

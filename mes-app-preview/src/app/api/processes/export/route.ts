@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import * as XLSX from "xlsx";
 import type { Process } from "@/lib/types";
+import { getProductionLines } from "@/lib/production-lines";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,7 @@ export async function GET(req: NextRequest) {
       : db.prepare("SELECT * FROM processes ORDER BY seq, process_code").all()
   ) as unknown as Process[];
 
+  const lineName = new Map(getProductionLines(db).map((l) => [l.line_key, l.line_name]));
   const data = rows.map((r) => ({
     공정코드: r.process_code,
     공정명: r.process_name,
@@ -24,6 +26,7 @@ export async function GET(req: NextRequest) {
     생산성구분: r.productivity_type,
     공정그룹: r.process_group,
     공정그룹2: r.process_group2,
+    라인: r.line_key ? (lineName.get(r.line_key) ?? r.line_key) : null,
     단공정: r.single_process,
     사용여부: r.use_yn,
     "기본 일CAPA": r.default_daily_capa,

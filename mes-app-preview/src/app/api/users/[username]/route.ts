@@ -3,12 +3,14 @@ import { getDb } from "@/lib/db";
 import { COOKIE_NAME, hashPassword, verifySession, type SessionPayload } from "@/lib/auth";
 import { strOrNull, strVal } from "@/lib/item-fields";
 import { parseOrgFields } from "@/lib/org";
+import { isAdminRole, parseRole, type Role } from "@/lib/roles";
+import { hasActiveOperator, isOperatorUser } from "@/lib/operator";
 
 export const runtime = "nodejs";
 
 function requireAdmin(req: NextRequest): { session: SessionPayload | null; denied: NextResponse | null } {
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
-  if (!session || session.r !== "admin") {
+  if (!session || !isAdminRole(session.r)) {
     return {
       session: null,
       denied: NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 }),
@@ -19,15 +21,15 @@ function requireAdmin(req: NextRequest): { session: SessionPayload | null; denie
 
 interface UserRow {
   username: string;
-  role: "leader" | "admin";
+  role: Role;
   use_yn: string;
 }
 
-// 활성 관리자 계정이 0명이 되는 변경(마지막 관리자를 조장으로 강등/중단/삭제)은 막는다 —
+// 활성 관리자(운영자 포함) 계정이 0명이 되는 변경(마지막 관리자를 조장으로 강등/중단/삭제)은 막는다 —
 // 로그인할 방법이 전부 사라지는 잠금을 방지.
 function wouldRemoveLastAdmin(db: ReturnType<typeof getDb>, excludeUsername: string): boolean {
   const otherActiveAdmins = db
-    .prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin' AND use_yn = 'Y' AND username != ?")
+    .prepare("SELECT COUNT(*) as c FROM users WHERE role IN ('admin', 'operator') AND use_yn = 'Y' AND username != ?")
     .get(excludeUsername) as { c: number };
   return otherActiveAdmins.c === 0;
 }
@@ -37,7 +39,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ username: string }> }
 ) {
-  const { denied } = requireAdmin(req);
+  const { session, denied } = requireAdmin(req);
   if (denied) return denied;
   const { username } = await params;
   const db = getDb();
@@ -53,7 +55,11 @@ export async function PATCH(
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
 
-  const role = body.role === "admin" ? "admin" : "leader";
+  const role = parseRole(body.role);
+  // 운영자 지정·운영자 계정 변경은 운영자만(운영자가 아직 한 명도 없을 때만 관리자가 첫 운영자를 지정할 수 있다)
+  if ((role === "operator" || existing.role === "operator") && hasActiveOperator(db) && !isOperatorUser(db, session!.u)) {
+    return NextResponse.json({ error: "운영자 지정·변경은 운영자만 할 수 있습니다." }, { status: 403 });
+  }
   const useYn = body.use_yn === "N" ? "N" : "Y";
   const displayName = strOrNull(body.display_name);
   const processCodes: string[] = Array.isArray(body.process_codes)
@@ -66,7 +72,7 @@ export async function PATCH(
     return NextResponse.json({ error: org.error }, { status: 400 });
   }
 
-  if (existing.role === "admin" && (role !== "admin" || useYn !== "Y") && wouldRemoveLastAdmin(db, username)) {
+  if (isAdminRole(existing.role) && (!isAdminRole(role) || useYn !== "Y") && wouldRemoveLastAdmin(db, username)) {
     return NextResponse.json(
       { error: "마지막 관리자 계정은 권한을 낮추거나 중단할 수 없습니다." },
       { status: 409 }
@@ -116,7 +122,10 @@ export async function DELETE(
   if (!existing) {
     return NextResponse.json({ error: "계정을 찾을 수 없습니다." }, { status: 404 });
   }
-  if (existing.role === "admin" && wouldRemoveLastAdmin(db, username)) {
+  if (existing.role === "operator" && !isOperatorUser(db, session!.u)) {
+    return NextResponse.json({ error: "운영자 계정은 운영자만 삭제할 수 있습니다." }, { status: 403 });
+  }
+  if (isAdminRole(existing.role) && wouldRemoveLastAdmin(db, username)) {
     return NextResponse.json({ error: "마지막 관리자 계정은 삭제할 수 없습니다." }, { status: 409 });
   }
 

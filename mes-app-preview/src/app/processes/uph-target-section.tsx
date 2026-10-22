@@ -8,7 +8,8 @@ import type { ProcessUphTargetRow } from "@/app/api/process-uph-target/route";
 // 연도 값을 이어받는다(1년에 한 번만 바꾸면 됨). 저장 위치·근거는 src/lib/process-uph-target.ts.
 const fmt = (n: number) => n.toLocaleString("ko-KR", { maximumFractionDigits: 1 });
 
-export default function ProcessUphTargetSection() {
+// refreshKey: 위 생산 라인 섹션에서 라인을 바꾸면 라인 목록·이름을 다시 읽는다
+export default function ProcessUphTargetSection({ refreshKey }: { refreshKey?: unknown }) {
   const thisYear = new Date().getFullYear();
   const [year, setYear] = useState(thisYear);
   const [rows, setRows] = useState<ProcessUphTargetRow[]>([]);
@@ -28,7 +29,8 @@ export default function ProcessUphTargetSection() {
         );
         setLoading(false);
       });
-  }, [year]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshKey는 다시 읽기 신호로만 쓴다
+  }, [year, refreshKey]);
 
   useEffect(load, [load]);
 

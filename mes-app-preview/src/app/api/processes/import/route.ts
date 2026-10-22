@@ -4,6 +4,7 @@ import { recordUpload } from "@/lib/master-meta";
 import { numOrNull, strOrNull, strVal, timeOrNull, todayDot } from "@/lib/item-fields";
 import * as XLSX from "xlsx";
 import { markHistoryActor } from "@/lib/history-actor";
+import { getProductionLines } from "@/lib/production-lines";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,7 @@ function yn(v: unknown): "Y" | "N" {
 
 // 엑셀 업로드: /api/processes/export가 내려주는 것과 같은 컬럼 구성(공정코드/공정명 필수)을
 // 읽어 공정코드 기준으로 upsert 한다. 이미 있는 공정코드는 통째로 덮어쓴다.
+// "라인" 열(라인명 또는 라인코드)은 있을 때만 반영한다 — 열이 없는 예전 파일은 소속 라인을 건드리지 않는다.
 export async function POST(req: NextRequest) {
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
@@ -67,9 +69,16 @@ export async function POST(req: NextRequest) {
   const iShift2End = idx("2조 종료시각");
   const iShift2Minutes = idx("2조 기본작업시간(분)");
   const iApplyPattern = idx("근무패턴 적용여부");
+  const iLine = idx("라인");
 
   const db = getDb();
   markHistoryActor(db, req, { seconds: 900 });
+  const lineKeyOf = new Map<string, string>();
+  for (const l of getProductionLines(db)) {
+    lineKeyOf.set(l.line_key, l.line_key);
+    lineKeyOf.set(l.line_name, l.line_key);
+  }
+  const setLine = db.prepare("UPDATE processes SET line_key = ? WHERE process_code = ?");
   const existingCodes = new Set(
     (db.prepare("SELECT process_code FROM processes").all() as { process_code: string }[]).map(
       (r) => r.process_code
@@ -135,6 +144,9 @@ export async function POST(req: NextRequest) {
       const shift2Start = iShift2Start === -1 ? null : timeOrNull(r[iShift2Start]);
       const shift2End = iShift2End === -1 ? null : timeOrNull(r[iShift2End]);
       const shift2Minutes = iShift2Minutes === -1 ? null : numOrNull(r[iShift2Minutes]);
+      // 라인 칸: 비우면 라인 없음, 모르는 라인명이면 형식 오류로 건너뜀
+      const lineRaw = iLine === -1 ? null : strOrNull(r[iLine]);
+      const lineKey = lineRaw == null ? null : lineKeyOf.get(lineRaw);
 
       if (
         seqNum === undefined ||
@@ -146,7 +158,8 @@ export async function POST(req: NextRequest) {
         shift1Minutes === undefined ||
         shift2Start === undefined ||
         shift2End === undefined ||
-        shift2Minutes === undefined
+        shift2Minutes === undefined ||
+        lineKey === undefined
       ) {
         skippedInvalid++;
         continue;
@@ -180,6 +193,7 @@ export async function POST(req: NextRequest) {
         shift2Minutes,
         iApplyPattern === -1 ? "Y" : yn(r[iApplyPattern])
       );
+      if (iLine !== -1) setLine.run(lineKey, code);
       if (existingCodes.has(code)) updated++;
       else {
         inserted++;

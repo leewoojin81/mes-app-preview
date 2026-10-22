@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { NAV_GROUPS, type NavGroup } from "@/lib/nav-groups";
+import { ROLE_LABEL, type Role } from "@/lib/roles";
 import ChangePasswordModal from "./ChangePasswordModal";
 
 // 현재 경로가 속한 대분류(있으면) 라벨을 찾는다 — 아코디언 초기/자동 펼침 기준.
@@ -154,7 +155,7 @@ export default function Sidebar() {
             <span className="text-white/70 truncate">
               {me.displayName}
               <span className="ml-1 text-white/40">
-                ({me.role === "admin" ? "관리자" : "조장"})
+                ({ROLE_LABEL[me.role as Role] ?? me.role})
               </span>
             </span>
             <span className="flex items-center gap-2 shrink-0">

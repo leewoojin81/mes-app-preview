@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
 import { getAllowedCodesForUser } from "@/lib/permissions";
 import { getDb } from "@/lib/db";
+import { isOperatorUser } from "@/lib/operator";
 
 export const runtime = "nodejs";
 
@@ -15,12 +16,15 @@ export async function GET(req: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   }
-  const allowedCodes = getAllowedCodesForUser(getDb(), session.u, session.r);
+  const db = getDb();
+  const allowedCodes = getAllowedCodesForUser(db, session.u, session.r);
   return NextResponse.json({
     username: session.u,
     role: session.r,
     processCodes: session.p ? session.p.split(",") : [],
     displayName: session.n,
     allowedCodes: Array.from(allowedCodes),
+    // 운영자 여부는 DB에서 다시 읽는다(기준정보 삭제 버튼 표시용 — 재로그인 없이 반영)
+    operator: isOperatorUser(db, session.u),
   });
 }

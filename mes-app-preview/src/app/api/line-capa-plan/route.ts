@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull } from "@/lib/item-fields";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
-import { computeLineCapaPlan, ensureLineCapaPlanTable, PRODUCTION_LINES } from "@/lib/production-plan-lines";
+import { computeLineCapaPlan, ensureLineCapaPlanTable } from "@/lib/production-plan-lines";
+import { getActiveProductionLines } from "@/lib/production-lines";
 
 export const runtime = "nodejs";
 
@@ -48,10 +49,11 @@ export async function PATCH(req: NextRequest) {
       { status: 400 }
     );
   }
-  const line = PRODUCTION_LINES.find((l) => l.key === lineKey);
-  if (!line) {
+  const found = getActiveProductionLines(db).find((l) => l.line_key === lineKey);
+  if (!found) {
     return NextResponse.json({ error: "존재하지 않는 라인입니다." }, { status: 400 });
   }
+  const line = { isIndirect: found.is_indirect === "Y" };
 
   const hasDailyCapa = !!body && Object.prototype.hasOwnProperty.call(body, "dailyCapa");
   const hasRemark = !!body && Object.prototype.hasOwnProperty.call(body, "remark");

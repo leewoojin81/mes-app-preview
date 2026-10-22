@@ -10,7 +10,8 @@ import { ENTITY_TYPE_WORKER, WORKER_TRACKED_FIELDS } from "@/lib/master-data-his
 // 트리거의 중복 기록을 끈다(엑셀 업로드 등 직접 기록하지 않는 경로는 트리거가 남긴다).
 // 등록/삭제는 field가 '__insert'/'__delete'인 한 행(대상명을 새값/기존값에 적음)으로 남는다.
 
-const HISTORY_TRIGGER_VERSION = 1;
+// 2: 생산 라인(production_lines)·공정의 라인(processes.line_key) 추가(2026-10-22)
+const HISTORY_TRIGGER_VERSION = 2;
 const NOW_SEC = "CAST(strftime('%s','now') AS INTEGER)";
 const ACTOR_SQL = `(SELECT CASE WHEN until_sec >= ${NOW_SEC} THEN actor END FROM master_history_ctx WHERE id = 1)`;
 const SKIP_TRACKED_SQL = `COALESCE((SELECT CASE WHEN until_sec >= ${NOW_SEC} THEN skip_tracked END FROM master_history_ctx WHERE id = 1), 0)`;
@@ -62,7 +63,16 @@ const HISTORY_TABLES: HistoryTableDef[] = [
       single_process: "단일공정", use_yn: "사용여부", reg_date: "등록일", reg_by: "등록자", default_daily_capa: "기본 일CAPA",
       default_yield_rate: "기본 수율", default_lot_size: "기본 LOT", shift1_active_yn: "1교대 사용", shift1_start: "1교대 시작", shift1_end: "1교대 종료",
       shift1_base_minutes: "1교대 기준분", shift2_active_yn: "2교대 사용", shift2_start: "2교대 시작", shift2_end: "2교대 종료",
-      shift2_base_minutes: "2교대 기준분", apply_work_pattern_yn: "근무패턴 적용",
+      shift2_base_minutes: "2교대 기준분", apply_work_pattern_yn: "근무패턴 적용", line_key: "라인",
+    },
+  },
+  {
+    table: "production_lines",
+    id: (r) => `${r}.line_key`,
+    type: () => lit("라인"),
+    summary: (r) => `${r}.line_name`,
+    labels: {
+      line_name: "라인명", status_name: "현황 표시명", result_process_code: "실적 공정", is_indirect: "간접직", use_yn: "사용여부", remark: "비고",
     },
   },
   {

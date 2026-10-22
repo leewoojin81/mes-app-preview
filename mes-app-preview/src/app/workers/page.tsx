@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import MasterMetaBadge from "@/components/MasterMetaBadge";
 import QRCode from "qrcode";
+import { useIsOperator } from "@/lib/use-operator";
 import { useTabState } from "@/lib/use-tab-state";
 import { WORK_GROUP_OPTIONS } from "@/lib/work-groups";
 import { convertBizEmployeeNo, formatBizName, hireDateFromEmployeeNo, parseBizName } from "@/lib/biz-import";
@@ -145,6 +146,7 @@ export default function WorkerMasterPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Worker | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Worker | null>(null);
+  const isOperator = useIsOperator(); // 기준정보 삭제는 운영자만
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const deleteDrag = useDraggableModal();
@@ -478,15 +480,17 @@ export default function WorkerMasterPage() {
                         >
                           수정
                         </button>
-                        <button
-                          onClick={() => {
-                            setDeleteError(null);
-                            setDeleteTarget(r);
-                          }}
-                          className="text-xs font-medium text-rose-600 hover:underline"
-                        >
-                          삭제
-                        </button>
+                        {isOperator && (
+                          <button
+                            onClick={() => {
+                              setDeleteError(null);
+                              setDeleteTarget(r);
+                            }}
+                            className="text-xs font-medium text-rose-600 hover:underline"
+                          >
+                            삭제
+                          </button>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-slate-500">{idx + 1}</td>

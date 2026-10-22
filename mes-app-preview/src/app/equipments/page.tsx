@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import MasterMetaBadge from "@/components/MasterMetaBadge";
+import { useIsOperator } from "@/lib/use-operator";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { Equipment } from "@/lib/types";
@@ -79,6 +80,7 @@ export default function EquipmentMasterPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Equipment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Equipment | null>(null);
+  const isOperator = useIsOperator(); // 기준정보 삭제는 운영자만
   const [deleting, setDeleting] = useState(false);
   const deleteDrag = useDraggableModal();
 
@@ -237,12 +239,14 @@ export default function EquipmentMasterPage() {
                         >
                           수정
                         </button>
-                        <button
-                          onClick={() => setDeleteTarget(r)}
-                          className="text-xs font-medium text-rose-600 hover:underline"
-                        >
-                          삭제
-                        </button>
+                        {isOperator && (
+                          <button
+                            onClick={() => setDeleteTarget(r)}
+                            className="text-xs font-medium text-rose-600 hover:underline"
+                          >
+                            삭제
+                          </button>
+                        )}
                       </div>
                     </td>
                     {COLUMNS.map((c) => {

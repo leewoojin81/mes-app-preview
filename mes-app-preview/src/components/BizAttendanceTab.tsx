@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import { useTabState } from "@/lib/use-tab-state";
+import { isAdminRole } from "@/lib/roles";
 import type { BizDayRow, BizLookupPage, BizTotals } from "@/lib/biz-attendance";
 
 // 인원관리(PSN-05) "비즈" 탭 — 비즈 근태 시스템 "기간별 근무관리" 리포트(비즈.xlsx)를 그대로 올려
@@ -160,7 +161,7 @@ export default function BizAttendanceTab({ role }: { role: string | null }) {
           {result?.uploadedAt ? ` 최근 업로드 ${result.uploadedAt}` : ""}
         </p>
         <div className="flex items-center gap-2">
-          {role === "admin" && (
+          {isAdminRole(role) && (
             <>
               <input
                 ref={fileRef}

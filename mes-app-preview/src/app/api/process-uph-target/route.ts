@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { numOrNull } from "@/lib/item-fields";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
-import { PRODUCTION_STATUS_LINES } from "@/lib/production-status";
+import { getProductionStatusLines } from "@/lib/production-status";
 import { ensureProcessUphTargetTable, getProcessUphTarget } from "@/lib/process-uph-target";
 import { markHistoryActor } from "@/lib/history-actor";
 
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     ).map((r) => [r.line_key, r.target_uph])
   );
 
-  const rows: ProcessUphTargetRow[] = PRODUCTION_STATUS_LINES.map((line) => {
+  const rows: ProcessUphTargetRow[] = getProductionStatusLines(db).map((line) => {
     const eff = getProcessUphTarget(db, line.key, year);
     return {
       lineKey: line.key,
@@ -61,7 +61,8 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "year와 targets가 필요합니다." }, { status: 400 });
   }
 
-  const validKeys = new Set(PRODUCTION_STATUS_LINES.map((l) => l.key));
+  const db = getDb();
+  const validKeys = new Set(getProductionStatusLines(db).map((l) => l.key));
   const items: { lineKey: string; targetUph: number | null }[] = [];
   for (const t of body.targets) {
     const lineKey = typeof t?.lineKey === "string" ? t.lineKey : "";
@@ -75,7 +76,6 @@ export async function PUT(req: NextRequest) {
     items.push({ lineKey, targetUph: n });
   }
 
-  const db = getDb();
   markHistoryActor(db, req);
   ensureProcessUphTargetTable(db);
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);

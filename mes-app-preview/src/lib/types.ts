@@ -156,7 +156,7 @@ export interface AppUser {
   username: string;
   display_name: string | null;
   process_codes: string[];
-  role: "leader" | "admin";
+  role: "leader" | "admin" | "operator";
   use_yn: "Y" | "N";
   team: string | null;
   employment_type: string | null;
@@ -343,6 +343,8 @@ export interface WorkHoursSummaryResponse {
 
 export interface Process {
   updated_at?: string | null; // 마지막 수정 시각(DB 트리거가 기록)
+  /** 소속 생산 라인(production_lines.line_key) — 계획정보(PLAN-02) 인원·CAPA 집계 단위 */
+  line_key?: string | null;
   process_code: string;
   process_name: string;
   seq: number;

@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ensureLineCapaPlanTable } from "./production-plan-lines";
 import { getProcessUphTarget } from "./process-uph-target";
+import { getActiveProductionLines } from "./production-lines";
 
 // 경영정보 "공정별생산현황(MGMT-05, 매일 아침 회의용)" — PLAN-02와 같은 9개 라인
 // (간접직 제외)을 쓰되, 사출_상/사출_하는 몰드 자체의 생산 실적이라 별도 실적 리포트가
@@ -36,17 +37,38 @@ export interface ProductionStatusLineDef {
   wipStock?: { warehouse: string; group: string };
 }
 
-export const PRODUCTION_STATUS_LINES: ProductionStatusLineDef[] = [
-  { key: "injection_upper", label: "사출상몰드", isMold: true, moldGroup: "상몰드", workProcessCode: "P100" },
-  { key: "injection_lower", label: "사출하몰드", isMold: true, moldGroup: "하몰드", workProcessCode: "P100" },
-  { key: "coloring", label: "착색인쇄", isMold: false, processCode: "P220", workProcessCode: "P220", wipColumnKey: "착색 인쇄", wipStock: { warehouse: "조립창고", group: "착색" } },
-  { key: "assembly", label: "조립", isMold: false, processCode: "P300", workProcessCode: "P300", wipColumnKey: "조립" },
-  { key: "separation", label: "분리3", isMold: false, processCode: "P340", workProcessCode: "P340", wipColumnKey: "분리3" },
-  { key: "appearance", label: "외관검사", isMold: false, processCode: "P360", workProcessCode: "P360", wipColumnKey: ["습윤", "외관검사", "이재기"] },
-  { key: "sealing", label: "실링", isMold: false, processCode: "P370", workProcessCode: "P370", wipColumnKey: "실링" },
-  { key: "marking", label: "마킹", isMold: false, processCode: "P400", workProcessCode: "P400", wipColumnKey: "마킹" },
-  { key: "shipping", label: "출하포장", isMold: false, processCode: "P410", workProcessCode: "P410", wipColumnKey: "출하포장" },
-];
+// 2026-10-22: 라인 목록·표시명·실적 공정은 기준정보 공정정보(BASE-04)의 생산 라인(production_lines)에서
+// 읽는다 — 간접직을 뺀 사용 중인 라인 전부(표시명 = 현황 표시명, 없으면 라인명; 실적·인원·근무시간 공정 =
+// 실적 공정). 재공 열은 실적 공정의 공정명(공정재공현황 헤더가 공정명과 같다)을 기본으로 쓴다.
+// ERP 리포트를 읽는 방식이 라인마다 다른 아래 예외만 line_key별로 코드에 남긴다.
+const STATUS_LINE_OVERRIDES: Record<string, Partial<ProductionStatusLineDef>> = {
+  injection_upper: { isMold: true, moldGroup: "상몰드", processCode: undefined },
+  injection_lower: { isMold: true, moldGroup: "하몰드", processCode: undefined },
+  coloring: { wipStock: { warehouse: "조립창고", group: "착색" } },
+  appearance: { wipColumnKey: ["습윤", "외관검사", "이재기"] },
+};
+
+export function getProductionStatusLines(db: DatabaseSync): ProductionStatusLineDef[] {
+  const names = new Map(
+    (db.prepare("SELECT process_code, process_name FROM processes").all() as { process_code: string; process_name: string }[]).map(
+      (r) => [r.process_code, r.process_name]
+    )
+  );
+  return getActiveProductionLines(db)
+    .filter((l) => l.is_indirect !== "Y")
+    .map((l) => {
+      const code = l.result_process_code ?? undefined;
+      return {
+        key: l.line_key,
+        label: l.status_name || l.line_name,
+        isMold: false,
+        processCode: code,
+        workProcessCode: code ?? "",
+        wipColumnKey: code ? names.get(code) : undefined,
+        ...STATUS_LINE_OVERRIDES[l.line_key],
+      };
+    });
+}
 
 export interface ProductionStatusRow {
   key: string;
@@ -273,7 +295,7 @@ export function computeProductionStatus(db: DatabaseSync, asOfDate?: string): Pr
     .all(yearMonth) as { line_key: string; daily_capa: number | null }[];
   const dailyCapaByLine = new Map(dailyCapaRows.map((r) => [r.line_key, r.daily_capa]));
 
-  const rows: ProductionStatusRow[] = PRODUCTION_STATUS_LINES.map((line) => {
+  const rows: ProductionStatusRow[] = getProductionStatusLines(db).map((line) => {
     // 사출_상/사출_하는 실제로는 같은 사출(P100) 인원이 담당하는 한 라인이라(PLAN-02와
     // 동일 근거) 둘 다 workProcessCode=P100의 인원·근무시간을 같이 쓴다.
     const headcount = headcountOf(db, line.workProcessCode);
@@ -387,7 +409,7 @@ export function computeProductionTrend(
   lineKey: string,
   asOfDate?: string
 ): ProductionTrendResult {
-  const line = PRODUCTION_STATUS_LINES.find((l) => l.key === lineKey);
+  const line = getProductionStatusLines(db).find((l) => l.key === lineKey);
   if (!line) throw new Error(`알 수 없는 공정입니다: ${lineKey}`);
 
   const today = asOfDate ?? toDateStr(new Date());
@@ -501,7 +523,7 @@ export function computeProductionTrend(
 // 화면이 기본값이 되지 않게 최소값을 쓴다. 실적이 하나도 없으면 오늘, 미래로는 넘기지 않는다.
 export function computeDefaultAsOfDate(db: DatabaseSync): string {
   const latestDates: string[] = [];
-  for (const line of PRODUCTION_STATUS_LINES) {
+  for (const line of getProductionStatusLines(db)) {
     let row: { d: string | null };
     if (line.isMold && line.moldGroup) {
       row = db

@@ -3,6 +3,8 @@ import { getDb } from "@/lib/db";
 import { COOKIE_NAME, hashPassword, verifySession } from "@/lib/auth";
 import { strOrNull, strVal } from "@/lib/item-fields";
 import { parseOrgFields } from "@/lib/org";
+import { isAdminRole, parseRole } from "@/lib/roles";
+import { hasActiveOperator, isOperatorUser } from "@/lib/operator";
 
 export const runtime = "nodejs";
 
@@ -10,7 +12,7 @@ export const runtime = "nodejs";
 // 403으로 막지만, 라우트 자체도 role을 다시 확인한다(방어적 이중 체크).
 function requireAdmin(req: NextRequest) {
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
-  if (!session || session.r !== "admin") {
+  if (!session || !isAdminRole(session.r)) {
     return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
   }
   return null;
@@ -63,7 +65,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `이미 존재하는 계정명입니다: ${username}` }, { status: 409 });
   }
 
-  const role = body.role === "admin" ? "admin" : "leader";
+  const role = parseRole(body.role);
+  // 운영자 지정은 운영자만(운영자가 아직 한 명도 없을 때만 관리자가 첫 운영자를 지정할 수 있다)
+  if (role === "operator" && hasActiveOperator(db) && !isOperatorUser(db, verifySession(req.cookies.get(COOKIE_NAME)?.value)?.u)) {
+    return NextResponse.json({ error: "운영자 지정은 운영자만 할 수 있습니다." }, { status: 403 });
+  }
   const displayName = strOrNull(body.display_name);
   const processCodes: string[] = Array.isArray(body.process_codes)
     ? Array.from(

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { COOKIE_NAME, SESSION_TTL_SEC, newSessionPayload, signSession, verifyPassword } from "@/lib/auth";
+import { COOKIE_NAME, SESSION_TTL_SEC, newSessionPayload, signSession, verifyPassword, type Role } from "@/lib/auth";
 import { strVal } from "@/lib/item-fields";
 
 export const runtime = "nodejs";
@@ -10,7 +10,7 @@ interface UserRow {
   password_hash: string;
   password_salt: string;
   display_name: string | null;
-  role: "leader" | "admin";
+  role: Role;
   use_yn: string;
 }
 

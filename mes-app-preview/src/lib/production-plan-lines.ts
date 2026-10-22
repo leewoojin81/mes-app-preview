@@ -1,4 +1,5 @@
 import { effectiveHeadcount } from "@/lib/plan-headcount";
+import { getActiveProductionLines } from "@/lib/production-lines";
 import type { DatabaseSync } from "node:sqlite";
 
 // 계획정보(PLAN-02) "공정별 월 CAPA 및 근무계획" — 첨부 생산계획 엑셀의 "라인별" 10개
@@ -10,32 +11,10 @@ import type { DatabaseSync } from "node:sqlite";
 // 일치, 사용자가 이 방식으로 확정). "사출_상"만 지금 있는 사출(P100)을 그대로 쓰고
 // "사출_하"는 대응되는 세부공정이 아직 없어 항상 0명/빈 라인으로 둔다(라인이 실제
 // 생기면 processCodes만 채우면 됨).
-export interface ProductionLineDef {
-  key: string;
-  label: string;
-  processCodes: string[];
-  /** true면 "공정별 계획(CAPA)" 개념 자체가 없다 — 인원만 집계하고, 소속 인원을
-   *  process_code별로 묶어 "비고"에 텍스트로 보여준다. */
-  isIndirect?: boolean;
-}
-
-export const PRODUCTION_LINES: ProductionLineDef[] = [
-  { key: "injection_upper", label: "사출_상", processCodes: ["P100"] },
-  { key: "injection_lower", label: "사출_하", processCodes: [] },
-  { key: "coloring", label: "착색", processCodes: ["P150", "P200", "P210", "P220", "P230", "P240"] },
-  { key: "assembly", label: "조립", processCodes: ["P300", "P310"] },
-  { key: "separation", label: "분리", processCodes: ["P320", "P330", "P340", "P350", "P355"] },
-  { key: "appearance", label: "외관", processCodes: ["P356", "P360", "P361"] },
-  { key: "sealing", label: "실링", processCodes: ["P370", "P380"] },
-  { key: "marking", label: "마킹", processCodes: ["P385", "P390", "P400"] },
-  { key: "shipping", label: "출하", processCodes: ["P410"] },
-  {
-    key: "indirect",
-    label: "간접직",
-    processCodes: ["P500", "P501", "P502", "P503", "P504", "P505", "P510"],
-    isIndirect: true,
-  },
-];
+// 2026-10-22: 라인 목록·이름·소속 공정은 기준정보 공정정보(BASE-04)에서 관리한다 — 라인은 production_lines,
+// 공정의 소속 라인은 processes.line_key(src/lib/production-lines.ts). 사용 중인 라인만 순서대로 보여준다.
+// 간접직(is_indirect='Y')은 "공정별 계획(CAPA)" 개념 자체가 없다 — 인원만 집계하고, 소속 인원을
+// process_code별로 묶어 "비고"에 텍스트로 보여준다.
 
 // 간접직 "비고"에 쓰는 표시 라벨 — 대부분 공정명을 그대로 쓰지만, 회사에서 부르는
 // 이름이 공정명과 다른 것만 예외로 바꾼다(2026-09-13 사용자 제공 예시 "QC2, 생산지원3,
@@ -170,7 +149,8 @@ export function computeLineCapaPlan(db: DatabaseSync, yearMonth: string): LineCa
   const remarkByLine = new Map(capaRows.map((r) => [r.line_key, r.remark]));
   const headcountTextByLine = new Map(capaRows.map((r) => [r.line_key, r.headcount_text]));
 
-  const rows: LineCapaRow[] = PRODUCTION_LINES.map((line) => {
+  const rows: LineCapaRow[] = getActiveProductionLines(db).map((l) => {
+    const line = { key: l.line_key, label: l.line_name, processCodes: l.processCodes, isIndirect: l.is_indirect === "Y" };
     const headcount = line.processCodes.reduce((sum, code) => sum + (headcountByProcess.get(code) ?? 0), 0);
 
     let defaultRemark: string | null = null;

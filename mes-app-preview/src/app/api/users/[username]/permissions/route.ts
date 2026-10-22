@@ -3,13 +3,14 @@ import { getDb } from "@/lib/db";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
 import { ALL_SCREEN_CODES, roleDefaultAllowed, type PermissionOverride } from "@/lib/permissions";
 import { NAV_GROUPS } from "@/lib/nav-groups";
+import { isAdminRole, type Role } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
 // 사용자계정관리(SYS-01) 개별 화면권한 설정 — 관리자 전용(계정 자체 CRUD와 같은 보호 수준).
 function requireAdmin(req: NextRequest) {
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
-  if (!session || session.r !== "admin") {
+  if (!session || !isAdminRole(session.r)) {
     return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
   }
   return null;
@@ -17,7 +18,7 @@ function requireAdmin(req: NextRequest) {
 
 interface UserRow {
   username: string;
-  role: "leader" | "admin";
+  role: Role;
 }
 
 // 화면 목록 + 이 사용자의 현재 허용 여부(role 기본값에 예외 반영된 최종값)를 그룹별로 반환.

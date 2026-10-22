@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { requireOperatorForDelete } from "@/lib/operator";
 import { strOrNull, strVal } from "@/lib/item-fields";
 import { markHistoryActor } from "@/lib/history-actor";
 
@@ -84,6 +85,8 @@ export async function DELETE(
 ) {
   const { customer_code: customerCode } = await params;
   const db = getDb();
+  const denied = requireOperatorForDelete(_req, db);
+  if (denied) return denied;
   markHistoryActor(db, _req);
   const result = db
     .prepare("DELETE FROM customers WHERE customer_code = ?")

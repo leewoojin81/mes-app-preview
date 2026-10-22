@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getDb } from "@/lib/db";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
+import { isAdminRole } from "@/lib/roles";
 import { importBizRows, parseBizSheet } from "@/lib/biz-attendance";
 
 export const runtime = "nodejs";
@@ -10,7 +11,7 @@ export const runtime = "nodejs";
 // 데이터를 지우고 파일 내용으로 새로 채운다(구간 재동기화). 소계 행은 저장하지 않는다.
 export async function POST(req: NextRequest) {
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
-  if (session?.r !== "admin") {
+  if (!isAdminRole(session?.r)) {
     return NextResponse.json({ error: "업로드는 관리자만 할 수 있습니다." }, { status: 403 });
   }
   const form = await req.formData().catch(() => null);

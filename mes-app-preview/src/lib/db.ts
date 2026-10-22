@@ -1,4 +1,5 @@
 import { ensureMasterHistoryTriggers } from "@/lib/master-history-triggers";
+import { ensureProductionLines } from "@/lib/production-lines";
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
@@ -1015,6 +1016,8 @@ function migrate(db: DatabaseSync) {
   if (!procColNames3.has("apply_work_pattern_yn")) {
     db.exec("ALTER TABLE processes ADD COLUMN apply_work_pattern_yn TEXT NOT NULL DEFAULT 'Y'");
   }
+  // processes.line_key + production_lines(생산 라인, 2026-10-22) — 처음 한 번 기존 코드의 라인 정의로 채운다
+  ensureProductionLines(db, { triggers: false });
 
   // daily_work_status가 record_key 컬럼 없이 먼저 생성된 기존 DB를 위한 보정 —
   // ALTER TABLE ADD COLUMN은 UNIQUE 제약을 바로 못 붙이므로 컬럼 추가 후 별도 유니크
