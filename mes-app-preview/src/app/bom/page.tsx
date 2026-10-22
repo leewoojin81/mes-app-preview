@@ -84,6 +84,14 @@ function TreeRows({
   );
 }
 
+interface MissingModel {
+  model: string;
+  item_count: number;
+  item_code: string;
+  item_name: string;
+  active_count: number;
+}
+
 export default function BomPage() {
   const [items, setItems] = useState<Item[]>([]);
   // 탭을 전환했다 돌아와도 조회 중이던 품목은 유지되도록 세션 단위로 저장한다.
@@ -99,6 +107,9 @@ export default function BomPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
   const [history, setHistory] = useState<BomModelLog[]>([]);
+  const [missing, setMissing] = useState<MissingModel[]>([]);
+  const [missingOpen, setMissingOpen] = useState(false);
+  const [missingAll, setMissingAll] = useState(false);
 
   const toggle = (key: string) => {
     setCollapsed((prev) => {
@@ -120,6 +131,12 @@ export default function BomPage() {
       .then((res) => res.json())
       .then((data: BomModelLog[]) => setHistory(data));
   }, [reloadTick]);
+
+  useEffect(() => {
+    fetch(`/api/bom/missing${missingAll ? "?include_unused=1" : ""}`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: MissingModel[]) => setMissing(data));
+  }, [reloadTick, missingAll]);
 
   useEffect(() => {
     if (!itemCode) {
@@ -229,6 +246,54 @@ export default function BomPage() {
           {parent.spec && <span className="text-sm text-slate-400">{parent.spec}</span>}
         </div>
       )}
+
+      <div className="bg-white border border-amber-200 rounded-lg shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setMissingOpen((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-amber-800 bg-amber-50"
+        >
+          <span>
+            BOM 누락 모델 <b>{missing.length.toLocaleString()}</b>건 — 제품정보(BASE-01)에는 있고 BOM정보에는 없음
+          </span>
+          <span>{missingOpen ? "▲" : "▼"}</span>
+        </button>
+        {missingOpen && (
+          <>
+            <label className="flex items-center gap-2 px-4 py-2 text-xs text-slate-500 border-b border-slate-100">
+              <input type="checkbox" checked={missingAll} onChange={(e) => setMissingAll(e.target.checked)} />
+              미사용 품목도 포함
+            </label>
+            <div className="overflow-x-auto max-h-72 overflow-y-auto">
+              <table className="w-full text-sm whitespace-nowrap">
+                <thead className="bg-[#D9D9D9] text-slate-500 text-xs sticky top-0">
+                  <tr>
+                    <th className="text-center px-3 py-2 font-semibold">모델코드</th>
+                    <th className="text-center px-3 py-2 font-semibold">품목명</th>
+                    <th className="text-center px-3 py-2 font-semibold">품목 수</th>
+                    <th className="text-center px-3 py-2 font-semibold">사용중</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {missing.map((m) => (
+                    <tr key={m.model} onClick={() => loadItem(m.item_code)} className="hover:bg-slate-50 cursor-pointer">
+                      <td className="px-3 py-2 font-mono text-xs text-navy">{m.model}</td>
+                      <td className="px-3 py-2 font-medium">{m.item_name}</td>
+                      <td className="px-3 py-2 text-right">{m.item_count.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right">{m.active_count.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                  {missing.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="text-center py-6 text-slate-400">누락된 모델이 없습니다.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
 
       {history.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">

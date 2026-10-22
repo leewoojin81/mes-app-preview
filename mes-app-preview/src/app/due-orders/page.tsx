@@ -104,6 +104,7 @@ const GRID_COLS: { key: string; label: string }[] = [
   { key: "customer", label: "고객사" },
   { key: "brand", label: "브랜드" },
   { key: "due", label: "납기일" },
+  { key: "status", label: "상태" },
   { key: "pack", label: "포장" },
   { key: "qty", label: "주문량" },
   { key: "color", label: "착색재고" },
@@ -218,6 +219,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                 <span>브랜드 <b>{row.brand ?? "-"}</b></span>
                 <span>납기 <b className="num">{row.due_date ?? "-"}</b></span>
                 {row.pack_method && <span>포장 {row.pack_method}</span>}
+                <span>상태 <b>{row.status}</b></span>
                 <span>순위 {row.rank}</span>
                 {row.mo_no && <span className="num">{row.mo_no}</span>}
               </div>
@@ -602,6 +604,8 @@ export default function DueOrdersPage() {
         return <td key={k}>{r.brand ?? ""}</td>;
       case "due":
         return <td key={k}><span className="num">{(r.due_date ?? "").slice(0, 10)}</span> <DueBadge row={r} base={base} /></td>;
+      case "status":
+        return <td key={k}>{r.status}</td>;
       case "pack":
         return <td key={k}>{r.pack_method ?? ""}</td>;
       case "qty":
