@@ -361,7 +361,7 @@ export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOr
   }
 
   // 도수변경 건수 — 조립일자("조립 실적 입력시각"의 날짜, 지시일자와 다른 경우가 많다)가 최근 1개월인
-  // 이전도수 있는 행을 작업지시번호로 중복 제거해 센다(QC-01과 같은 변경 판정). 품목코드는 변경 후(실제로 조립된) 도수의 품목이다.
+  // 이전도수가 있고 실제도수와 다른 행을 작업지시번호로 중복 제거해 센다. 품목코드는 변경 후(실제로 조립된) 도수의 품목이다.
   // 입력시각이 비어 깨진 문자로 들어온 행은 날짜 범위에 걸리지 않아 저절로 빠진다.
   const { from, to } = dosuChangeWindow();
   const changes = new Map<string, number>();
@@ -392,8 +392,9 @@ function dosuChangeWindow(): { from: string; to: string } {
 const ASSY_DATE = `replace(substr(json_extract(detail, '$."조립 실적 입력시각"'), 1, 10), '.', '-')`;
 /** 조립일자가 기간(?, ?) 안인 행 */
 const ASSY_IN_WINDOW = `${ASSY_DATE} BETWEEN ? AND ?`;
-/** 이전도수가 있는 행 = 도수변경(QC-01과 같은 판정) */
-const CHANGED = `json_extract(detail, '$."이전도수"') IS NOT NULL AND json_extract(detail, '$."이전도수"') != ''`;
+/** 이전도수(숫자)가 있고 실제도수와 다른 행 = 도수변경. 원본에 이전도수=실제도수(이전품목이 자기 자신)인 행도 있어 뺀다 */
+const CHANGED = `typeof(json_extract(detail, '$."이전도수"')) IN ('integer', 'real')
+  AND json_extract(detail, '$."이전도수"') IS NOT json_extract(detail, '$."실제도수"')`;
 const DOSU_CHANGE_COND = `${ASSY_IN_WINDOW} AND ${CHANGED}`;
 
 export interface AssemblyRecord {
@@ -404,7 +405,7 @@ export interface AssemblyRecord {
   worker: string | null;
   power: number | null;
   prev_power: number | null;
-  /** 이전도수가 있는 작업지시(도수변경 건수에 들어간 것) */
+  /** 이전도수가 있고 실제도수와 다른 작업지시(도수변경 건수에 들어간 것) */
   changed: boolean;
   upper1: number | null;
   upper2: number | null;
@@ -450,7 +451,7 @@ export function fetchAssemblyRecords(db: DatabaseSync, itemCode: string): { from
         worker: str(r.k2),
         power: num(r.k3),
         prev_power: num(r.k4),
-        changed: num(r.k4) != null,
+        changed: num(r.k4) != null && num(r.k4) !== num(r.k3),
         upper1: num(r.k5),
         upper2: num(r.k6),
         lower1: num(r.k7),
