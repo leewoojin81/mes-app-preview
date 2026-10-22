@@ -69,8 +69,32 @@ const CSS = `
 .po .empty{background:var(--surface);border:1px dashed var(--line);border-radius:6px;padding:22px;text-align:center;color:var(--fg-2)}
 .po td.pw{font-weight:600}
 .po tr.tot td{background:var(--surface-2);font-weight:600;border-top:1px solid var(--line)}
+.po .picker{position:relative}
+.po .pop{position:absolute;top:calc(100% + 4px);left:0;z-index:30;background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px rgba(0,20,60,.16);padding:8px 10px;min-width:190px;display:flex;flex-direction:column;gap:2px}
+.po .pop label{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 2px;cursor:pointer;white-space:nowrap}
+.po .pop .acts{display:flex;gap:6px;border-bottom:1px solid var(--line-2);padding-bottom:6px;margin-bottom:4px}
+.po .pop-scrim{position:fixed;inset:0;z-index:29}
 .po .note{font-size:12px;color:var(--fg-3);line-height:1.6}
 `;
+
+// 목록 표에서 골라 볼 수 있는 항목(순서 = 표 열 순서). 공정재공은 접기/펼치기 머리글과 함께 한 항목으로 켜고 끈다.
+const GRID_COLS: { key: string; label: string }[] = [
+  { key: "rank", label: "순위" },
+  { key: "so", label: "SO번호" },
+  { key: "mo", label: "MO번호" },
+  { key: "customer", label: "고객사" },
+  { key: "brand", label: "브랜드" },
+  { key: "due", label: "납기일" },
+  { key: "pack", label: "포장" },
+  { key: "qty", label: "주문량" },
+  { key: "color", label: "착색재고" },
+  { key: "wip", label: "공정재공" },
+  { key: "shipped", label: "출고" },
+  { key: "assy", label: "조립투입 필요" },
+  { key: "short", label: "출하부족" },
+  { key: "progress", label: "진행률" },
+  { key: "open", label: "상세" },
+];
 
 const STAGES = ["조립", "분리3", "습윤", "외관검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "마킹", "출하포장"];
 
@@ -343,6 +367,11 @@ export default function DueOrdersPage() {
   const [dueSoon, setDueSoon] = useTabState("dueOrdDueSoon", false);
   const [hideDone, setHideDone] = useTabState("dueOrdHideDone", true);
   const [wipOpen, setWipOpen] = useTabState("dueOrdWipOpen", false);
+  const [hiddenCols, setHiddenCols] = useTabState<string[]>("dueOrdHiddenCols", []);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const on = (k: string) => !hiddenCols.includes(k);
+  const toggleCol = (k: string) => setHiddenCols(on(k) ? [...hiddenCols, k] : hiddenCols.filter((c) => c !== k));
+  const colCount = GRID_COLS.filter((c) => on(c.key)).reduce((n, c) => n + (c.key === "wip" && wipOpen ? STAGES.length : 1), 0);
   const [selected, setSelected] = useState<string | null>(null);
 
   const request = (fresh: boolean) =>
@@ -423,6 +452,28 @@ export default function DueOrdersPage() {
         <button className="chip" aria-pressed={needOnly} onClick={() => setNeedOnly(!needOnly)}>조립투입 필요만</button>
         <button className="chip" aria-pressed={dueSoon} onClick={() => setDueSoon(!dueSoon)}>납기 14일 이내</button>
         <button className="chip" aria-pressed={hideDone} onClick={() => setHideDone(!hideDone)}>출하 완료 숨기기</button>
+        <div className="picker">
+          <button className="chip" aria-pressed={pickerOpen} onClick={() => setPickerOpen(!pickerOpen)}>
+            표시 항목 {GRID_COLS.length - hiddenCols.length}/{GRID_COLS.length} ▾
+          </button>
+          {pickerOpen && (
+            <>
+              <div className="pop-scrim" onClick={() => setPickerOpen(false)} />
+              <div className="pop" role="menu">
+                <div className="acts">
+                  <button className="chip" onClick={() => setHiddenCols([])}>전체 선택</button>
+                  <button className="chip" onClick={() => setHiddenCols(GRID_COLS.map((c) => c.key).filter((k) => k !== "so"))}>전체 해제</button>
+                </div>
+                {GRID_COLS.map((c) => (
+                  <label key={c.key}>
+                    <input type="checkbox" checked={on(c.key)} onChange={() => toggleCol(c.key)} />
+                    {c.label}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
         <span className="cnt">{rows.length.toLocaleString("ko-KR")}건 표시</span>
       </div>
 
@@ -435,16 +486,16 @@ export default function DueOrdersPage() {
           <table>
             <thead>
               <tr className="h1">
-                <th className="r" rowSpan={wipOpen ? 2 : 1}>순위</th>
-                <th rowSpan={wipOpen ? 2 : 1}>SO번호</th>
-                <th rowSpan={wipOpen ? 2 : 1}>MO번호</th>
-                <th rowSpan={wipOpen ? 2 : 1}>고객사</th>
-                <th rowSpan={wipOpen ? 2 : 1}>브랜드</th>
-                <th rowSpan={wipOpen ? 2 : 1}>납기일</th>
-                <th rowSpan={wipOpen ? 2 : 1}>포장</th>
-                <th className="r" rowSpan={wipOpen ? 2 : 1}>주문량</th>
-                <th className="r" rowSpan={wipOpen ? 2 : 1}>착색재고</th>
-                {wipOpen ? (
+                {on("rank") && <th className="r" rowSpan={wipOpen ? 2 : 1}>순위</th>}
+                {on("so") && <th rowSpan={wipOpen ? 2 : 1}>SO번호</th>}
+                {on("mo") && <th rowSpan={wipOpen ? 2 : 1}>MO번호</th>}
+                {on("customer") && <th rowSpan={wipOpen ? 2 : 1}>고객사</th>}
+                {on("brand") && <th rowSpan={wipOpen ? 2 : 1}>브랜드</th>}
+                {on("due") && <th rowSpan={wipOpen ? 2 : 1}>납기일</th>}
+                {on("pack") && <th rowSpan={wipOpen ? 2 : 1}>포장</th>}
+                {on("qty") && <th className="r" rowSpan={wipOpen ? 2 : 1}>주문량</th>}
+                {on("color") && <th className="r" rowSpan={wipOpen ? 2 : 1}>착색재고</th>}
+                {on("wip") && (wipOpen ? (
                   <th className="grp" colSpan={STAGES.length} onClick={() => setWipOpen(false)} title="누르면 공정재공 합계 1칸으로 접습니다">
                     공정재공 (조립 ~ 출하포장) ▾
                   </th>
@@ -452,14 +503,14 @@ export default function DueOrdersPage() {
                   <th className="r grp" onClick={() => setWipOpen(true)} title="누르면 조립 ~ 출하포장 공정별로 펼칩니다">
                     공정재공 ▸
                   </th>
-                )}
-                <th className="r" rowSpan={wipOpen ? 2 : 1}>출고</th>
-                <th className="r" rowSpan={wipOpen ? 2 : 1}>조립투입 필요</th>
-                <th className="r" rowSpan={wipOpen ? 2 : 1}>출하부족</th>
-                <th rowSpan={wipOpen ? 2 : 1}>진행률</th>
-                <th rowSpan={wipOpen ? 2 : 1}>상세</th>
+                ))}
+                {on("shipped") && <th className="r" rowSpan={wipOpen ? 2 : 1}>출고</th>}
+                {on("assy") && <th className="r" rowSpan={wipOpen ? 2 : 1}>조립투입 필요</th>}
+                {on("short") && <th className="r" rowSpan={wipOpen ? 2 : 1}>출하부족</th>}
+                {on("progress") && <th rowSpan={wipOpen ? 2 : 1}>진행률</th>}
+                {on("open") && <th rowSpan={wipOpen ? 2 : 1}>상세</th>}
               </tr>
-              {wipOpen && (
+              {wipOpen && on("wip") && (
                 <tr className="h2">
                   {STAGES.map((st) => (
                     <th key={st} className="r">{st}</th>
@@ -478,33 +529,35 @@ export default function DueOrdersPage() {
                     onClick={() => setSelected(r.so_no)}
                     onKeyDown={(e) => e.key === "Enter" && setSelected(r.so_no)}
                   >
-                    <td className="r num">{r.rank}</td>
-                    <td className="so">{r.so_no}</td>
-                    <td className="num" style={{ fontSize: 12.5 }}>{r.mo_no ?? ""}</td>
-                    <td>{r.customer ?? ""}</td>
-                    <td>{r.brand ?? ""}</td>
-                    <td><span className="num">{(r.due_date ?? "").slice(0, 10)}</span> <DueBadge row={r} base={base} /></td>
-                    <td>{r.pack_method ?? ""}</td>
-                    <td className="r num">{fmt(r.order_qty)}</td>
-                    <td className="r num"><Z n={r.color_stock} /></td>
-                    {wipOpen ? (
+                    {on("rank") && <td className="r num">{r.rank}</td>}
+                    {on("so") && <td className="so">{r.so_no}</td>}
+                    {on("mo") && <td className="num" style={{ fontSize: 12.5 }}>{r.mo_no ?? ""}</td>}
+                    {on("customer") && <td>{r.customer ?? ""}</td>}
+                    {on("brand") && <td>{r.brand ?? ""}</td>}
+                    {on("due") && <td><span className="num">{(r.due_date ?? "").slice(0, 10)}</span> <DueBadge row={r} base={base} /></td>}
+                    {on("pack") && <td>{r.pack_method ?? ""}</td>}
+                    {on("qty") && <td className="r num">{fmt(r.order_qty)}</td>}
+                    {on("color") && <td className="r num"><Z n={r.color_stock} /></td>}
+                    {on("wip") && (wipOpen ? (
                       r.wip.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))
                     ) : (
                       <td className="r num"><Z n={sum(r.wip)} /></td>
+                    ))}
+                    {on("shipped") && <td className="r num"><Z n={r.shipped} /></td>}
+                    {on("assy") && <td className={`r num ${r.assy_in > 0 ? "need" : ""}`}><Z n={r.assy_in} /></td>}
+                    {on("short") && <td className="r num"><Z n={r.ship_short} /></td>}
+                    {on("progress") && (
+                      <td>
+                        <span className="bar"><i style={{ width: `${(p * 100).toFixed(0)}%` }} /></span>{" "}
+                        <span className="num" style={{ fontSize: 12 }}>{(p * 100).toFixed(0)}%</span>
+                      </td>
                     )}
-                    <td className="r num"><Z n={r.shipped} /></td>
-                    <td className={`r num ${r.assy_in > 0 ? "need" : ""}`}><Z n={r.assy_in} /></td>
-                    <td className="r num"><Z n={r.ship_short} /></td>
-                    <td>
-                      <span className="bar"><i style={{ width: `${(p * 100).toFixed(0)}%` }} /></span>{" "}
-                      <span className="num" style={{ fontSize: 12 }}>{(p * 100).toFixed(0)}%</span>
-                    </td>
-                    <td><span className="pill p-grn">열기</span></td>
+                    {on("open") && <td><span className="pill p-grn">열기</span></td>}
                   </tr>
                 );
               })}
               {rows.length === 0 && (
-                <tr><td colSpan={wipOpen ? 14 + STAGES.length : 15} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 수주가 없습니다. 필터를 해제해 보세요.</td></tr>
+                <tr><td colSpan={Math.max(colCount, 1)} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 수주가 없습니다. 필터를 해제해 보세요.</td></tr>
               )}
             </tbody>
           </table>
