@@ -17,8 +17,13 @@ export function hasActiveOperator(db: DatabaseSync): boolean {
 }
 
 // 기준정보(BASE-01~09) 삭제는 운영자만(2026-10-22 사용자 요청) — DELETE 라우트 맨 앞에서 부른다.
-export function requireOperatorForDelete(req: NextRequest, db: DatabaseSync): NextResponse | null {
+// 생산캘린더(BASE-08)의 회사 등록 취소·공정 예외 초기화도 같은 날 운영자 전용으로 추가.
+export function requireOperatorForDelete(
+  req: NextRequest,
+  db: DatabaseSync,
+  message = "기준정보 삭제는 운영자만 할 수 있습니다."
+): NextResponse | null {
   const session = verifySession(req.cookies.get(COOKIE_NAME)?.value);
   if (isOperatorUser(db, session?.u)) return null;
-  return NextResponse.json({ error: "기준정보 삭제는 운영자만 할 수 있습니다." }, { status: 403 });
+  return NextResponse.json({ error: message }, { status: 403 });
 }

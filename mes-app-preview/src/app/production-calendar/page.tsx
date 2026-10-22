@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import MasterMetaBadge from "@/components/MasterMetaBadge";
+import { useIsOperator } from "@/lib/use-operator";
 import { useTabState } from "@/lib/use-tab-state";
 import { useDraggableModal } from "@/lib/use-draggable-modal";
 import type { CalendarDayType, Process, ProcessCalendarDay } from "@/lib/types";
@@ -489,6 +490,7 @@ function ProcessDayEditModal({
   onClose: () => void;
   onSaved: (msg: string) => void;
 }) {
+  const isOperator = useIsOperator(); // 회사 등록 취소·공정 예외 초기화는 운영자만
   const [dayType, setDayType] = useState<CalendarDayType>(existing.company_day_type ?? "평일");
   const [workYn, setWorkYn] = useState<"Y" | "N">(dayType === "휴일" ? "N" : "Y");
   const [companyNote, setCompanyNote] = useState(existing.company_note ?? "");
@@ -671,28 +673,32 @@ function ProcessDayEditModal({
                 placeholder="회사 비고 — 예: 설날, 창립기념일"
                 className={inputCls}
               />
-              <button
-                type="button"
-                onClick={resetCompany}
-                disabled={saving || !existing.registered}
-                className="text-xs text-rose-600 hover:underline disabled:opacity-30 disabled:hover:no-underline"
-              >
-                회사 등록 취소(미등록으로)
-              </button>
+              {isOperator && (
+                <button
+                  type="button"
+                  onClick={resetCompany}
+                  disabled={saving || !existing.registered}
+                  className="text-xs text-rose-600 hover:underline disabled:opacity-30 disabled:hover:no-underline"
+                >
+                  회사 등록 취소(미등록으로)
+                </button>
+              )}
             </div>
           </div>
 
           <div className="pt-2 border-t border-slate-100">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm font-medium text-slate-700">{processName} 근무시간 (이 공정만)</p>
-              <button
-                type="button"
-                onClick={resetProcessOverride}
-                disabled={saving || !existing.overridden}
-                className="text-xs text-rose-600 hover:underline disabled:opacity-30 disabled:hover:no-underline"
-              >
-                공정 예외 초기화
-              </button>
+              {isOperator && (
+                <button
+                  type="button"
+                  onClick={resetProcessOverride}
+                  disabled={saving || !existing.overridden}
+                  className="text-xs text-rose-600 hover:underline disabled:opacity-30 disabled:hover:no-underline"
+                >
+                  공정 예외 초기화
+                </button>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               {(

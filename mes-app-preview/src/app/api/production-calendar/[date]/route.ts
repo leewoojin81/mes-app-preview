@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { requireOperatorForDelete } from "@/lib/operator";
 import { strOrNull } from "@/lib/item-fields";
 import { markHistoryActor } from "@/lib/history-actor";
 
@@ -51,6 +52,8 @@ export async function DELETE(
 ) {
   const { date } = await params;
   const db = getDb();
+  const denied = requireOperatorForDelete(_req, db, "회사 등록 취소는 운영자만 할 수 있습니다.");
+  if (denied) return denied;
   markHistoryActor(db, _req);
   db.prepare("DELETE FROM production_calendar WHERE cal_date = ?").run(date);
   return NextResponse.json({ ok: true });

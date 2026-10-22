@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { requireOperatorForDelete } from "@/lib/operator";
 import { numOrNull, strOrNull, timeOrNull } from "@/lib/item-fields";
 import { markHistoryActor } from "@/lib/history-actor";
 
@@ -99,6 +100,8 @@ export async function DELETE(
 ) {
   const { date, process_code: processCode } = await params;
   const db = getDb();
+  const denied = requireOperatorForDelete(_req, db, "공정 예외 초기화는 운영자만 할 수 있습니다.");
+  if (denied) return denied;
   markHistoryActor(db, _req);
   db.prepare("DELETE FROM process_calendar WHERE cal_date = ? AND process_code = ?").run(
     date,
