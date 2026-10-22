@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import type { DragEvent } from "react";
 import { useTabState } from "@/lib/use-tab-state";
 import type { DueOrderLine, DueOrderRow, DueOrdersResult } from "@/lib/due-orders";
 
@@ -26,7 +27,8 @@ const CSS = `
 .po .kpi .l{font-size:12px;color:var(--fg-3)}.po .kpi .v{font-size:20px;font-weight:600}.po .kpi .s{font-size:11.5px;color:var(--fg-3)}
 .po .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .po .tools input,.po .tools select{font:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--fg);min-width:0}
-.po .tools input{width:220px;max-width:100%}
+.po .tools input[type="search"]{width:220px;max-width:100%}
+.po .pop input[type="checkbox"]{width:auto;padding:0;margin:0}
 .po .chip{font:inherit;font-size:12.5px;border:1px solid var(--line);background:var(--surface);color:var(--fg-2);border-radius:999px;padding:5px 11px;cursor:pointer}
 .po .chip[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
 .po .cnt{font-size:12px;color:var(--fg-3);margin-left:auto}
@@ -46,6 +48,19 @@ const CSS = `
 .po .p-red{background:var(--red-bg);color:var(--red)}.po .p-amb{background:var(--amber-bg);color:var(--amber)}.po .p-grn{background:var(--green-bg);color:var(--green)}.po .p-gry{background:var(--line-2);color:var(--fg-3)}
 .po .bar{width:90px;height:6px;background:var(--line-2);border-radius:3px;overflow:hidden;display:inline-block;vertical-align:middle}
 .po .bar i{display:block;height:100%;background:var(--accent)}
+.po .pbar{position:relative;height:16px;min-width:85px;border-radius:999px;background:#e9eef6;overflow:hidden}
+.po .pbar i{display:flex;align-items:center;justify-content:flex-end;height:100%;min-width:40px;border-radius:999px;background:linear-gradient(90deg,#2f6df0,#22a6ff);padding-right:8px;font-style:normal;font-size:11px;font-weight:700;color:#fff;line-height:1}
+.po .pbar i.mid{background:linear-gradient(90deg,#1fa8c9,#2cc7c7)}
+.po .pbar span{position:absolute;right:8px;top:0;bottom:0;display:flex;align-items:center;font-size:11px;font-weight:700;color:var(--fg-3)}
+.po .pbar.sm{min-width:62px;height:14px}
+.po .pbar.sm i{min-width:34px;font-size:10px;padding-right:6px}
+.po .pbar.sm span{font-size:10px;right:6px}
+.po th[draggable=true]{cursor:grab}
+.po th.grp[draggable=true]{cursor:pointer}
+.po th.dropt{box-shadow:inset 3px 0 0 var(--accent)}
+.po .pop .mv{font:inherit;font-size:12px;line-height:1;border:1px solid var(--line);background:var(--surface);color:var(--fg-2);border-radius:4px;padding:2px 6px;cursor:pointer}
+.po .pop .mv:disabled{opacity:.35;cursor:default}
+.po .pop .hint{margin-top:6px;padding-top:6px;border-top:1px solid var(--line-2);font-size:11.5px;color:var(--fg-3);max-width:260px;white-space:normal;line-height:1.4}
 .po .zero{color:var(--fg-3)}.po .need{color:var(--red);font-weight:600}
 .po .scrim{position:fixed;inset:0;background:rgba(10,18,40,.35);z-index:40}
 .po .drawer{position:fixed;top:0;right:0;bottom:0;width:min(980px,100%);background:var(--bg);border-left:1px solid var(--line);display:flex;flex-direction:column;box-shadow:-12px 0 30px rgba(0,20,60,.18);z-index:41;animation:po-slide .18s ease-out}
@@ -70,8 +85,9 @@ const CSS = `
 .po td.pw{font-weight:600}
 .po tr.tot td{background:var(--surface-2);font-weight:600;border-top:1px solid var(--line)}
 .po .picker{position:relative}
-.po .pop{position:absolute;top:calc(100% + 4px);left:0;z-index:30;background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px rgba(0,20,60,.16);padding:8px 10px;min-width:190px;display:flex;flex-direction:column;gap:2px}
+.po .pop{position:absolute;top:calc(100% + 4px);left:0;z-index:30;background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px rgba(0,20,60,.16);padding:8px 10px;min-width:250px;display:flex;flex-direction:column;gap:2px}
 .po .pop label{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 2px;cursor:pointer;white-space:nowrap}
+.po .pop .acts .chip{white-space:nowrap;padding:4px 9px}
 .po .pop .acts{display:flex;gap:6px;border-bottom:1px solid var(--line-2);padding-bottom:6px;margin-bottom:4px}
 .po .pop-scrim{position:fixed;inset:0;z-index:29}
 .po .note{font-size:12px;color:var(--fg-3);line-height:1.6}
@@ -92,7 +108,7 @@ const GRID_COLS: { key: string; label: string }[] = [
   { key: "shipped", label: "출고" },
   { key: "assy", label: "조립투입 필요" },
   { key: "short", label: "출하부족" },
-  { key: "progress", label: "진행률" },
+  { key: "stageprog", label: "진행률" },
   { key: "open", label: "상세" },
 ];
 
@@ -357,6 +373,38 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
   );
 }
 
+// 사용자별 화면 구성(열 순서·숨김·공정재공 펼침) — 계정마다 서버(user_ui_prefs)에 저장돼 다음에 열어도 그대로 나온다.
+type Layout = { order: string[]; hidden: string[]; wipOpen: boolean; progOpen: boolean };
+const PREF_KEY = "due-orders-grid";
+const GRID_KEYS = new Set(GRID_COLS.map((c) => c.key));
+const LABELS: Record<string, string> = Object.fromEntries(GRID_COLS.map((c) => [c.key, c.label]));
+const RIGHT = new Set(["rank", "qty", "color", "shipped", "assy", "short"]);
+// 공정별 진행률 열 이름 = lib/due-orders.ts의 SHORT_NAMES(공정 부족분 10개와 같은 순서)
+const STAGE_PROG = ["분리3", "습윤", "검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "완검", "출하"];
+const DEFAULT_LAYOUT: Layout = { order: GRID_COLS.map((c) => c.key), hidden: [], wipOpen: false, progOpen: false };
+
+function sanitizeLayout(v: unknown): Layout {
+  const o = (v ?? {}) as Partial<Layout>;
+  const order = [...new Set((Array.isArray(o.order) ? o.order : []).filter((k): k is string => typeof k === "string" && GRID_KEYS.has(k)))];
+  const hidden = (Array.isArray(o.hidden) ? o.hidden : []).filter((k): k is string => typeof k === "string" && GRID_KEYS.has(k));
+  // 저장 이후 새로 생긴 열은 맨 뒤에 붙이고, 처음엔 기본값(숨김 여부)을 따른다
+  for (const c of GRID_COLS) {
+    if (order.includes(c.key)) continue;
+    order.push(c.key);
+    if (DEFAULT_LAYOUT.hidden.includes(c.key) && !hidden.includes(c.key)) hidden.push(c.key);
+  }
+  return { order, hidden, wipOpen: !!o.wipOpen, progOpen: !!o.progOpen };
+}
+
+function PBar({ p, small }: { p: number; small?: boolean }) {
+  const pct = Math.round(p * 100);
+  return (
+    <div className={`pbar num${small ? " sm" : ""}`} title={`${pct}%`}>
+      {p > 0 ? <i className={p < 0.7 ? "mid" : ""} style={{ width: `${pct}%` }}>{pct}%</i> : <span>0%</span>}
+    </div>
+  );
+}
+
 export default function DueOrdersPage() {
   const [data, setData] = useState<DueOrdersResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -366,13 +414,93 @@ export default function DueOrdersPage() {
   const [needOnly, setNeedOnly] = useTabState("dueOrdNeedOnly", false);
   const [dueSoon, setDueSoon] = useTabState("dueOrdDueSoon", false);
   const [hideDone, setHideDone] = useTabState("dueOrdHideDone", true);
-  const [wipOpen, setWipOpen] = useTabState("dueOrdWipOpen", false);
-  const [hiddenCols, setHiddenCols] = useTabState<string[]>("dueOrdHiddenCols", []);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const on = (k: string) => !hiddenCols.includes(k);
-  const toggleCol = (k: string) => setHiddenCols(on(k) ? [...hiddenCols, k] : hiddenCols.filter((c) => c !== k));
-  const colCount = GRID_COLS.filter((c) => on(c.key)).reduce((n, c) => n + (c.key === "wip" && wipOpen ? STAGES.length : 1), 0);
   const [selected, setSelected] = useState<string | null>(null);
+
+  const [layout, setLayoutState] = useState<Layout>(DEFAULT_LAYOUT);
+  const [layoutReady, setLayoutReady] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [overKey, setOverKey] = useState<string | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/user-prefs?key=${PREF_KEY}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { value: unknown } | null) => {
+        if (alive && d?.value) setLayoutState(sanitizeLayout(d.value));
+      })
+      .catch(() => {})
+      .finally(() => alive && setLayoutReady(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // 바꿀 때마다 잠깐(0.4초) 모았다가 내 계정에 저장한다
+  const setLayout = (next: Layout) => {
+    setLayoutState(next);
+    if (!layoutReady) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      fetch("/api/user-prefs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: PREF_KEY, value: next }),
+      }).catch(() => {});
+    }, 400);
+  };
+  const resetLayout = () => {
+    setLayoutState(DEFAULT_LAYOUT);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    fetch(`/api/user-prefs?key=${PREF_KEY}`, { method: "DELETE" }).catch(() => {});
+  };
+
+  const on = (k: string) => !layout.hidden.includes(k);
+  const wipOpen = layout.wipOpen;
+  const cols = layout.order.filter(on);
+  const toggleCol = (k: string) => setLayout({ ...layout, hidden: on(k) ? [...layout.hidden, k] : layout.hidden.filter((c) => c !== k) });
+  const moveBy = (k: string, d: -1 | 1) => {
+    const i = layout.order.indexOf(k);
+    const j = i + d;
+    if (i < 0 || j < 0 || j >= layout.order.length) return;
+    const order = [...layout.order];
+    [order[i], order[j]] = [order[j], order[i]];
+    setLayout({ ...layout, order });
+  };
+  const dropOn = (from: string, to: string) => {
+    if (from === to) return;
+    const order = layout.order.filter((k) => k !== from);
+    const toIdx = order.indexOf(to);
+    // 오른쪽으로 끌어다 놓으면 대상 열 뒤로, 왼쪽이면 앞으로
+    const after = layout.order.indexOf(from) < layout.order.indexOf(to);
+    order.splice(after ? toIdx + 1 : toIdx, 0, from);
+    setLayout({ ...layout, order });
+  };
+  const dnd = (k: string) => ({
+    draggable: true,
+    onDragStart: (e: DragEvent) => {
+      setDragKey(k);
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", k);
+    },
+    onDragOver: (e: DragEvent) => {
+      if (dragKey && dragKey !== k) {
+        e.preventDefault();
+        setOverKey(k);
+      }
+    },
+    onDrop: (e: DragEvent) => {
+      e.preventDefault();
+      if (dragKey) dropOn(dragKey, k);
+      setDragKey(null);
+      setOverKey(null);
+    },
+    onDragEnd: () => {
+      setDragKey(null);
+      setOverKey(null);
+    },
+  });
 
   const request = (fresh: boolean) =>
     fetch(`/api/due-orders${fresh ? "?fresh=1" : ""}`, { cache: "no-store" })
@@ -416,6 +544,88 @@ export default function DueOrdersPage() {
     ["납기 경과·미출하", `${rows.filter((r) => (dday(r.due_date, base) ?? 1) < 0 && r.shipped < r.order_qty).length}건`, "출하부족 남은 수주"],
   ];
 
+  const progOpen = layout.progOpen;
+  const twoRows = (wipOpen && on("wip")) || (progOpen && on("stageprog"));
+  const rs = twoRows ? 2 : 1;
+  const colCount = cols.reduce((n, k) => n + (k === "wip" && wipOpen ? STAGES.length : k === "stageprog" && progOpen ? STAGE_PROG.length : 1), 0);
+  const dt = (k: string) => (overKey === k ? " dropt" : "");
+
+  const headCell = (k: string) => {
+    if (k === "wip") {
+      return wipOpen ? (
+        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} colSpan={STAGES.length} onClick={() => setLayout({ ...layout, wipOpen: false })} title="누르면 공정재공 합계 1칸으로 접습니다">
+          공정재공 (조립 ~ 출하포장) ▾
+        </th>
+      ) : (
+        <th key={k} {...dnd(k)} className={`r grp${dt(k)}`} rowSpan={rs} onClick={() => setLayout({ ...layout, wipOpen: true })} title="누르면 조립 ~ 출하포장 공정별로 펼칩니다">
+          공정재공 ▸
+        </th>
+      );
+    }
+    if (k === "stageprog") {
+      return progOpen ? (
+        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} colSpan={STAGE_PROG.length} onClick={() => setLayout({ ...layout, progOpen: false })} title="누르면 출하 진행률 1칸으로 접습니다">
+          진행률 (공정별, 공정 부족분 기준) ▾
+        </th>
+      ) : (
+        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} rowSpan={rs} onClick={() => setLayout({ ...layout, progOpen: true })} title="누르면 공정별 진행률로 펼칩니다 (접힌 칸 = 출하 진행률 = (주문량 − 출하부족) ÷ 주문량)">
+          진행률 ▸
+        </th>
+      );
+    }
+    return (
+      <th key={k} {...dnd(k)} className={`${RIGHT.has(k) ? "r" : ""}${dt(k)}`.trim() || undefined} rowSpan={rs}>
+        {LABELS[k]}
+      </th>
+    );
+  };
+
+  const bodyCell = (k: string, r: DueOrderRow, p: number) => {
+    const stagePs = STAGE_PROG.map((_, i) => (r.order_qty > 0 ? Math.max(0, Math.min(1, (r.order_qty - ((r.shorts ?? [])[i] ?? 0)) / r.order_qty)) : 0));
+    switch (k) {
+      case "rank":
+        return <td key={k} className="r num">{r.rank}</td>;
+      case "so":
+        return <td key={k} className="so">{r.so_no}</td>;
+      case "mo":
+        return <td key={k} className="num" style={{ fontSize: 12.5 }}>{r.mo_no ?? ""}</td>;
+      case "customer":
+        return <td key={k}>{r.customer ?? ""}</td>;
+      case "brand":
+        return <td key={k}>{r.brand ?? ""}</td>;
+      case "due":
+        return <td key={k}><span className="num">{(r.due_date ?? "").slice(0, 10)}</span> <DueBadge row={r} base={base} /></td>;
+      case "pack":
+        return <td key={k}>{r.pack_method ?? ""}</td>;
+      case "qty":
+        return <td key={k} className="r num">{fmt(r.order_qty)}</td>;
+      case "color":
+        return <td key={k} className="r num"><Z n={r.color_stock} /></td>;
+      case "wip":
+        return (
+          <Fragment key={k}>
+            {wipOpen ? r.wip.map((v, i) => <td key={i} className="r num"><Z n={v} /></td>) : <td className="r num"><Z n={sum(r.wip)} /></td>}
+          </Fragment>
+        );
+      case "shipped":
+        return <td key={k} className="r num"><Z n={r.shipped} /></td>;
+      case "assy":
+        return <td key={k} className={`r num ${r.assy_in > 0 ? "need" : ""}`}><Z n={r.assy_in} /></td>;
+      case "short":
+        return <td key={k} className="r num"><Z n={r.ship_short} /></td>;
+      case "stageprog":
+        return (
+          <Fragment key={k}>
+            {progOpen ? stagePs.map((v, i) => <td key={i}><PBar small p={v} /></td>) : <td><PBar p={p} /></td>}
+          </Fragment>
+        );
+      case "open":
+        return <td key={k}><span className="pill p-grn">열기</span></td>;
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="po">
       <style>{CSS}</style>
@@ -454,22 +664,26 @@ export default function DueOrdersPage() {
         <button className="chip" aria-pressed={hideDone} onClick={() => setHideDone(!hideDone)}>출하 완료 숨기기</button>
         <div className="picker">
           <button className="chip" aria-pressed={pickerOpen} onClick={() => setPickerOpen(!pickerOpen)}>
-            표시 항목 {GRID_COLS.length - hiddenCols.length}/{GRID_COLS.length} ▾
+            표시 항목 {GRID_COLS.length - layout.hidden.length}/{GRID_COLS.length} ▾
           </button>
           {pickerOpen && (
             <>
               <div className="pop-scrim" onClick={() => setPickerOpen(false)} />
               <div className="pop" role="menu">
                 <div className="acts">
-                  <button className="chip" onClick={() => setHiddenCols([])}>전체 선택</button>
-                  <button className="chip" onClick={() => setHiddenCols(GRID_COLS.map((c) => c.key).filter((k) => k !== "so"))}>전체 해제</button>
+                  <button className="chip" onClick={() => setLayout({ ...layout, hidden: [] })}>전체 선택</button>
+                  <button className="chip" onClick={() => setLayout({ ...layout, hidden: GRID_COLS.map((c) => c.key).filter((k) => k !== "so") })}>전체 해제</button>
+                  <button className="chip" onClick={resetLayout}>기본값</button>
                 </div>
-                {GRID_COLS.map((c) => (
-                  <label key={c.key}>
-                    <input type="checkbox" checked={on(c.key)} onChange={() => toggleCol(c.key)} />
-                    {c.label}
+                {layout.order.map((k, i) => (
+                  <label key={k}>
+                    <input type="checkbox" checked={on(k)} onChange={() => toggleCol(k)} />
+                    <span style={{ flex: 1 }}>{LABELS[k]}</span>
+                    <button type="button" className="mv" disabled={i === 0} onClick={(e) => { e.preventDefault(); moveBy(k, -1); }} aria-label="위로">↑</button>
+                    <button type="button" className="mv" disabled={i === layout.order.length - 1} onClick={(e) => { e.preventDefault(); moveBy(k, 1); }} aria-label="아래로">↓</button>
                   </label>
                 ))}
+                <div className="hint">머리글을 끌어서 순서를 바꿀 수 있고, 바꾼 구성은 내 계정에 자동 저장돼 다음에도 그대로 나옵니다.</div>
               </div>
             </>
           )}
@@ -485,36 +699,16 @@ export default function DueOrdersPage() {
         ) : (
           <table>
             <thead>
-              <tr className="h1">
-                {on("rank") && <th className="r" rowSpan={wipOpen ? 2 : 1}>순위</th>}
-                {on("so") && <th rowSpan={wipOpen ? 2 : 1}>SO번호</th>}
-                {on("mo") && <th rowSpan={wipOpen ? 2 : 1}>MO번호</th>}
-                {on("customer") && <th rowSpan={wipOpen ? 2 : 1}>고객사</th>}
-                {on("brand") && <th rowSpan={wipOpen ? 2 : 1}>브랜드</th>}
-                {on("due") && <th rowSpan={wipOpen ? 2 : 1}>납기일</th>}
-                {on("pack") && <th rowSpan={wipOpen ? 2 : 1}>포장</th>}
-                {on("qty") && <th className="r" rowSpan={wipOpen ? 2 : 1}>주문량</th>}
-                {on("color") && <th className="r" rowSpan={wipOpen ? 2 : 1}>착색재고</th>}
-                {on("wip") && (wipOpen ? (
-                  <th className="grp" colSpan={STAGES.length} onClick={() => setWipOpen(false)} title="누르면 공정재공 합계 1칸으로 접습니다">
-                    공정재공 (조립 ~ 출하포장) ▾
-                  </th>
-                ) : (
-                  <th className="r grp" onClick={() => setWipOpen(true)} title="누르면 조립 ~ 출하포장 공정별로 펼칩니다">
-                    공정재공 ▸
-                  </th>
-                ))}
-                {on("shipped") && <th className="r" rowSpan={wipOpen ? 2 : 1}>출고</th>}
-                {on("assy") && <th className="r" rowSpan={wipOpen ? 2 : 1}>조립투입 필요</th>}
-                {on("short") && <th className="r" rowSpan={wipOpen ? 2 : 1}>출하부족</th>}
-                {on("progress") && <th rowSpan={wipOpen ? 2 : 1}>진행률</th>}
-                {on("open") && <th rowSpan={wipOpen ? 2 : 1}>상세</th>}
-              </tr>
-              {wipOpen && on("wip") && (
+              <tr className="h1">{cols.map(headCell)}</tr>
+              {twoRows && (
                 <tr className="h2">
-                  {STAGES.map((st) => (
-                    <th key={st} className="r">{st}</th>
-                  ))}
+                  {cols.flatMap((k) =>
+                    k === "wip" && wipOpen
+                      ? STAGES.map((s) => <th key={`w-${s}`} className="r">{s}</th>)
+                      : k === "stageprog" && progOpen
+                        ? STAGE_PROG.map((s) => <th key={`p-${s}`} className="r">{s}</th>)
+                        : []
+                  )}
                 </tr>
               )}
             </thead>
@@ -529,30 +723,7 @@ export default function DueOrdersPage() {
                     onClick={() => setSelected(r.so_no)}
                     onKeyDown={(e) => e.key === "Enter" && setSelected(r.so_no)}
                   >
-                    {on("rank") && <td className="r num">{r.rank}</td>}
-                    {on("so") && <td className="so">{r.so_no}</td>}
-                    {on("mo") && <td className="num" style={{ fontSize: 12.5 }}>{r.mo_no ?? ""}</td>}
-                    {on("customer") && <td>{r.customer ?? ""}</td>}
-                    {on("brand") && <td>{r.brand ?? ""}</td>}
-                    {on("due") && <td><span className="num">{(r.due_date ?? "").slice(0, 10)}</span> <DueBadge row={r} base={base} /></td>}
-                    {on("pack") && <td>{r.pack_method ?? ""}</td>}
-                    {on("qty") && <td className="r num">{fmt(r.order_qty)}</td>}
-                    {on("color") && <td className="r num"><Z n={r.color_stock} /></td>}
-                    {on("wip") && (wipOpen ? (
-                      r.wip.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))
-                    ) : (
-                      <td className="r num"><Z n={sum(r.wip)} /></td>
-                    ))}
-                    {on("shipped") && <td className="r num"><Z n={r.shipped} /></td>}
-                    {on("assy") && <td className={`r num ${r.assy_in > 0 ? "need" : ""}`}><Z n={r.assy_in} /></td>}
-                    {on("short") && <td className="r num"><Z n={r.ship_short} /></td>}
-                    {on("progress") && (
-                      <td>
-                        <span className="bar"><i style={{ width: `${(p * 100).toFixed(0)}%` }} /></span>{" "}
-                        <span className="num" style={{ fontSize: 12 }}>{(p * 100).toFixed(0)}%</span>
-                      </td>
-                    )}
-                    {on("open") && <td><span className="pill p-grn">열기</span></td>}
+                    {cols.map((k) => bodyCell(k, r, p))}
                   </tr>
                 );
               })}
@@ -567,10 +738,20 @@ export default function DueOrdersPage() {
       <p className="note">
         엑셀 수주별 시트 계산식과 같습니다: 공정 부족분 = 누적주문 − 기초재고(제품창고A+조립창고) − 누적출고 − 다음 공정~출하포장 재공,
         조립투입 = 검사부족분 ÷ 직진율 − 조립 − 분리3 − 습윤 − 외관검사×108%(60 단위 올림). 공정재공은 품목코드 기준이라 같은 품목을 가진 수주에 똑같이 보입니다.
+        진행률 = (주문량 − 출하부족) ÷ 주문량, 공정별 진행률 = (주문량 − 그 공정 부족분) ÷ 주문량입니다.
         순위는 납기일 → 생산순위지정(PLAN-01) 작업순서 순입니다.
       </p>
 
-      {selected && <DetailPanel key={selected} soNo={selected} onClose={() => setSelected(null)} base={base} wipOpen={wipOpen} setWipOpen={setWipOpen} />}
+      {selected && (
+        <DetailPanel
+          key={selected}
+          soNo={selected}
+          onClose={() => setSelected(null)}
+          base={base}
+          wipOpen={wipOpen}
+          setWipOpen={(v) => setLayout({ ...layout, wipOpen: v })}
+        />
+      )}
     </div>
   );
 }

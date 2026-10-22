@@ -64,6 +64,8 @@ export interface DueOrderRow {
   wip: number[];
   /** 수주에 든 모델별 착색재고의 합 */
   color_stock: number;
+  /** 공정 부족분 10개(분리3~출하, SHORT_NAMES 순서)의 줄별 합 — 공정별 진행률 = (주문량 − 부족분) ÷ 주문량 */
+  shorts: number[];
   assy_in: number;
   ship_short: number;
   ship_rate: number;
@@ -253,6 +255,7 @@ function compute(db: DatabaseSync): Computed {
       shipped,
       wip: STAGES.map((_, i) => ordered_.reduce((s, l) => s + l.wip[i], 0)),
       color_stock: [...new Map(ls.map((l) => [l.model, l.color_stock])).values()].reduce((s, v) => s + v, 0),
+      shorts: SHORT_NAMES.map((_, k) => ls.reduce((s, l) => s + (l.shorts[k] ?? 0), 0)),
       assy_in: ls.reduce((s, l) => s + l.assy_in, 0),
       ship_short,
       ship_rate: order_qty > 0 ? Math.min(1, Math.max(0, shipped / order_qty)) : 0,
