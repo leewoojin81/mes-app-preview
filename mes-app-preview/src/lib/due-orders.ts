@@ -363,19 +363,13 @@ export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOr
   // 도수변경 건수 — 조립일자("조립 실적 입력시각"의 날짜, 지시일자와 다른 경우가 많다)가 최근 1개월인
   // 이전도수 있는 행을 작업지시번호로 중복 제거해 센다(QC-01과 같은 변경 판정). 품목코드는 변경 후(실제로 조립된) 도수의 품목이다.
   // 입력시각이 비어 깨진 문자로 들어온 행은 날짜 범위에 걸리지 않아 저절로 빠진다.
-  const d = new Date();
-  const ymd = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
-  const to = ymd(d);
-  d.setMonth(d.getMonth() - 1);
-  const from = ymd(d);
+  const { from, to } = dosuChangeWindow();
   const changes = new Map<string, number>();
   for (const m of models) {
     for (const r of db
       .prepare(
         `SELECT item_code, COUNT(DISTINCT wo_no) n FROM dosu_change_status
-          WHERE item_code LIKE ?
-            AND replace(substr(json_extract(detail, '$."조립 실적 입력시각"'), 1, 10), '.', '-') BETWEEN ? AND ?
-            AND json_extract(detail, '$."이전도수"') IS NOT NULL AND json_extract(detail, '$."이전도수"') != ''
+          WHERE item_code LIKE ? AND ${DOSU_CHANGE_COND}
           GROUP BY item_code`
       )
       .all(like(m), from, to) as { item_code: string; n: number }[]) {
@@ -384,6 +378,101 @@ export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOr
   }
   for (const l of out) l.dosu_changes = changes.get(l.item_code) ?? 0;
   return { row: c.result.rows.find((r) => r.so_no === soNo) ?? null, lines: out };
+}
+
+/** 도수변경 건수 집계 기간 — 오늘 기준 최근 1개월(조립일자) */
+function dosuChangeWindow(): { from: string; to: string } {
+  const d = new Date();
+  const ymd = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+  const to = ymd(d);
+  d.setMonth(d.getMonth() - 1);
+  return { from: ymd(d), to };
+}
+
+const ASSY_DATE = `replace(substr(json_extract(detail, '$."조립 실적 입력시각"'), 1, 10), '.', '-')`;
+/** 조립일자가 기간(?, ?) 안인 행 */
+const ASSY_IN_WINDOW = `${ASSY_DATE} BETWEEN ? AND ?`;
+/** 이전도수가 있는 행 = 도수변경(QC-01과 같은 판정) */
+const CHANGED = `json_extract(detail, '$."이전도수"') IS NOT NULL AND json_extract(detail, '$."이전도수"') != ''`;
+const DOSU_CHANGE_COND = `${ASSY_IN_WINDOW} AND ${CHANGED}`;
+
+export interface AssemblyRecord {
+  wo_no: string;
+  lot_no: string | null;
+  assembled_at: string | null;
+  machine: string | null;
+  worker: string | null;
+  power: number | null;
+  prev_power: number | null;
+  /** 이전도수가 있는 작업지시(도수변경 건수에 들어간 것) */
+  changed: boolean;
+  upper1: number | null;
+  upper2: number | null;
+  lower1: number | null;
+  lower2: number | null;
+  p1: number | null;
+  p2: number | null;
+  p3: number | null;
+  /** 착색품·하몰드 RADIUS — 투입 LOT No 끝 3자리(예: -726). 하몰드 LOT가 여럿이면 서로 다른 값을 / 로 잇는다 */
+  color_radius: string | null;
+  mold_radius: string | null;
+}
+
+/**
+ * 도수별 상세의 도수변경 건수를 누르면 보여줄 조립 기록 — 그 품목코드로 조립일자 최근 1개월 안에 조립된
+ * 작업지시 전부(도수변경 안 된 것 포함). 원본은 투입자재(HEMA·하몰드·착색)별로 행이 나뉘어 있어 작업지시번호당 1줄로 합친다.
+ * Radius는 품목정보·MOLD입고현황 모두 0으로만 들어와 있어, 투입 LOT No 끝 3자리(상몰드1·2와 같은 단위)를 쓴다.
+ */
+export function fetchAssemblyRecords(db: DatabaseSync, itemCode: string): { from: string; to: string; records: AssemblyRecord[] } {
+  const { from, to } = dosuChangeWindow();
+  const keys = ["조립 실적 입력시각", "조립 호기", "조립자", "실제도수", "이전도수", "상몰드1", "상몰드2", "하몰드1", "하몰드2", "도수1", "도수2", "도수3", "조립투입품목명", "조립투입LOT No"];
+  const raw = db
+    .prepare(
+      `SELECT wo_no, lot_no, ${keys.map((k, i) => `json_extract(detail, '$."${k}"') k${i}`).join(", ")}
+         FROM dosu_change_status
+        WHERE item_code = ? AND ${ASSY_IN_WINDOW}
+        ORDER BY id`
+    )
+    .all(itemCode, from, to) as Record<string, string | number | null>[];
+  const num = (v: unknown) => (typeof v === "number" ? v : null);
+  const str = (v: unknown) => (v == null || v === "" ? null : String(v));
+  const radius = (lot: unknown) => /-(\d{3})$/.exec(String(lot ?? ""))?.[1] ?? null;
+  const byWo = new Map<string, AssemblyRecord & { molds: Set<string> }>();
+  for (const r of raw) {
+    const wo = String(r.wo_no);
+    let a = byWo.get(wo);
+    if (!a) {
+      a = {
+        wo_no: wo,
+        lot_no: str(r.lot_no),
+        assembled_at: str(r.k0),
+        machine: str(r.k1),
+        worker: str(r.k2),
+        power: num(r.k3),
+        prev_power: num(r.k4),
+        changed: num(r.k4) != null,
+        upper1: num(r.k5),
+        upper2: num(r.k6),
+        lower1: num(r.k7),
+        lower2: num(r.k8),
+        p1: num(r.k9),
+        p2: num(r.k10),
+        p3: num(r.k11),
+        color_radius: null,
+        mold_radius: null,
+        molds: new Set(),
+      };
+      byWo.set(wo, a);
+    }
+    const name = String(r.k12 ?? "");
+    const rad = radius(r.k13);
+    if (rad && name.includes("착색")) a.color_radius ??= rad;
+    else if (rad && name.includes("하몰드")) a.molds.add(rad);
+  }
+  const records = [...byWo.values()]
+    .map(({ molds, ...a }) => ({ ...a, mold_radius: molds.size ? [...molds].sort().join("/") : null }))
+    .sort((x, y) => ((x.assembled_at ?? "") < (y.assembled_at ?? "") ? 1 : (x.assembled_at ?? "") > (y.assembled_at ?? "") ? -1 : 0));
+  return { from, to, records };
 }
 
 /** 자재수급(PUR-03)처럼 수주별 품목 줄까지 한꺼번에 쓰는 화면용 — 같은 30초 캐시를 쓴다 */

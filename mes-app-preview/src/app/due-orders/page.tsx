@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { useTabState } from "@/lib/use-tab-state";
-import type { DueOrderLine, DueOrderRow, DueOrdersResult } from "@/lib/due-orders";
+import type { AssemblyRecord, DueOrderLine, DueOrderRow, DueOrdersResult } from "@/lib/due-orders";
 
 // 생산계획 "납기별수주현황(PLAN-04)" — 생산계획 엑셀 「납기별」 시트 + 수주별 시트를 한 화면으로 옮긴 것.
 // 목록에서 수주를 누르면 오른쪽 상세 창에서 품목(모델)별 요약 → 모델을 누르면 도수별 공정재공·부족분·조립투입을 본다.
@@ -100,6 +100,16 @@ const CSS = `
 .po .pop .acts .chip{white-space:nowrap;padding:4px 9px}
 .po .pop .acts{display:flex;gap:6px;border-bottom:1px solid var(--line-2);padding-bottom:6px;margin-bottom:4px}
 .po .pop-scrim{position:fixed;inset:0;z-index:29}
+.po button.pill{border:0;cursor:pointer;font-size:11.5px;font-weight:600}
+.po button.p-amb:hover{background:#ffe6bd}
+.po .modal-scrim{position:fixed;inset:0;background:rgba(10,18,40,.3);z-index:50}
+.po .modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(1480px,calc(100% - 32px));max-height:calc(100% - 64px);background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 16px 40px rgba(0,20,60,.25);z-index:51;display:flex;flex-direction:column}
+.po .modal .mh{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.po .modal .mh h3{margin:0;font-size:15px;flex:1;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.po .modal .mh small{font-size:12px;color:var(--fg-3);font-weight:400}
+.po .modal .mb{overflow:auto}
+.po .modal tr.chg td{background:var(--amber-bg)}
+.po .modal th.sep,.po .modal td.sep{border-left:1px solid var(--line)}
 .po .note{font-size:12px;color:var(--fg-3);line-height:1.6}
 `;
 
@@ -170,10 +180,92 @@ function StageFlow({ wip }: { wip: number[] }) {
 
 type Detail = { row: DueOrderRow | null; lines: DueOrderLine[] };
 
+function DosuChangeModal({ itemCode, power, onClose }: { itemCode: string; power: number | null; onClose: () => void }) {
+  const [data, setData] = useState<{ from: string; to: string; records: AssemblyRecord[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/due-orders?dosu=${encodeURIComponent(itemCode)}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d) => alive && setData(d))
+      .catch(() => alive && setError("조립 기록을 불러오지 못했습니다."));
+    return () => {
+      alive = false;
+    };
+  }, [itemCode]);
+
+  const v = (n: number | null) => (n == null ? <span className="zero">-</span> : n);
+  const pw = (n: number | null) => (n == null ? <span className="zero">-</span> : powerText(n));
+  const changed = data?.records.filter((r) => r.changed).length ?? 0;
+  return (
+    <>
+      <div className="modal-scrim" onClick={onClose} />
+      <div className="modal" role="dialog" aria-modal="true">
+        <div className="mh">
+          <h3>
+            <span className="num">{powerText(power)}</span> 조립 기록
+            <span className="num" style={{ fontSize: 12.5, color: "var(--fg-2)", fontWeight: 400 }}>{itemCode}</span>
+            {data && (
+              <small>
+                조립일자 {data.from} ~ {data.to} · 조립 {data.records.length}건 · <span className="pill p-amb">도수변경 {changed}건</span>
+              </small>
+            )}
+          </h3>
+          <button className="x" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        <div className="mb">
+          {error && <div className="empty"><b>{error}</b></div>}
+          {!data && !error && <div className="empty">불러오는 중…</div>}
+          {data && (
+            <table>
+              <thead>
+                <tr>
+                  <th>작업지시번호</th><th>LOT No</th><th>조립 실적 입력시각</th><th>조립 호기</th><th>조립자</th>
+                  <th className="r sep">실제도수</th><th className="r">이전도수</th>
+                  <th className="r sep">상몰드1</th><th className="r">상몰드2</th><th className="r">하몰드1</th><th className="r">하몰드2</th>
+                  <th className="r sep">도수1</th><th className="r">도수2</th><th className="r">도수3</th>
+                  <th className="r sep" title="착색 투입 LOT No 끝 3자리">착색품 RADIUS</th><th className="r" title="하몰드 투입 LOT No 끝 3자리">하몰드 RADIUS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.records.map((r) => (
+                  <tr key={r.wo_no} className={r.changed ? "chg" : ""} title={r.changed ? "도수변경 건" : undefined}>
+                    <td className="num">{r.wo_no}</td>
+                    <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{r.lot_no ?? "-"}</td>
+                    <td className="num">{r.assembled_at ?? "-"}</td>
+                    <td>{r.machine ?? "-"}</td>
+                    <td>{r.worker ?? "-"}</td>
+                    <td className="r num sep"><b>{pw(r.power)}</b></td>
+                    <td className="r num">{r.changed ? <span className="pill p-amb">{powerText(r.prev_power)}</span> : <span className="zero">-</span>}</td>
+                    <td className="r num sep">{v(r.upper1)}</td>
+                    <td className="r num">{v(r.upper2)}</td>
+                    <td className="r num">{v(r.lower1)}</td>
+                    <td className="r num">{v(r.lower2)}</td>
+                    <td className="r num sep">{v(r.p1)}</td>
+                    <td className="r num">{v(r.p2)}</td>
+                    <td className="r num">{v(r.p3)}</td>
+                    <td className="r num sep">{r.color_radius ?? <span className="zero">-</span>}</td>
+                    <td className="r num">{r.mold_radius ?? <span className="zero">-</span>}</td>
+                  </tr>
+                ))}
+                {data.records.length === 0 && (
+                  <tr><td colSpan={16} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>최근 1개월 조립 기록이 없습니다.</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: string; onClose: () => void; base: string; wipOpen: boolean; setWipOpen: (v: boolean) => void }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
+  const [changeOf, setChangeOf] = useState<DueOrderLine | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -187,10 +279,11 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
   }, [soNo]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // Esc는 작업지시 목록 창이 열려 있으면 그 창만 닫는다
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (changeOf ? setChangeOf(null) : onClose());
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, changeOf]);
 
   const models = useMemo(() => {
     const g = new Map<string, { model: string; name: string | null; n: number; qty: number; wip: number[]; color: number; shipped: number; assy: number; short: number }>();
@@ -378,7 +471,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                         <td className="r num"><Z n={l.base_stock} /></td>
                         <td className="r num"><Z n={l.shipped} /></td>
                         <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[2] == null ? <span className="pill p-grn">완료</span> : <span className="num">{fmt(l.shorts[2])}</span>}</td>
-                        <td className="r">{l.dosu_changes ? <span className="pill p-amb">{fmt(l.dosu_changes)}건</span> : <span className="zero">-</span>}</td>
+                        <td className="r">{l.dosu_changes ? <button className="pill p-amb" onClick={() => setChangeOf(l)} title="누르면 최근 1개월 조립 기록이 열립니다(도수변경 건 강조)">{fmt(l.dosu_changes)}건</button> : <span className="zero">-</span>}</td>
                         <td className={`r num ${l.assy_in > 0 ? "need" : ""}`}>{l.extra ? <span className="zero">-</span> : <Z n={l.assy_in} />}</td>
                         <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[9] == null ? <span className="pill p-grn">완료</span> : <span className="pill p-red">{fmt(l.shorts[9])}</span>}</td>
                       </tr>
@@ -403,6 +496,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
           )}
         </div>
       </aside>
+      {changeOf && <DosuChangeModal itemCode={changeOf.item_code} power={changeOf.power} onClose={() => setChangeOf(null)} />}
     </>
   );
 }
