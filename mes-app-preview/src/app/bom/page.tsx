@@ -451,6 +451,7 @@ function BomUploadModal({
     }
     onImported(
       `업로드 완료 — 신규 ${data.inserted.toLocaleString()}건, 갱신 ${data.updated.toLocaleString()}건` +
+        (data.deleted > 0 ? `, 빠진 구성품 삭제 ${data.deleted.toLocaleString()}건` : "") +
         (data.registeredItems > 0 ? `, 신규 품목 등록 ${data.registeredItems.toLocaleString()}건` : "") +
         (data.skipped > 0 ? `, 건너뜀 ${data.skipped.toLocaleString()}건` : "")
     );
@@ -477,7 +478,8 @@ function BomUploadModal({
             &quot;엑셀 다운로드&quot;와 같은 형식(상위품목코드/상위품목명/하위품목코드/하위품목명/
             하위구분/규격/소요량/단위) 또는 ERP BOM요약조회 원본(모품목코드/모품목정보/자품목코드/자품목명/계정/소요원수)의 첫 시트를 읽습니다. 상위품목코드는 필수이며 없는
             품목은 완제품으로, 하위품목코드가 없으면 하위구분 기준(반제품/그 외 원자재)으로
-            자동 등록됩니다. 같은 상위·하위 조합은 소요량을 덮어씁니다.
+            자동 등록됩니다. 같은 상위·하위 조합은 소요량을 덮어씁니다. BOM요약조회 원본은 파일에 나온
+            모품목의 구성품을 파일과 똑같이 맞춥니다(파일에 없는 기존 구성품은 삭제, 파일에 없는 모품목은 그대로).
           </p>
           <label className="block text-sm">
             <span className="text-slate-600">엑셀 파일</span>

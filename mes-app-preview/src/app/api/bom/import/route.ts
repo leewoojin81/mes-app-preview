@@ -12,10 +12,21 @@ function mapChildCategory(raw: string): "반제품" | "원자재" {
   return raw.trim() === "반제품" ? "반제품" : "원자재";
 }
 
+// ERP 품목정보는 "이름◆(규격)■(상세)" 한 칸이라 이름과 규격으로 나눈다(기준정보 items와 같은 방식).
+function splitErpName(raw: string): { name: string; spec: string | null } {
+  const i = raw.indexOf("◆");
+  if (i === -1) return { name: raw.trim(), spec: null };
+  const spec = raw.slice(i + 1).split("■")[0].trim().replace(/^\((.*)\)$/, "$1").trim();
+  return { name: raw.slice(0, i).trim() || raw.trim(), spec: spec || null };
+}
+
 // /api/bom/export가 내려주는 것과 같은 컬럼(상위품목코드/상위품목명/하위품목코드/
 // 하위품목명/하위구분/규격/소요량/단위)의 엑셀을 읽어 bom 테이블에 반영한다.
 // 상위/하위 품목코드가 아직 기준정보에 없으면 신규모델·신규 구성품으로 자동 등록한다
 // (상위는 항상 완제품, 하위는 하위구분 기준).
+// ERP "BOM요약조회" 원본은 모품목별 전체 구성이라, 파일에 나온 모품목은 구성품을 파일과 똑같이 맞춘다
+// (파일에 없는 기존 구성품 삭제 — 자재 리비전이 바뀌면 옛 코드가 남아 자재수급(PUR-03)에서 두 번 잡히던 문제).
+// 파일에 없는 모품목과 내려받기 형식 업로드는 지금처럼 추가·수정만 한다.
 export async function POST(req: NextRequest) {
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
@@ -55,6 +66,7 @@ export async function POST(req: NextRequest) {
   const iSpec = idx("규격");
   const iQty = idx("소요량", "소요원수");
   const iUnit = idx("단위");
+  const isErp = header.includes("모품목코드");
 
   if (iParentCode === -1 || iChildCode === -1 || iQty === -1) {
     return NextResponse.json(
@@ -94,6 +106,8 @@ export async function POST(req: NextRequest) {
   let updated = 0;
   let registeredItems = 0;
   let skipped = 0;
+  let deleted = 0;
+  const filePairs = new Set<string>();
 
   db.exec("BEGIN");
   try {
@@ -111,22 +125,22 @@ export async function POST(req: NextRequest) {
       const spec = iSpec !== -1 && r[iSpec] != null ? String(r[iSpec]).trim() : null;
 
       if (!registeredCodes.has(parentCode) && !itemExists.get(parentCode)) {
-        const name =
-          iParentName !== -1 && r[iParentName] != null
-            ? String(r[iParentName]).trim()
-            : parentCode;
-        insertItem.run(parentCode, name, "완제품", null, "EA");
+        const p = splitErpName(
+          iParentName !== -1 && r[iParentName] != null ? String(r[iParentName]) : parentCode
+        );
+        insertItem.run(parentCode, p.name, "완제품", p.spec, "EA");
         registeredCodes.add(parentCode);
         registeredItems++;
-        newModels.set(parentCode, { name, childCount: 0 });
+        newModels.set(parentCode, { name: p.name, childCount: 0 });
       }
       if (!registeredCodes.has(childCode) && !itemExists.get(childCode)) {
-        const name =
-          iChildName !== -1 && r[iChildName] != null ? String(r[iChildName]).trim() : childCode;
+        const c = splitErpName(
+          iChildName !== -1 && r[iChildName] != null ? String(r[iChildName]) : childCode
+        );
         const category = mapChildCategory(
           iChildCat !== -1 && r[iChildCat] != null ? String(r[iChildCat]) : ""
         );
-        insertItem.run(childCode, name, category, spec, unit ?? "EA");
+        insertItem.run(childCode, c.name, category, spec ?? c.spec, unit ?? "EA");
         registeredCodes.add(childCode);
         registeredItems++;
       }
@@ -135,9 +149,24 @@ export async function POST(req: NextRequest) {
       if (model) model.childCount++;
 
       const key = `${parentCode}|${childCode}`;
-      upsertBom.run(key, parentCode, childCode, qty, unit);
-      if (existingPairs.has(key)) updated++;
+      if (filePairs.has(key)) {
+        updated++; // 같은 파일 안 중복 줄 — 뒤 줄 값으로 덮어씀
+      } else if (existingPairs.has(key)) updated++;
       else inserted++;
+      filePairs.add(key);
+      upsertBom.run(key, parentCode, childCode, qty, unit);
+    }
+    if (isErp) {
+      const fileParents = new Set([...filePairs].map((k) => k.slice(0, k.indexOf("|"))));
+      const del = db.prepare("DELETE FROM bom WHERE parent_item_code = ? AND child_item_code = ?");
+      for (const key of existingPairs) {
+        const i = key.indexOf("|");
+        const parent = key.slice(0, i);
+        if (fileParents.has(parent) && !filePairs.has(key)) {
+          del.run(parent, key.slice(i + 1));
+          deleted++;
+        }
+      }
     }
     db.exec("COMMIT");
   } catch (err) {
@@ -155,5 +184,5 @@ export async function POST(req: NextRequest) {
   }
 
   recordUpload(db, "bom");
-  return NextResponse.json({ inserted, updated, registeredItems, skipped });
+  return NextResponse.json({ inserted, updated, deleted, registeredItems, skipped });
 }
