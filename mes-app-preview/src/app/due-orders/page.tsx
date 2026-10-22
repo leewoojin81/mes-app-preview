@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent } from "react";
+import type { DragEvent, ReactNode } from "react";
 import { useTabState } from "@/lib/use-tab-state";
 import type { AssemblyRecord, ColorStockLot, DueOrderLine, DueOrderRow, DueOrdersResult, ItemChangeCandidate } from "@/lib/due-orders";
 
@@ -386,50 +386,120 @@ function ColorStockModal({ model, power, onClose }: { model: string; power: numb
   );
 }
 
-/** 품목변경 열 헤더를 누르면 보여줄 운영 기준 — 계산은 lib/due-orders.ts의 itemChangeCandidates·fitsPower(허용오차 ITEM_CHANGE_TOLERANCE) */
-function ItemChangeHelp({ onClose }: { onClose: () => void }) {
+/** 도수별 상세 열 제목을 누르면 보여줄 계산 기준 창의 틀 */
+function HelpModal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
     <>
       <div className="modal-scrim" onClick={onClose} />
       <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(640px, calc(100% - 32px))" }}>
         <div className="mh">
-          <h3>품목변경 계산 기준</h3>
+          <h3>{title}</h3>
           <button className="x" onClick={onClose} aria-label="닫기">×</button>
         </div>
-        <div className="mb help">
-          <h4>무엇을 보여주나</h4>
-          <ul>
-            <li>검사부족이 있는 도수에서, 조립 투입 대신 <b>다른 도수 재공을 품목변경해 채울 수 있는 수량</b>입니다.</li>
-            <li>검사부족이 없는 도수는 <span className="zero">-</span>로 표시합니다.</li>
-          </ul>
-          <h4>후보 재공</h4>
-          <ul>
-            <li>같은 모델의 다른 도수 중 <b>외관검사를 마친 공정재공</b>(이재기 · 실링 · 멸균 · 입고대기 · 중간창고 · 마킹 · 출하포장)을 작업지시 단위로 봅니다.</li>
-          </ul>
-          <h4>판정 조건</h4>
-          <ul>
-            <li>그 작업지시의 외관검사 측정값 <b>도수1 · 도수2 · 도수3이 모두</b> 목표 도수 <b>±0.225</b> 안에 들어야 합니다.</li>
-          </ul>
-          <div className="ex">
-            예) -2.00이 50개 부족 → 허용 범위 <b className="num">1.775 ~ 2.225</b><br />
-            -2.25 작업지시의 측정값이 2.12 / 2.12 / 2.12 → 세 값 모두 범위 안 → 그 재공 수량이 -2.00 품목변경으로 잡힘<br />
-            -1.75 작업지시의 측정값이 1.75 / 1.87 / 2.00 → 1.75가 범위 밖 → 제외
-          </div>
-          <h4>빠지는 재고</h4>
-          <ul>
-            <li>제품창고A 재고 — LOT가 포장 LOT라 외관검사 측정값과 연결되지 않습니다.</li>
-            <li>2025년 1월 이전 작업지시 — 외관검사 실적 데이터가 없습니다.</li>
-          </ul>
-          <h4>참고</h4>
-          <ul>
-            <li>후보 재공이 원래 도수의 수주에 필요한지는 따지지 않은 전체 수량입니다.</li>
-            <li>품목변경 수량은 조립투입 계산에 반영하지 않습니다.</li>
-            <li>한 재공이 여러 도수의 후보가 될 수 있어 합계 줄은 비워 둡니다.</li>
-            <li>숫자를 누르면 후보 작업지시 · LOT · 공정 · 측정값을 볼 수 있습니다.</li>
-          </ul>
-        </div>
+        <div className="mb help">{children}</div>
       </div>
     </>
+  );
+}
+
+/** 착색재고 계산 기준 — 계산은 lib/due-orders.ts의 colorMap(COLOR_MU)·colorStockOf, 창은 fetchColorStock */
+function ColorStockHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <HelpModal title="착색재고 계산 기준" onClose={onClose}>
+      <h4>무엇을 보여주나</h4>
+      <ul>
+        <li>모델(BOM 대표코드)의 구성품 중 <b>반제품 · 품목군 "착색"</b> 품목의 <b>조립창고</b> 재고입니다.</li>
+      </ul>
+      <h4>무도수용 / 유도수용 구분</h4>
+      <ul>
+        <li>LOT마다 일일작업현황의 BASE 인쇄 · 착색 인쇄 설비로 나눕니다(LOT No는 BASE 인쇄부터 착색 인쇄까지 그대로 이어짐).</li>
+        <li><b>무도수용</b> — BASE를 <b>자동Base 호기에서만</b> 인쇄했거나, BASE 인쇄 실적 없이 착색을 <b>자동인쇄 호기</b>에서 인쇄한 LOT</li>
+        <li><b>유도수용</b> — 나머지(BASE를 Back 호기에서 인쇄, 인쇄 실적 없음)</li>
+      </ul>
+      <h4>도수별 표시</h4>
+      <ul>
+        <li>무도수용은 0.00과 유도수에 모두 쓸 수 있고, 유도수용은 0.00에 쓸 수 없습니다.</li>
+        <li><b>0.00 줄</b> = 무도수용, <b>-0.25 ~ -10.00 줄</b> = 무도수용 + 유도수용(같은 모델은 모두 같은 값)</li>
+        <li>같은 무도수용 재고를 0.00 줄과 유도수 줄이 함께 세므로, 줄 값을 세로로 더하면 실제 재고보다 커집니다.</li>
+      </ul>
+      <div className="ex">
+        예) 무도수용 600 · 유도수용 900 → 0.00 줄 <b className="num">600</b>, -0.25 ~ -10.00 줄 <b className="num">1,500</b>
+      </div>
+      <h4>참고</h4>
+      <ul>
+        <li>BASE를 자동Base · Back 호기 양쪽에서 인쇄한 LOT는 처리 방법이 보류돼 우선 유도수용으로 셉니다(창에 "보류" 표시).</li>
+        <li>숫자를 누르면 LOT별 현재고 · BASE 설비 · 착색 설비를 볼 수 있고, LOT No를 누르면 복사됩니다.</li>
+      </ul>
+    </HelpModal>
+  );
+}
+
+/** 도수변경 계산 기준 — 계산은 lib/due-orders.ts의 DOSU_CHANGE_COND(ASSY_IN_WINDOW·CHANGED), 창은 fetchAssemblyRecords */
+function DosuChangeHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <HelpModal title="도수변경 계산 기준" onClose={onClose}>
+      <h4>무엇을 보여주나</h4>
+      <ul>
+        <li>최근 1개월 동안 <b>이 도수로 변경되어 조립된 작업지시 건수</b>입니다(도수변경현황 QC-01 기준).</li>
+        <li>품목코드는 변경 후, 즉 실제로 조립된 도수입니다.</li>
+      </ul>
+      <h4>기간</h4>
+      <ul>
+        <li>오늘부터 1개월 전까지의 <b>조립일자</b>(조립 실적 입력시각의 날짜)입니다. 작업지시 지시일자와는 다를 수 있습니다.</li>
+      </ul>
+      <h4>판정 조건</h4>
+      <ul>
+        <li>이전도수가 숫자로 있고 <b>실제도수와 다른</b> 작업지시만 셉니다. 같은 작업지시는 한 번만 셉니다.</li>
+        <li>이전도수가 실제도수와 같은 행(이전 품목이 자기 자신)과 이전도수가 깨진 값인 행은 뺍니다.</li>
+      </ul>
+      <div className="ex">
+        예) -2.00으로 조립된 작업지시의 이전도수가 -2.25 → 도수변경 1건<br />
+        이전도수가 -2.00(실제도수와 같음) → 제외
+      </div>
+      <h4>참고</h4>
+      <ul>
+        <li>숫자를 누르면 그 기간에 이 품목으로 조립된 기록 전부가 열리고, 도수변경 건은 주황색으로 강조됩니다.</li>
+        <li>창의 착색품 · 하몰드 RADIUS는 투입 LOT No 끝 3자리입니다(예: 726).</li>
+      </ul>
+    </HelpModal>
+  );
+}
+
+/** 품목변경 계산 기준 — 계산은 lib/due-orders.ts의 itemChangeCandidates·fitsPower(허용오차 ITEM_CHANGE_TOLERANCE) */
+function ItemChangeHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <HelpModal title="품목변경 계산 기준" onClose={onClose}>
+      <h4>무엇을 보여주나</h4>
+      <ul>
+        <li>검사부족이 있는 도수에서, 조립 투입 대신 <b>다른 도수 재공을 품목변경해 채울 수 있는 수량</b>입니다.</li>
+        <li>검사부족이 없는 도수는 <span className="zero">-</span>로 표시합니다.</li>
+      </ul>
+      <h4>후보 재공</h4>
+      <ul>
+        <li>같은 모델의 다른 도수 중 <b>외관검사를 마친 공정재공</b>(이재기 · 실링 · 멸균 · 입고대기 · 중간창고 · 마킹 · 출하포장)을 작업지시 단위로 봅니다.</li>
+      </ul>
+      <h4>판정 조건</h4>
+      <ul>
+        <li>그 작업지시의 외관검사 측정값 <b>도수1 · 도수2 · 도수3이 모두</b> 목표 도수 <b>±0.225</b> 안에 들어야 합니다.</li>
+      </ul>
+      <div className="ex">
+        예) -2.00이 50개 부족 → 허용 범위 <b className="num">1.775 ~ 2.225</b><br />
+        -2.25 작업지시의 측정값이 2.12 / 2.12 / 2.12 → 세 값 모두 범위 안 → 그 재공 수량이 -2.00 품목변경으로 잡힘<br />
+        -1.75 작업지시의 측정값이 1.75 / 1.87 / 2.00 → 1.75가 범위 밖 → 제외
+      </div>
+      <h4>빠지는 재고</h4>
+      <ul>
+        <li>제품창고A 재고 — LOT가 포장 LOT라 외관검사 측정값과 연결되지 않습니다.</li>
+        <li>2025년 1월 이전 작업지시 — 외관검사 실적 데이터가 없습니다.</li>
+      </ul>
+      <h4>참고</h4>
+      <ul>
+        <li>후보 재공이 원래 도수의 수주에 필요한지는 따지지 않은 전체 수량입니다.</li>
+        <li>품목변경 수량은 조립투입 계산에 반영하지 않습니다.</li>
+        <li>한 재공이 여러 도수의 후보가 될 수 있어 합계 줄은 비워 둡니다.</li>
+        <li>숫자를 누르면 후보 작업지시 · LOT · 공정 · 측정값을 볼 수 있습니다.</li>
+      </ul>
+    </HelpModal>
   );
 }
 
@@ -518,7 +588,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
   const [changeOf, setChangeOf] = useState<DueOrderLine | null>(null);
   const [colorOf, setColorOf] = useState<DueOrderLine | null>(null);
   const [swapOf, setSwapOf] = useState<DueOrderLine | null>(null);
-  const [swapHelp, setSwapHelp] = useState(false);
+  const [help, setHelp] = useState<"color" | "dosu" | "swap" | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -533,10 +603,10 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
 
   useEffect(() => {
     // Esc는 작업지시 목록 창이 열려 있으면 그 창만 닫는다
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (swapHelp ? setSwapHelp(false) : swapOf ? setSwapOf(null) : colorOf ? setColorOf(null) : changeOf ? setChangeOf(null) : onClose());
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (help ? setHelp(null) : swapOf ? setSwapOf(null) : colorOf ? setColorOf(null) : changeOf ? setChangeOf(null) : onClose());
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, changeOf, colorOf, swapOf, swapHelp]);
+  }, [onClose, changeOf, colorOf, swapOf, help]);
 
   const models = useMemo(() => {
     const g = new Map<string, { model: string; name: string | null; n: number; qty: number; wip: number[]; color: number; shipped: number; assy: number; short: number }>();
@@ -701,11 +771,11 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                   </colgroup>
                   <thead>
                     <tr>
-                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r" title="0.00 줄은 무도수용 착색만, -0.25 ~ -10.00 줄은 무도수용 + 유도수용 착색(무도수용은 유도수에도 쓸 수 있음, 같은 모델의 유도수 줄은 같은 값)">착색재고</th>
+                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r"><button className="hh" onClick={() => setHelp("color")} title="누르면 착색재고 계산 기준이 열립니다">착색재고</button></th>
                       {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r">검사부족</th>
-                      <th className="r"><button className="hh" onClick={() => setSwapHelp(true)} title="누르면 품목변경 계산 기준이 열립니다">품목변경</button></th>
-                      <th className="r" title="최근 1개월 조립일자 기준, 이 도수로 변경되어 조립된 작업지시 건수">도수변경</th>
+                      <th className="r"><button className="hh" onClick={() => setHelp("swap")} title="누르면 품목변경 계산 기준이 열립니다">품목변경</button></th>
+                      <th className="r"><button className="hh" onClick={() => setHelp("dosu")} title="누르면 도수변경 계산 기준이 열립니다">도수변경</button></th>
                       <th className="r">조립투입</th><th className="r">출하부족</th>
                     </tr>
                   </thead>
@@ -754,7 +824,9 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
         </div>
       </aside>
       {changeOf && <DosuChangeModal itemCode={changeOf.item_code} power={changeOf.power} onClose={() => setChangeOf(null)} />}
-      {swapHelp && <ItemChangeHelp onClose={() => setSwapHelp(false)} />}
+      {help === "color" && <ColorStockHelp onClose={() => setHelp(null)} />}
+      {help === "dosu" && <DosuChangeHelp onClose={() => setHelp(null)} />}
+      {help === "swap" && <ItemChangeHelp onClose={() => setHelp(null)} />}
       {swapOf && <ItemChangeModal line={swapOf} onClose={() => setSwapOf(null)} />}
       {colorOf && <ColorStockModal model={colorOf.model} power={colorOf.power} onClose={() => setColorOf(null)} />}
     </>
