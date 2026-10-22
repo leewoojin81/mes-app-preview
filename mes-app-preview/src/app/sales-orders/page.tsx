@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { postImport } from "@/lib/import-upload";
 import DateSegmentInput from "@/components/DateSegmentInput";
 import SalesOrderBulkModal from "@/components/SalesOrderBulkModal";
 import SalesOrderEditModal from "@/components/SalesOrderEditModal";
@@ -628,8 +629,12 @@ function UploadModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{
+    dateFrom: string;
+    dateTo: string;
+    deleted: number;
     inserted: number;
-    updated: number;
+    finalTotal: number;
+    skippedNoDate: number;
     skippedInvalid: number;
     skippedCustomerNotFound: number;
     skippedItemNotFound: number;
@@ -642,7 +647,7 @@ function UploadModal({
     setError(null);
     const fd = new FormData();
     fd.set("file", file);
-    const res = await fetch("/api/sales-orders/import", { method: "POST", body: fd });
+    const res = await postImport("/api/sales-orders/import", fd);
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
@@ -673,8 +678,11 @@ function UploadModal({
           {result ? (
             <div className="space-y-4">
               <p className="text-sm text-slate-700">
-                업로드 완료 — 신규 {result.inserted.toLocaleString()}건, 갱신{" "}
-                {result.updated.toLocaleString()}건
+                업로드 완료 ({result.dateFrom} ~ {result.dateTo} 구간 재동기화) — 기존{" "}
+                {result.deleted.toLocaleString()}건 삭제, 신규 {result.inserted.toLocaleString()}
+                건 입력, 최종 {result.finalTotal.toLocaleString()}건
+                {result.skippedNoDate > 0 &&
+                  `, 건너뜀(수주일자 없음) ${result.skippedNoDate.toLocaleString()}건`}
                 {result.skippedInvalid > 0 &&
                   `, 건너뜀(필수값 누락) ${result.skippedInvalid.toLocaleString()}건`}
                 {result.skippedCustomerNotFound > 0 &&
@@ -695,8 +703,10 @@ function UploadModal({
             <div className="space-y-4">
               <p className="text-xs text-slate-500">
                 &quot;수주현황&quot; 양식(.xlsx) 첫 시트를 읽습니다. 1행은 컬럼 제목이어야 하며
-                &quot;수주번호&quot;·&quot;순번&quot;·&quot;코드&quot;·&quot;품목코드&quot;·&quot;수량&quot;
-                컬럼은 필수입니다. 이미 있는 수주번호는 갱신됩니다.
+                &quot;수주일자&quot;·&quot;수주번호&quot;·&quot;순번&quot;·&quot;코드&quot;·&quot;품목코드&quot;·&quot;수량&quot;
+                컬럼은 필수입니다. 업로드 파일의 수주일자 최소~최대 구간을 구해 그 구간의 기존
+                엑셀 업로드분을 전부 삭제한 뒤 파일 내용을 새로 입력합니다(구간 밖 데이터와 화면에서
+                직접 등록한 수주는 유지됩니다).
               </p>
               <label className="block text-sm">
                 <span className="text-slate-600">엑셀 파일</span>
