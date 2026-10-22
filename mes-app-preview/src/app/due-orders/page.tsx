@@ -38,8 +38,11 @@ const CSS = `
 .po td{padding:7px 10px;border-bottom:1px solid var(--line-2);white-space:nowrap;color:var(--fg)}
 .po th.r,.po td.r{text-align:right}
 .po th.grp{text-align:center;cursor:pointer;user-select:none;border-bottom:1px solid var(--line);color:var(--navy)}
+.po th.grp2{text-align:center}
 .po th.grp:hover{background:var(--blue-bg)}
 .po thead tr.h2 th{top:35px}
+.po thead tr.h2.tall th{height:30px}
+.po thead tr.h3 th{top:65px}
 .po thead tr.h1 th{height:35px}
 .po tbody tr.row{cursor:pointer}.po tbody tr.row:hover{background:var(--surface-2)}.po tbody tr.row.sel{background:var(--blue-bg)}
 .po tbody tr.row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
@@ -396,11 +399,14 @@ function sanitizeLayout(v: unknown): Layout {
   return { order, hidden, wipOpen: !!o.wipOpen, progOpen: !!o.progOpen };
 }
 
-function PBar({ p, small }: { p: number; small?: boolean }) {
+// 공정별 색 — 진행률 펼침 때 막대와 공정명 머리글에 쓴다(흰 글씨가 읽히는 진한 색)
+const STAGE_COLORS = ["#2f6df0", "#0e9aa7", "#7c4dff", "#d6409f", "#e8590c", "#2b9348", "#b8860b", "#8a5a44", "#c92a2a", "#364fc7"];
+
+function PBar({ p, small, color }: { p: number; small?: boolean; color?: string }) {
   const pct = Math.round(p * 100);
   return (
     <div className={`pbar num${small ? " sm" : ""}`} title={`${pct}%`}>
-      {p > 0 ? <i className={p < 0.7 ? "mid" : ""} style={{ width: `${pct}%` }}>{pct}%</i> : <span>0%</span>}
+      {p > 0 ? <i className={!color && p < 0.7 ? "mid" : ""} style={{ width: `${pct}%`, ...(color ? { background: `linear-gradient(90deg, ${color}, ${color}bb)` } : {}) }}>{pct}%</i> : <span>0%</span>}
     </div>
   );
 }
@@ -545,9 +551,10 @@ export default function DueOrdersPage() {
   ];
 
   const progOpen = layout.progOpen;
-  const twoRows = (wipOpen && on("wip")) || (progOpen && on("stageprog"));
-  const rs = twoRows ? 2 : 1;
-  const colCount = cols.reduce((n, k) => n + (k === "wip" && wipOpen ? STAGES.length : k === "stageprog" && progOpen ? STAGE_PROG.length : 1), 0);
+  const threeRows = progOpen && on("stageprog"); // 진행률을 펼치면 그룹 / 공정명 / 부족분·진행률 3단 머리글
+  const twoRows = threeRows || (wipOpen && on("wip"));
+  const rs = threeRows ? 3 : twoRows ? 2 : 1;
+  const colCount = cols.reduce((n, k) => n + (k === "wip" && wipOpen ? STAGES.length : k === "stageprog" && progOpen ? STAGE_PROG.length * 2 : 1), 0);
   const dt = (k: string) => (overKey === k ? " dropt" : "");
 
   const headCell = (k: string) => {
@@ -564,7 +571,7 @@ export default function DueOrdersPage() {
     }
     if (k === "stageprog") {
       return progOpen ? (
-        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} colSpan={STAGE_PROG.length} onClick={() => setLayout({ ...layout, progOpen: false })} title="누르면 출하 진행률 1칸으로 접습니다">
+        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} colSpan={STAGE_PROG.length * 2} onClick={() => setLayout({ ...layout, progOpen: false })} title="누르면 출하 진행률 1칸으로 접습니다">
           진행률 (공정별, 공정 부족분 기준) ▾
         </th>
       ) : (
@@ -616,7 +623,12 @@ export default function DueOrdersPage() {
       case "stageprog":
         return (
           <Fragment key={k}>
-            {progOpen ? stagePs.map((v, i) => <td key={i}><PBar small p={v} /></td>) : <td><PBar p={p} /></td>}
+            {progOpen ? stagePs.map((v, i) => (
+              <Fragment key={i}>
+                <td className="r num"><Z n={(r.shorts ?? [])[i] ?? 0} /></td>
+                <td><PBar small p={v} color={STAGE_COLORS[i]} /></td>
+              </Fragment>
+            )) : <td><PBar p={p} /></td>}
           </Fragment>
         );
       case "open":
@@ -701,13 +713,22 @@ export default function DueOrdersPage() {
             <thead>
               <tr className="h1">{cols.map(headCell)}</tr>
               {twoRows && (
-                <tr className="h2">
+                <tr className={`h2${threeRows ? " tall" : ""}`}>
                   {cols.flatMap((k) =>
                     k === "wip" && wipOpen
-                      ? STAGES.map((s) => <th key={`w-${s}`} className="r">{s}</th>)
+                      ? STAGES.map((s) => <th key={`w-${s}`} className="r" rowSpan={threeRows ? 2 : 1}>{s}</th>)
                       : k === "stageprog" && progOpen
-                        ? STAGE_PROG.map((s) => <th key={`p-${s}`} className="r">{s}</th>)
+                        ? STAGE_PROG.map((s, i) => <th key={`p-${s}`} className="grp2" colSpan={2} style={{ color: STAGE_COLORS[i], boxShadow: `inset 0 -3px 0 ${STAGE_COLORS[i]}` }}>{s}</th>)
                         : []
+                  )}
+                </tr>
+              )}
+              {threeRows && (
+                <tr className="h3">
+                  {cols.flatMap((k) =>
+                    k === "stageprog"
+                      ? STAGE_PROG.flatMap((s) => [<th key={`s-${s}`} className="r">부족분</th>, <th key={`g-${s}`}>진행률</th>])
+                      : []
                   )}
                 </tr>
               )}
