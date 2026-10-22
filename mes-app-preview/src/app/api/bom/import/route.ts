@@ -20,11 +20,58 @@ function splitErpName(raw: string): { name: string; spec: string | null } {
   return { name: raw.slice(0, i).trim() || raw.trim(), spec: spec || null };
 }
 
+type Cell = string | number | null;
+
+// ERP "BOM 정전개"(d_bimr210, Level 열로 단계를 표시하는 트리)를 요약조회(d_bimr220)와 같은
+// 모품목 × 전체 하위 자재 줄로 펼친다 — 소요원수 = 경로의 표준원수를 곱한 값을 같은 자재끼리 합한 것
+// (요약조회 파일과 대조해 일치 확인, 2026-10-22). 도수별 품목코드(끝 -0000 같은 4자리) 트리는
+// 요약조회·기존 BOM처럼 대표코드만 두기 위해 건너뛴다.
+function explodeTree(rows: Cell[][], header: string[]): { rows: Cell[][]; powerSkipped: number } {
+  const col = (n: string) => header.indexOf(n);
+  const iTop = col("모품목코드"), iLv = col("Level"), iChild = col("자품목코드"), iName = col("품목명");
+  const iSpec = col("규격"), iAcct = col("계정"), iUnit = col("단위"), iQty = col("표준원수");
+  const out = new Map<string, Cell[]>();
+  const powerTops = new Set<string>();
+  const cum: number[] = [];
+  let topName: string | null = null;
+  for (const r of rows.slice(1)) {
+    const top = r[iTop] == null ? "" : String(r[iTop]).trim();
+    const lvRaw = r[iLv];
+    const lv = typeof lvRaw === "number" ? lvRaw : Number(String(lvRaw ?? "").replace(/\*/g, "").trim());
+    if (!top || !Number.isInteger(lv) || lv < 0) continue; // 맨 아래 "Parent : n Rows" 합계 줄 등
+    if (/-\d{4}$/.test(top)) {
+      powerTops.add(top);
+      continue;
+    }
+    if (lv === 0) {
+      cum.length = 0;
+      cum[0] = 1;
+      const name = r[iName] == null ? top : String(r[iName]).trim();
+      topName = r[iSpec] == null || String(r[iSpec]).trim() === "" ? name : `${name}◆(${String(r[iSpec]).trim()})`; // 요약조회의 모품목정보 모양
+      continue;
+    }
+    const q = Number(r[iQty]);
+    const v = (cum[lv - 1] ?? 1) * (Number.isFinite(q) ? q : NaN);
+    cum[lv] = v;
+    cum.length = lv + 1;
+    const child = r[iChild] == null ? "" : String(r[iChild]).trim();
+    const key = `${top}|${child}`;
+    const prev = out.get(key);
+    if (prev) prev[6] = (prev[6] as number) + v;
+    else out.set(key, [top, topName, child, r[iName], r[iAcct], r[iSpec] == null ? null : String(r[iSpec]), v, r[iUnit]]);
+  }
+  for (const r of out.values()) r[6] = Math.round((r[6] as number) * 1e9) / 1e9; // 곱셈 부동소수 오차 정리
+  return {
+    rows: [["모품목코드", "모품목정보", "자품목코드", "자품목명", "계정", "규격", "소요원수", "단위"], ...out.values()],
+    powerSkipped: powerTops.size,
+  };
+}
+
 // /api/bom/export가 내려주는 것과 같은 컬럼(상위품목코드/상위품목명/하위품목코드/
 // 하위품목명/하위구분/규격/소요량/단위)의 엑셀을 읽어 bom 테이블에 반영한다.
 // 상위/하위 품목코드가 아직 기준정보에 없으면 신규모델·신규 구성품으로 자동 등록한다
 // (상위는 항상 완제품, 하위는 하위구분 기준).
-// ERP "BOM요약조회" 원본은 모품목별 전체 구성이라, 파일에 나온 모품목은 구성품을 파일과 똑같이 맞춘다
+// ERP "BOM요약조회"·"BOM 정전개" 원본은 모품목별 전체 구성이라, 파일에 나온 모품목은 구성품을 파일과 똑같이 맞춘다
 // (파일에 없는 기존 구성품 삭제 — 자재 리비전이 바뀌면 옛 코드가 남아 자재수급(PUR-03)에서 두 번 잡히던 문제).
 // 파일에 없는 모품목과 내려받기 형식 업로드는 지금처럼 추가·수정만 한다.
 export async function POST(req: NextRequest) {
@@ -44,13 +91,16 @@ export async function POST(req: NextRequest) {
     );
   }
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) as (
-    | string
-    | number
-    | null
-  )[][];
-  const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).replace(/[▲▼]/g, "").trim()));
-  // 내려받기 형식(상위품목코드…)과 ERP "BOM요약조회" 원본 형식(모품목코드/자품목코드/계정/소요원수)을 모두 받는다.
+  let rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) as Cell[][];
+  const cleanHeader = (r: Cell[] | undefined) => (r ?? []).map((h) => (h == null ? "" : String(h).replace(/[▲▼]/g, "").trim()));
+  let header = cleanHeader(rows[0]);
+  let powerSkipped = 0;
+  if (header.includes("Level") && header.includes("표준원수")) {
+    ({ rows, powerSkipped } = explodeTree(rows, header));
+    header = cleanHeader(rows[0]);
+  }
+  // 내려받기 형식(상위품목코드…)과 ERP "BOM요약조회" 원본 형식(모품목코드/자품목코드/계정/소요원수),
+  // ERP "BOM 정전개" 형식(위에서 요약조회 모양으로 펼침)을 모두 받는다.
   const idx = (...names: string[]) => {
     for (const n of names) {
       const i = header.indexOf(n);
@@ -72,7 +122,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          '첫 시트의 1행에서 "상위품목코드(모품목코드)"·"하위품목코드(자품목코드)"·"소요량(소요원수)" 컬럼을 찾을 수 없습니다.',
+          '첫 시트의 1행에서 "상위품목코드(모품목코드)"·"하위품목코드(자품목코드)"·"소요량(소요원수 또는 정전개의 Level+표준원수)" 컬럼을 찾을 수 없습니다.',
       },
       { status: 400 }
     );
@@ -184,5 +234,5 @@ export async function POST(req: NextRequest) {
   }
 
   recordUpload(db, "bom");
-  return NextResponse.json({ inserted, updated, deleted, registeredItems, skipped });
+  return NextResponse.json({ inserted, updated, deleted, registeredItems, skipped, powerSkipped });
 }
