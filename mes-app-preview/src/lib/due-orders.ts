@@ -18,7 +18,10 @@ import type { DatabaseSync } from "node:sqlite";
 //  - 조립투입 = 검사부족분 ÷ 직진율 − 조립 − 분리3 − 습윤 − 외관검사×108%, 0 이하이면 0, 아니면 60 단위 올림
 //  - 공정재공은 품목코드 기준이라 같은 품목을 가진 여러 수주에 똑같이 보인다(엑셀과 동일)
 //  - 착색재고 = 모델(품목코드 앞 9자리 = BOM 대표코드)의 직접 구성품 중 반제품·품목군 "착색"인 품목의 조립창고 재고.
-//    같은 모델의 도수 줄은 모두 같은 값이고, 수주 단위는 그 수주에 든 모델별 값의 합이다(시안 값과 대조해 확인).
+//    LOT마다 무도수/유도수로 나눈다 — BASE 인쇄를 자동Base 호기에서 했거나, BASE 인쇄 실적 없이 착색 인쇄를 자동인쇄 호기에서
+//    했으면 무도수, 나머지(수동 Back 호기 BASE, 실적 없음)는 유도수. LOT No는 BASE 인쇄 → 착색 인쇄까지 그대로 이어진다.
+//    도수 줄은 0.00이면 무도수, -0.25 ~ -10.00이면 유도수 재고(같은 모델의 유도수 줄은 같은 값)이고,
+//    모델·수주 단위는 무도수 + 유도수, 수주 단위는 그 수주에 든 모델별 값의 합이다.
 // 엑셀의 조정값(Z열, 손입력)은 아직 넣지 않았다.
 
 export const STAGES = ["조립", "분리3", "습윤", "외관검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "마킹", "출하포장"] as const;
@@ -42,8 +45,10 @@ export interface DueOrderLine {
   shipped: number;
   cum_shipped: number;
   base_stock: number;
-  /** 모델 단위 착색재고(같은 모델의 도수 줄은 같은 값) */
+  /** 이 도수가 쓸 착색재고 — 0.00은 무도수, 그 외 도수는 유도수(같은 모델의 유도수 줄은 같은 값) */
   color_stock: number;
+  /** 모델 단위 착색재고(무도수 + 유도수) */
+  model_color_stock: number;
   /** 분리3~출하 부족분 10개 — null은 "완료" */
   shorts: (number | null)[];
   assy_in: number;
@@ -91,6 +96,16 @@ function soBase(soNo: string): string {
 }
 
 /** 품목코드 끝 4자리 → 도수(엑셀 J열: -(RIGHT(코드,4)/100)) */
+/** 무도수 착색 LOT 판정(아래 colorMap 쿼리의 LOT 실적 l 기준) — BASE 자동호기, 또는 BASE 실적 없이 착색 자동호기 */
+const COLOR_MU = `(l.base_auto = 1 OR (l.has_base IS NULL AND l.color_auto = 1))`;
+
+/** 도수 줄의 착색재고 — 0.00은 무도수, 그 외(도수 없는 품목코드 포함)는 유도수 */
+function colorStockOf(c: { mu: number; yu: number } | undefined, power: number | null): { color_stock: number; model_color_stock: number } {
+  const mu = c?.mu ?? 0;
+  const yu = c?.yu ?? 0;
+  return { color_stock: power === 0 ? mu : yu, model_color_stock: mu + yu };
+}
+
 export function powerOf(itemCode: string): number | null {
   const m = /-(\d{4})$/.exec(itemCode);
   if (!m) return null;
@@ -105,7 +120,7 @@ export function assyInput(inspectShort: number | null, wip: number[], rate = STR
   return Math.ceil(Math.round(v * 1e6) / 1e6 / ASSY_LOT) * ASSY_LOT;
 }
 
-type Computed = { at: number; result: DueOrdersResult; lines: Map<string, DueOrderLine[]> };
+type Computed = { at: number; result: DueOrdersResult; lines: Map<string, DueOrderLine[]>; colors: Map<string, { mu: number; yu: number }> };
 const cache = new WeakMap<DatabaseSync, Computed>();
 
 function compute(db: DatabaseSync): Computed {
@@ -183,19 +198,29 @@ function compute(db: DatabaseSync): Computed {
     baseMap.set(r.item_code, r.q ?? 0);
   }
 
-  // 3-2) 모델(BOM 대표코드)별 착색재고
-  const colorMap = new Map<string, number>();
+  // 3-2) 모델(BOM 대표코드)별 착색재고 — LOT의 BASE·착색 인쇄 실적(일일작업현황) 호기로 무도수/유도수를 나눈다
+  const colorMap = new Map<string, { mu: number; yu: number }>();
   for (const r of db
     .prepare(
-      `SELECT c.parent_item_code p, SUM(COALESCE(i.stock_qty, 0)) q
+      `SELECT c.parent_item_code p,
+              SUM(CASE WHEN ${COLOR_MU} THEN COALESCE(i.stock_qty, 0) ELSE 0 END) mu,
+              SUM(CASE WHEN ${COLOR_MU} THEN 0 ELSE COALESCE(i.stock_qty, 0) END) yu
          FROM (SELECT DISTINCT b.parent_item_code, b.child_item_code
                  FROM bom b JOIN items it ON it.item_code = b.child_item_code
                 WHERE it.category = '반제품' AND json_extract(it.detail, '$."품목군"') = '착색') c
          JOIN inventory_status i ON i.item_code = c.child_item_code AND i.warehouse = ?
+         LEFT JOIN (SELECT lot_no,
+                           MAX(CASE WHEN json_extract(detail, '$."공정명"') = 'Base 인쇄' THEN 1 END) has_base,
+                           MAX(json_extract(detail, '$."공정명"') = 'Base 인쇄' AND json_extract(detail, '$."라인"') LIKE '자동%') base_auto,
+                           MAX(json_extract(detail, '$."공정명"') = '착색 인쇄' AND json_extract(detail, '$."라인"') LIKE '자동%') color_auto
+                      FROM daily_work_status
+                     WHERE json_extract(detail, '$."공정명"') IN ('Base 인쇄', '착색 인쇄')
+                       AND lot_no IN (SELECT lot_no FROM inventory_status WHERE warehouse = ?)
+                     GROUP BY lot_no) l ON l.lot_no = i.lot_no
         GROUP BY c.parent_item_code`
     )
-    .all(COLOR_WAREHOUSE) as { p: string; q: number }[]) {
-    colorMap.set(r.p, r.q ?? 0);
+    .all(COLOR_WAREHOUSE, COLOR_WAREHOUSE) as { p: string; mu: number; yu: number }[]) {
+    colorMap.set(r.p, { mu: r.mu ?? 0, yu: r.yu ?? 0 });
   }
 
   // 4) 수주번호·품목별 출고
@@ -239,7 +264,7 @@ function compute(db: DatabaseSync): Computed {
         shipped,
         cum_shipped: Y,
         base_stock: base,
-        color_stock: colorMap.get(code.length >= 9 ? code.slice(0, 9) : code) ?? 0,
+        ...colorStockOf(colorMap.get(code.length >= 9 ? code.slice(0, 9) : code), powerOf(code)),
         shorts,
         assy_in: assyInput(shorts[2], wip),
       });
@@ -264,7 +289,7 @@ function compute(db: DatabaseSync): Computed {
       order_qty,
       shipped,
       wip: STAGES.map((_, i) => ordered_.reduce((s, l) => s + l.wip[i], 0)),
-      color_stock: [...new Map(ls.map((l) => [l.model, l.color_stock])).values()].reduce((s, v) => s + v, 0),
+      color_stock: [...new Map(ls.map((l) => [l.model, l.model_color_stock])).values()].reduce((s, v) => s + v, 0),
       shorts: SHORT_NAMES.map((_, k) => ls.reduce((s, l) => s + (l.shorts[k] ?? 0), 0)),
       assy_in: ls.reduce((s, l) => s + l.assy_in, 0),
       ship_short,
@@ -283,7 +308,7 @@ function compute(db: DatabaseSync): Computed {
     },
     straight_rate: STRAIGHT_RATE,
   };
-  return { at: Date.now(), result, lines };
+  return { at: Date.now(), result, lines, colors: colorMap };
 }
 
 /** 계산 결과를 30초 동안 재사용한다(목록 → 상세를 연달아 열 때 다시 계산하지 않도록) */
@@ -335,7 +360,6 @@ export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOr
   const out: DueOrderLine[] = lines.map((l) => ({ ...l, use_yn: items.get(l.item_code)?.use_yn ?? null }));
   const have = new Set(lines.map((l) => l.item_code));
   for (const m of models) {
-    const colorStock = lines.find((l) => l.model === m)?.color_stock ?? 0;
     const withWip = [...wip.entries()].filter(([code, w]) => code.startsWith(`${m}-`) && w.some((v) => v > 0)).map(([code]) => code);
     const codes = new Set([...POWER_GRID.map((p) => `${m}-${p}`), ...withWip]);
     for (const code of codes) {
@@ -351,7 +375,7 @@ export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOr
         shipped: 0,
         cum_shipped: 0,
         base_stock: base.get(code) ?? 0,
-        color_stock: colorStock,
+        ...colorStockOf(c.colors.get(m), powerOf(code)),
         shorts: SHORT_NAMES.map(() => null),
         assy_in: 0,
         use_yn: items.get(code)?.use_yn ?? null,

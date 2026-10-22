@@ -8,7 +8,7 @@ import type { AssemblyRecord, DueOrderLine, DueOrderRow, DueOrdersResult } from 
 // 생산계획 "납기별수주현황(PLAN-04)" — 생산계획 엑셀 「납기별」 시트 + 수주별 시트를 한 화면으로 옮긴 것.
 // 목록에서 수주를 누르면 오른쪽 상세 창에서 품목(모델)별 요약 → 모델을 누르면 도수별 공정재공·부족분·조립투입을 본다.
 // 계산식과 데이터 출처는 lib/due-orders.ts 머리 주석 참고.
-// 화면 디자인은 시안 「메디오스 MES 납기별 수주현황.html」의 CSS를 .po 아래로 옮겨 그대로 맞췄다(착색재고 = 모델별 BOM 착색 반제품의 조립창고 재고).
+// 화면 디자인은 시안 「메디오스 MES 납기별 수주현황.html」의 CSS를 .po 아래로 옮겨 그대로 맞췄다(착색재고 = 모델별 BOM 착색 반제품의 조립창고 재고, 도수 상세는 0.00 무도수 / 그 외 유도수).
 
 const CSS = `
 @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
@@ -289,7 +289,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
     const g = new Map<string, { model: string; name: string | null; n: number; qty: number; wip: number[]; color: number; shipped: number; assy: number; short: number }>();
     for (const l of detail?.lines ?? []) {
       if (l.extra) continue; // 수주에 없는 도수(도수변경 재공 확인용)는 모델 요약에 넣지 않는다
-      const x = g.get(l.model) ?? { model: l.model, name: l.item_name, n: 0, qty: 0, wip: STAGES.map(() => 0), color: l.color_stock, shipped: 0, assy: 0, short: 0 };
+      const x = g.get(l.model) ?? { model: l.model, name: l.item_name, n: 0, qty: 0, wip: STAGES.map(() => 0), color: l.model_color_stock, shipped: 0, assy: 0, short: 0 };
       x.n += 1;
       x.qty += l.order_qty;
       l.wip.forEach((v, i) => (x.wip[i] += v));
@@ -448,7 +448,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                   </colgroup>
                   <thead>
                     <tr>
-                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r">착색재고</th>
+                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r" title="0.00 줄은 무도수 착색재고, -0.25 ~ -10.00 줄은 유도수 착색재고(같은 모델의 유도수 줄은 같은 값)">착색재고</th>
                       {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r">검사부족</th>
                       <th className="r" title="최근 1개월 조립일자 기준, 이 도수로 변경되어 조립된 작업지시 건수">도수변경</th>
