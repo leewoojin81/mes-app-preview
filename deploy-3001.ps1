@@ -14,6 +14,9 @@ try {
     Log "=== deploy start ==="
     Set-Location $app
 
+    # menus marked devOnly in nav-groups.ts (e.g. PROC in progress) are left out of the 3001 build
+    $env:NEXT_PUBLIC_MES_SERVER = "preview"
+
     # 1) build first (old server keeps serving meanwhile)
     Log "next build ..."
     $build = Start-Process -FilePath "cmd.exe" -ArgumentList "/c npx next build --webpack >> `"$log`" 2>&1" -WorkingDirectory $app -Wait -PassThru -WindowStyle Hidden
