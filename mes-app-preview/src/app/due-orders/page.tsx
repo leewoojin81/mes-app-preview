@@ -969,14 +969,15 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
 }
 
 // 사용자별 화면 구성(열 순서·숨김·공정재공 펼침) — 계정마다 서버(user_ui_prefs)에 저장돼 다음에 열어도 그대로 나온다.
-type Layout = { order: string[]; hidden: string[]; wipOpen: boolean; progOpen: boolean; matOpen: boolean };
+// progPick = 진행률을 접었을 때 보여줄 공정(STAGE_PROG 이름, 기본 출하) — 2026-10-23 사용자 요청
+type Layout = { order: string[]; hidden: string[]; wipOpen: boolean; progOpen: boolean; matOpen: boolean; progPick: string[] };
 const PREF_KEY = "due-orders-grid";
 const GRID_KEYS = new Set(GRID_COLS.map((c) => c.key));
 const LABELS: Record<string, string> = Object.fromEntries(GRID_COLS.map((c) => [c.key, c.label]));
 const RIGHT = new Set(["rank", "qty", "color", "shipped", "assy", "short"]);
 // 공정별 진행률 열 이름 = lib/due-orders.ts의 SHORT_NAMES(공정 부족분 10개와 같은 순서)
 const STAGE_PROG = ["분리3", "습윤", "검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "완검", "출하"];
-const DEFAULT_LAYOUT: Layout = { order: GRID_COLS.map((c) => c.key), hidden: [], wipOpen: false, progOpen: false, matOpen: true };
+const DEFAULT_LAYOUT: Layout = { order: GRID_COLS.map((c) => c.key), hidden: [], wipOpen: false, progOpen: false, matOpen: true, progPick: ["출하"] };
 
 function sanitizeLayout(v: unknown): Layout {
   const o = (v ?? {}) as Partial<Layout>;
@@ -990,7 +991,15 @@ function sanitizeLayout(v: unknown): Layout {
     if (DEFAULT_LAYOUT.hidden.includes(c.key) && !hidden.includes(c.key)) hidden.push(c.key);
   });
   // 자재일정은 처음부터 펼친 상태(저장값이 없으면 펼침)
-  return { order, hidden, wipOpen: !!o.wipOpen, progOpen: !!o.progOpen, matOpen: o.matOpen === undefined ? true : !!o.matOpen };
+  const pick = Array.isArray(o.progPick) ? STAGE_PROG.filter((st) => o.progPick!.includes(st)) : [];
+  return {
+    order,
+    hidden,
+    wipOpen: !!o.wipOpen,
+    progOpen: !!o.progOpen,
+    matOpen: o.matOpen === undefined ? true : !!o.matOpen,
+    progPick: pick.length > 0 ? pick : DEFAULT_LAYOUT.progPick,
+  };
 }
 
 // 공정별 색 — 진행률 펼침 때 막대와 공정명 머리글에 쓴다(흰 글씨가 읽히는 진한 색)
@@ -1023,6 +1032,7 @@ export default function DueOrdersPage() {
   const [layout, setLayoutState] = useState<Layout>(DEFAULT_LAYOUT);
   const [layoutReady, setLayoutReady] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [progMenu, setProgMenu] = useState<{ x: number; y: number } | null>(null);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1166,9 +1176,11 @@ export default function DueOrdersPage() {
   const progOpen = layout.progOpen;
   const threeRows = progOpen && on("stageprog"); // 진행률을 펼치면 그룹 / 공정명 / 부족분·진행률 3단 머리글
   const matOpen = layout.matOpen;
-  const twoRows = threeRows || (wipOpen && on("wip")) || on("mat"); // 자재일정은 접어도 아래 칸에 "실링지"를 표시
+  const progPick = layout.progPick;
+  // 자재일정은 접어도 아래 칸에 "실링지"를, 진행률은 접어도 고른 공정 이름을 표시
+  const twoRows = threeRows || (wipOpen && on("wip")) || on("mat") || on("stageprog");
   const rs = threeRows ? 3 : twoRows ? 2 : 1;
-  const colCount = cols.reduce((n, k) => n + (k === "wip" && wipOpen ? STAGES.length : k === "stageprog" && progOpen ? STAGE_PROG.length * 2 : k === "mat" && matOpen ? MAT_KINDS.length : 1), 0);
+  const colCount = cols.reduce((n, k) => n + (k === "wip" && wipOpen ? STAGES.length : k === "stageprog" ? (progOpen ? STAGE_PROG.length * 2 : progPick.length) : k === "mat" && matOpen ? MAT_KINDS.length : 1), 0);
   const dt = (k: string) => (overKey === k ? " dropt" : "");
 
   const headCell = (k: string) => {
@@ -1189,7 +1201,17 @@ export default function DueOrdersPage() {
           진행률 (공정별, 공정 부족분 기준) ▾
         </th>
       ) : (
-        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} rowSpan={rs} onClick={() => setLayout({ ...layout, progOpen: true })} title="누르면 공정별 진행률로 펼칩니다 (접힌 칸 = 출하 진행률 = (주문량 − 출하부족) ÷ 주문량)">
+        <th
+          key={k}
+          {...dnd(k)}
+          className={`grp${dt(k)}`}
+          colSpan={progPick.length}
+          onClick={(e) => {
+            const rc = e.currentTarget.getBoundingClientRect();
+            setProgMenu({ x: Math.min(rc.left, window.innerWidth - 280), y: rc.bottom + 4 });
+          }}
+          title="누르면 보여줄 공정 진행률을 고르거나 공정별로 펼칩니다 (진행률 = (주문량 − 그 공정 부족분) ÷ 주문량)"
+        >
           진행률 ▸
         </th>
       );
@@ -1295,7 +1317,11 @@ export default function DueOrdersPage() {
                 <td className="r num"><Z n={(r.shorts ?? [])[i] ?? 0} /></td>
                 <td><PBar small p={v} color={STAGE_COLORS[i]} /></td>
               </Fragment>
-            )) : <td><PBar p={p} /></td>}
+            )) : progPick.map((st) => {
+              // 출하는 예전처럼 목록 진행률(주문량 − 출하부족) 그대로
+              const i = STAGE_PROG.indexOf(st);
+              return <td key={st}><PBar p={st === "출하" ? p : stagePs[i]} /></td>;
+            })}
           </Fragment>
         );
       case "open":
@@ -1368,6 +1394,42 @@ export default function DueOrdersPage() {
           )}
         </div>
         <span className="cnt">{rows.length.toLocaleString("ko-KR")}건 표시</span>
+        {progMenu && (
+          <>
+            <div className="pop-scrim" onClick={() => setProgMenu(null)} />
+            <div className="pop" role="menu" style={{ position: "fixed", top: progMenu.y, left: progMenu.x }}>
+              <div className="acts">
+                <button className="chip" onClick={() => setLayout({ ...layout, progPick: [...STAGE_PROG] })}>전체 선택</button>
+                <button className="chip" onClick={() => setLayout({ ...layout, progPick: ["출하"] })}>출하만</button>
+                <button
+                  className="chip"
+                  onClick={() => {
+                    setLayout({ ...layout, progOpen: true });
+                    setProgMenu(null);
+                  }}
+                  title="공정마다 부족분 · 진행률 두 칸씩 모두 펼칩니다"
+                >
+                  공정별 펼치기
+                </button>
+              </div>
+              {STAGE_PROG.map((st, i) => (
+                <label key={st}>
+                  <input
+                    type="checkbox"
+                    checked={progPick.includes(st)}
+                    onChange={() => {
+                      const next = progPick.includes(st) ? progPick.filter((x) => x !== st) : STAGE_PROG.filter((x) => x === st || progPick.includes(x));
+                      if (next.length > 0) setLayout({ ...layout, progPick: next });
+                    }}
+                  />
+                  <span style={{ width: 10, height: 10, borderRadius: 2, background: STAGE_COLORS[i], display: "inline-block" }} />
+                  <span style={{ flex: 1 }}>{st} 진행률</span>
+                </label>
+              ))}
+              <div className="hint">체크한 공정의 진행률이 열로 나옵니다(최소 1개). 진행률 = (주문량 − 그 공정 부족분) ÷ 주문량. 고른 구성은 열 배치와 함께 저장됩니다.</div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="tbl-wrap" style={{ maxHeight: "calc(100vh - 330px)" }}>
@@ -1390,6 +1452,8 @@ export default function DueOrdersPage() {
                         ? [<th key="m-folded" rowSpan={threeRows ? 2 : 1} title="접힌 칸은 실링지 상태만 표시합니다(마우스를 올리면 네 자재 모두)">{MAT_KINDS.find((m) => m.key === MAT_FOLDED)?.label}</th>]
                       : k === "stageprog" && progOpen
                         ? STAGE_PROG.map((s, i) => <th key={`p-${s}`} className="grp2" colSpan={2} style={{ color: STAGE_COLORS[i], boxShadow: `inset 0 -3px 0 ${STAGE_COLORS[i]}` }}>{s}</th>)
+                      : k === "stageprog"
+                        ? progPick.map((s) => <th key={`p-${s}`} className="grp2" rowSpan={threeRows ? 2 : 1}>{s}</th>)
                         : []
                   )}
                 </tr>
