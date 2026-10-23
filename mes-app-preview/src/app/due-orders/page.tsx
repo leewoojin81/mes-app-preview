@@ -146,8 +146,7 @@ const GRID_COLS: { key: string; label: string }[] = [
   { key: "color", label: "착색재고" },
   { key: "wip", label: "공정재공" },
   { key: "shipped", label: "출고" },
-  { key: "assy", label: "조립투입 필요" },
-  { key: "short", label: "출하부족" },
+  { key: "assy", label: "조립투입" },
   { key: "stageprog", label: "진행률" },
   { key: "open", label: "상세" },
 ];
@@ -974,7 +973,7 @@ const WIP_PICKS = ["합계", ...STAGES];
 const PREF_KEY = "due-orders-grid";
 const GRID_KEYS = new Set(GRID_COLS.map((c) => c.key));
 const LABELS: Record<string, string> = Object.fromEntries(GRID_COLS.map((c) => [c.key, c.label]));
-const RIGHT = new Set(["rank", "qty", "color", "shipped", "assy", "short"]);
+const RIGHT = new Set(["rank", "qty", "color", "shipped", "assy"]);
 // 공정별 진행률 열 이름 = lib/due-orders.ts의 SHORT_NAMES(공정 부족분 10개와 같은 순서)
 const STAGE_PROG = ["분리3", "습윤", "검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "완검", "출하"];
 const DEFAULT_LAYOUT: Layout = { order: GRID_COLS.map((c) => c.key), hidden: [], wipOpen: false, progOpen: false, matOpen: true, progPick: ["출하"], matPick: ["seal"], wipPick: ["합계"] };
@@ -1337,8 +1336,6 @@ export default function DueOrdersPage() {
         return <td key={k} className="r num"><Z n={r.shipped} /></td>;
       case "assy":
         return <td key={k} className={`r num ${r.assy_in > 0 ? "need" : ""}`}><Z n={r.assy_in} /></td>;
-      case "short":
-        return <td key={k} className="r num"><Z n={r.ship_short} /></td>;
       case "stageprog":
         return (
           <Fragment key={k}>
