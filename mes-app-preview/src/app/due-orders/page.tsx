@@ -968,15 +968,16 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
 
 // 사용자별 화면 구성(열 순서·숨김·공정재공 펼침) — 계정마다 서버(user_ui_prefs)에 저장돼 다음에 열어도 그대로 나온다.
 // progPick = 진행률을 접었을 때 보여줄 공정(STAGE_PROG 이름, 기본 출하), matPick = 자재일정을 접었을 때 보여줄 자재
-// (MAT_KINDS key, 기본 실링지) — 2026-10-23 사용자 요청
-type Layout = { order: string[]; hidden: string[]; wipOpen: boolean; progOpen: boolean; matOpen: boolean; progPick: string[]; matPick: MaterialKind[] };
+// (MAT_KINDS key, 기본 실링지), wipPick = 공정재공을 접었을 때 보여줄 칸("합계" 또는 STAGES 이름, 기본 합계) — 2026-10-23 사용자 요청
+type Layout = { order: string[]; hidden: string[]; wipOpen: boolean; progOpen: boolean; matOpen: boolean; progPick: string[]; matPick: MaterialKind[]; wipPick: string[] };
+const WIP_PICKS = ["합계", ...STAGES];
 const PREF_KEY = "due-orders-grid";
 const GRID_KEYS = new Set(GRID_COLS.map((c) => c.key));
 const LABELS: Record<string, string> = Object.fromEntries(GRID_COLS.map((c) => [c.key, c.label]));
 const RIGHT = new Set(["rank", "qty", "color", "shipped", "assy", "short"]);
 // 공정별 진행률 열 이름 = lib/due-orders.ts의 SHORT_NAMES(공정 부족분 10개와 같은 순서)
 const STAGE_PROG = ["분리3", "습윤", "검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "완검", "출하"];
-const DEFAULT_LAYOUT: Layout = { order: GRID_COLS.map((c) => c.key), hidden: [], wipOpen: false, progOpen: false, matOpen: true, progPick: ["출하"], matPick: ["seal"] };
+const DEFAULT_LAYOUT: Layout = { order: GRID_COLS.map((c) => c.key), hidden: [], wipOpen: false, progOpen: false, matOpen: true, progPick: ["출하"], matPick: ["seal"], wipPick: ["합계"] };
 
 function sanitizeLayout(v: unknown): Layout {
   const o = (v ?? {}) as Partial<Layout>;
@@ -991,6 +992,7 @@ function sanitizeLayout(v: unknown): Layout {
   });
   // 자재일정은 처음부터 펼친 상태(저장값이 없으면 펼침)
   const pick = Array.isArray(o.progPick) ? STAGE_PROG.filter((st) => o.progPick!.includes(st)) : [];
+  const wpick = Array.isArray(o.wipPick) ? WIP_PICKS.filter((w) => o.wipPick!.includes(w)) : [];
   const mpick = Array.isArray(o.matPick) ? MAT_KINDS.map((m) => m.key).filter((key) => o.matPick!.includes(key)) : [];
   return {
     order,
@@ -1000,6 +1002,7 @@ function sanitizeLayout(v: unknown): Layout {
     matOpen: o.matOpen === undefined ? true : !!o.matOpen,
     progPick: pick.length > 0 ? pick : DEFAULT_LAYOUT.progPick,
     matPick: mpick.length > 0 ? mpick : DEFAULT_LAYOUT.matPick,
+    wipPick: wpick.length > 0 ? wpick : DEFAULT_LAYOUT.wipPick,
   };
 }
 
@@ -1035,6 +1038,7 @@ export default function DueOrdersPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [progMenu, setProgMenu] = useState<{ x: number; y: number } | null>(null);
   const [matMenu, setMatMenu] = useState<{ x: number; y: number } | null>(null);
+  const [wipMenu, setWipMenu] = useState<{ x: number; y: number } | null>(null);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1181,9 +1185,10 @@ export default function DueOrdersPage() {
   const matPick = MAT_KINDS.filter((m) => layout.matPick.includes(m.key));
   const progPick = layout.progPick;
   // 자재일정은 접어도 아래 칸에 "실링지"를, 진행률은 접어도 고른 공정 이름을 표시
-  const twoRows = threeRows || (wipOpen && on("wip")) || on("mat") || on("stageprog");
+  const wipPick = layout.wipPick;
+  const twoRows = threeRows || on("wip") || on("mat") || on("stageprog");
   const rs = threeRows ? 3 : twoRows ? 2 : 1;
-  const colCount = cols.reduce((n, k) => n + (k === "wip" && wipOpen ? STAGES.length : k === "stageprog" ? (progOpen ? STAGE_PROG.length * 2 : progPick.length) : k === "mat" ? (matOpen ? MAT_KINDS.length : matPick.length) : 1), 0);
+  const colCount = cols.reduce((n, k) => n + (k === "wip" ? (wipOpen ? STAGES.length : wipPick.length) : k === "stageprog" ? (progOpen ? STAGE_PROG.length * 2 : progPick.length) : k === "mat" ? (matOpen ? MAT_KINDS.length : matPick.length) : 1), 0);
   const dt = (k: string) => (overKey === k ? " dropt" : "");
 
   const headCell = (k: string) => {
@@ -1193,7 +1198,17 @@ export default function DueOrdersPage() {
           공정재공 (조립 ~ 출하포장) ▾
         </th>
       ) : (
-        <th key={k} {...dnd(k)} className={`r grp${dt(k)}`} rowSpan={rs} onClick={() => setLayout({ ...layout, wipOpen: true })} title="누르면 조립 ~ 출하포장 공정별로 펼칩니다">
+        <th
+          key={k}
+          {...dnd(k)}
+          className={`grp${dt(k)}`}
+          colSpan={wipPick.length}
+          onClick={(e) => {
+            const rc = e.currentTarget.getBoundingClientRect();
+            setWipMenu({ x: Math.min(rc.left, window.innerWidth - 280), y: rc.bottom + 4 });
+          }}
+          title="누르면 보여줄 공정재공(합계·공정별)을 고르거나 조립 ~ 출하포장 공정별로 펼칩니다"
+        >
           공정재공 ▸
         </th>
       );
@@ -1313,7 +1328,9 @@ export default function DueOrdersPage() {
       case "wip":
         return (
           <Fragment key={k}>
-            {wipOpen ? r.wip.map((v, i) => <td key={i} className="r num"><Z n={v} /></td>) : <td className="r num"><Z n={sum(r.wip)} /></td>}
+            {wipOpen
+              ? r.wip.map((v, i) => <td key={i} className="r num"><Z n={v} /></td>)
+              : wipPick.map((w) => <td key={w} className="r num"><Z n={w === "합계" ? sum(r.wip) : r.wip[STAGES.indexOf(w)] ?? 0} /></td>)}
           </Fragment>
         );
       case "shipped":
@@ -1407,6 +1424,41 @@ export default function DueOrdersPage() {
           )}
         </div>
         <span className="cnt">{rows.length.toLocaleString("ko-KR")}건 표시</span>
+        {wipMenu && (
+          <>
+            <div className="pop-scrim" onClick={() => setWipMenu(null)} />
+            <div className="pop" role="menu" style={{ position: "fixed", top: wipMenu.y, left: wipMenu.x }}>
+              <div className="acts">
+                <button className="chip" onClick={() => setLayout({ ...layout, wipPick: [...WIP_PICKS] })}>전체 선택</button>
+                <button className="chip" onClick={() => setLayout({ ...layout, wipPick: ["합계"] })}>합계만</button>
+                <button
+                  className="chip"
+                  onClick={() => {
+                    setLayout({ ...layout, wipOpen: true });
+                    setWipMenu(null);
+                  }}
+                  title="조립 ~ 출하포장 공정별로 모두 펼칩니다"
+                >
+                  공정별 펼치기
+                </button>
+              </div>
+              {WIP_PICKS.map((w) => (
+                <label key={w}>
+                  <input
+                    type="checkbox"
+                    checked={wipPick.includes(w)}
+                    onChange={() => {
+                      const next = wipPick.includes(w) ? wipPick.filter((x) => x !== w) : WIP_PICKS.filter((x) => x === w || wipPick.includes(x));
+                      if (next.length > 0) setLayout({ ...layout, wipPick: next });
+                    }}
+                  />
+                  <span style={{ flex: 1 }}>{w === "합계" ? "합계 (조립 ~ 출하포장)" : w}</span>
+                </label>
+              ))}
+              <div className="hint">체크한 칸이 열로 나옵니다(최소 1개). 고른 구성은 열 배치와 함께 저장됩니다.</div>
+            </div>
+          </>
+        )}
         {matMenu && (
           <>
             <div className="pop-scrim" onClick={() => setMatMenu(null)} />
@@ -1495,6 +1547,8 @@ export default function DueOrdersPage() {
                   {cols.flatMap((k) =>
                     k === "wip" && wipOpen
                       ? STAGES.map((s) => <th key={`w-${s}`} className="r" rowSpan={threeRows ? 2 : 1}>{s}</th>)
+                      : k === "wip"
+                        ? wipPick.map((w) => <th key={`w-${w}`} className="r" rowSpan={threeRows ? 2 : 1}>{w}</th>)
                       : k === "mat" && matOpen
                         ? MAT_KINDS.map((m) => <th key={`m-${m.key}`} rowSpan={threeRows ? 2 : 1}>{m.label}</th>)
                       : k === "mat"
