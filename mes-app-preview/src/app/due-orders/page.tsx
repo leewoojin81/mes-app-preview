@@ -35,9 +35,9 @@ const CSS = `
 .po .cnt{font-size:12px;color:var(--fg-3);margin-left:auto}
 .po .tbl-wrap{background:var(--surface);border:1px solid var(--line);border-radius:6px;overflow:auto}
 .po table{border-collapse:collapse;width:100%;font-size:13px}
-.po th{position:sticky;top:0;background:var(--surface-2);color:var(--fg-2);font-weight:600;font-size:12px;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+.po th{position:sticky;top:0;background:var(--surface-2);color:var(--fg-2);font-weight:600;font-size:12px;text-align:center;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
 .po td{padding:7px 10px;border-bottom:1px solid var(--line-2);white-space:nowrap;color:var(--fg)}
-.po th.r,.po td.r{text-align:right}
+.po td.r{text-align:right}
 .po th.grp{text-align:center;cursor:pointer;user-select:none;border-bottom:1px solid var(--line);color:var(--navy)}
 .po th.grp2{text-align:center}
 .po th.grp:hover{background:var(--blue-bg)}
