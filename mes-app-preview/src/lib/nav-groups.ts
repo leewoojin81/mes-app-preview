@@ -45,7 +45,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/production-priority", label: "생산순위지정", code: "PLAN-01" },
       { href: "/plan-info", label: "계획정보", code: "PLAN-02" },
       { href: "/packaging-plan", label: "출하포장", code: "PLAN-03" },
-      { href: "/due-orders", label: "납기별수주현황", code: "PLAN-04" },
+      { href: "/due-orders", label: "조립투입계획", code: "PLAN-04" },
     ],
   },
   {

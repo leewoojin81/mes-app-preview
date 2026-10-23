@@ -1320,8 +1320,8 @@ export default function DueOrdersPage() {
       <style>{CSS}</style>
       <div className="head">
         <div>
-          <div className="crumb">생산계획 › 납기별 수주현황</div>
-          <h1>납기별 수주현황</h1>
+          <div className="crumb">생산계획 › 조립투입계획</div>
+          <h1>조립투입계획</h1>
         </div>
         <div className="meta">
           <span>PLAN-04</span>
