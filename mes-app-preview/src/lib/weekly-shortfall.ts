@@ -298,11 +298,34 @@ function analyzeShipping(db: DatabaseSync, from: string, to: string, prevFrom: s
       .filter(([k]) => k.endsWith(`|${d}`))
       .reduce((s, [, v]) => s + v.total, 0);
 
+  // 그날 계획한 수주들의 포장 준비 물량 = 그날까지 마킹(P400) 누계 − 전날까지 포장 누계(칸 계획·수주 잔량 이내).
+  // 10/20처럼 포장할 물량이 없어 인원이 다른 공정을 지원한 날을 "실적 미입력"으로 오해하지 않도록 날마다 따진다
+  // (2026-10-23 사용자 설명: 그날 출하포장 준비된 제품이 없어 다른 공정 지원).
+  const p410 = p410BySo(db);
+  const markedBy = (so: string, d: string) =>
+    (sched.soMarkPrior?.[so] ?? 0) + Object.entries(sched.soMarkDaily?.[so] ?? {}).reduce((t, [x, q]) => (x <= d ? t + q : t), 0);
+  const packedBefore = (so: string, d: string) => (p410.get(so) ?? []).reduce((t, r) => (r.d < d ? t + r.q : t), 0);
+  const readiness = (d: string) => {
+    let ready = 0;
+    let remain = 0;
+    for (const c of sched.cells.filter((x) => x.plan_date === d)) {
+      const sos = splitSoNos(c.so_no);
+      const pb = sos.reduce((t, so) => t + packedBefore(so, d), 0);
+      const mk = sos.reduce((t, so) => t + markedBy(so, d), 0);
+      const rem = c.order_qty != null ? Math.max(0, c.order_qty - pb) : Infinity;
+      const cp = c.plan_qty ?? 0;
+      ready += Math.min(cp, Math.max(0, mk - pb), rem);
+      remain += Math.min(cp, rem);
+    }
+    return { ready, remain };
+  };
+  type DayCause = "앞당겨 포장(잔량 없음)" | "포장 준비 물량 부족" | "물량 있었음";
+
   let plan = 0;
   let actual = 0;
   const dayRows: ShortfallTable["rows"] = [];
   const dayHi: number[] = [];
-  const zeroDays: string[] = [];
+  const lowDays: { d: string; p: number; total: number; ready: number; cause: DayCause }[] = [];
   let unplannedTotal = 0;
   for (const d of days) {
     const p = sched.cells.filter((c) => c.plan_date === d).reduce((s, c) => s + (c.plan_qty ?? 0), 0);
@@ -311,10 +334,17 @@ function analyzeShipping(db: DatabaseSync, from: string, to: string, prevFrom: s
     plan += p;
     actual += total;
     unplannedTotal += Math.max(0, total - planned);
-    if (p > 0 && total < p * 0.1) zeroDays.push(d); // 계획의 10% 미만이면 사실상 실적 없음(미입력 의심)
     if (p === 0 && total === 0) continue;
+    let cause: DayCause | null = null;
+    let ready: number | null = null;
+    if (p > 0 && total < p * 0.9) {
+      const rd = readiness(d);
+      ready = rd.ready;
+      cause = rd.remain < p * 0.5 ? "앞당겨 포장(잔량 없음)" : rd.ready < p * 0.9 ? "포장 준비 물량 부족" : "물량 있었음";
+      lowDays.push({ d, p, total, ready: rd.ready, cause });
+    }
     if (p > 0 && total < p) dayHi.push(dayRows.length);
-    dayRows.push([`${md(d)}(${wd(d)})`, work.has(d) ? "근무" : "휴일", p || null, total, total - p, p > 0 ? pct(total / p) : "-", planned, Math.max(0, total - planned)]);
+    dayRows.push([`${md(d)}(${wd(d)})`, work.has(d) ? "근무" : "휴일", p || null, total, total - p, p > 0 ? pct(total / p) : "-", planned, Math.max(0, total - planned), ready, cause]);
   }
 
   // 라인별
@@ -365,7 +395,7 @@ function analyzeShipping(db: DatabaseSync, from: string, to: string, prevFrom: s
     if (g.plan <= 0) tag = "계획수량 없음";
     else if (a >= g.plan * 0.98) tag = "달성";
     else if (remain != null && remain < g.plan && a >= remain * 0.98) tag = "수주 잔량 소진";
-    else if (markAvail < g.plan * 0.98 && a >= markAvail * 0.9) tag = "마킹 공급 부족";
+    else if (markAvail < g.plan * 0.98) tag = "마킹 공급 부족"; // 준비 물량을 다 포장해도 계획에 못 미침
     else if (later > 0) tag = "기간 뒤 포장(지연)";
     else tag = "포장 미진행";
     soRows.push({ g, actual: a, markAvail, remain, later, tag });
@@ -398,11 +428,20 @@ function analyzeShipping(db: DatabaseSync, from: string, to: string, prevFrom: s
   for (const [tag, v] of [...byTag.entries()].sort((a, b) => b[1].short - a[1].short)) {
     findings.push({ level: tag === "마킹 공급 부족" || tag === "포장 미진행" ? "main" : "sub", text: `${tag} ${v.n}건(수주별 부족 합 ${n0(v.short)}): ${TAG_TEXT[tag]}.` });
   }
-  if (zeroDays.length > 0) findings.push({ level: "main", text: `계획이 있는데 출하포장 실적이 (거의) 없는 날: ${zeroDays.map((d) => `${md(d)}(${n0(totalByDate.get(d) ?? 0)})`).join(", ")} — 실적 미입력(업로드 누락)인지 먼저 확인하세요.` });
+  const noStock = lowDays.filter((x) => x.cause !== "물량 있었음");
+  if (noStock.length > 0)
+    findings.push({
+      level: "main",
+      text: `포장할 물량이 없던 날: ${noStock.map((x) => `${md(x.d)}(준비 ${n0(x.ready)} / 계획 ${n0(x.p)}, ${x.cause})`).join(", ")} — 계획 수주를 앞서 포장해 잔량이 없거나 마킹(전공정) 물량이 오지 않아 계획만큼 포장할 수 없었습니다.`,
+    });
+  const hadStock = lowDays.filter((x) => x.cause === "물량 있었음");
+  if (hadStock.length > 0)
+    findings.push({
+      level: "main",
+      text: `포장 준비 물량은 있었는데 계획에 못 미친 날: ${hadStock.map((x) => `${md(x.d)} ${pct(x.total / x.p)}(준비 ${n0(x.ready)})`).join(", ")} — 라인 가동·인원을 확인하세요${hadStock.some((x) => x.total < x.p * 0.1) ? "(실적이 거의 없는 날은 업로드 누락인지도 확인)" : ""}.`,
+    });
   const weakLines = lineRows.filter((_, i) => lineHi.includes(i)).map((r) => `${r[0]} ${r[4]}`);
   if (weakLines.length > 0) findings.push({ level: "sub", text: `계획 미달 라인: ${weakLines.join(", ")}` });
-  const lowDays = dayRows.filter((r) => typeof r[2] === "number" && (r[3] as number) < (r[2] as number) * 0.9);
-  if (lowDays.length > 0) findings.push({ level: "sub", text: `달성율 90% 미만인 날: ${lowDays.map((r) => `${r[0]} ${r[5]}`).join(", ")}` });
   const early = dayRows.filter((r) => r[2] == null && (r[3] as number) > 0);
   if (early.length > 0)
     findings.push({ level: "info", text: `계획이 없는 날(휴일 등)에 ${early.map((r) => `${r[0]} ${n0(r[3] as number)}`).join(", ")} 포장했습니다 — 뒤 날짜 계획을 앞당겨 한 것이면 그 날짜는 미달로 보입니다.` });
@@ -424,9 +463,9 @@ function analyzeShipping(db: DatabaseSync, from: string, to: string, prevFrom: s
     tables: [
       {
         title: "일별 계획·실적",
-        note: "계획 = PLAN-03 포장 일정 칸 계획수량, 실적 = 출하포장(P410) 양품 전체(계획 수주 + 계획 외 수주)",
-        columns: ["일자", "구분", "계획", "실적", "차이", "달성율", "계획 수주", "계획 외"],
-        right: [2, 3, 4, 5, 6, 7],
+        note: "계획 = PLAN-03 포장 일정 칸 계획수량, 실적 = 출하포장(P410) 양품 전체(계획 수주 + 계획 외 수주), 준비 물량(90% 미만인 날만) = 그날 계획 수주의 마킹 누계 − 전날까지 포장 누계",
+        columns: ["일자", "구분", "계획", "실적", "차이", "달성율", "계획 수주", "계획 외", "준비 물량", "미달 원인"],
+        right: [2, 3, 4, 5, 6, 7, 8],
         rows: dayRows,
         highlight: dayHi,
       },
