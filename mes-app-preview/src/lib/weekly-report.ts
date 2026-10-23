@@ -430,7 +430,8 @@ function computePackaging(db: DatabaseSync, yearMonth: string, weekEnd: string):
       month.rateQty = month.planQty > 0 && month.actualQty != null ? month.actualQty / month.planQty : null;
     }
   }
-  return { weeks, month };
+  const monthPlanQtyToDate = sum(planByDate, monthStart, weekEnd < monthEnd ? weekEnd : monthEnd).qty;
+  return { weeks, month, monthPlanQtyToDate };
 }
 
 interface DefectAgg {
@@ -520,6 +521,7 @@ export interface SummaryYieldPoint {
 }
 /** 주간요약 "1. 생산실적" 아래 계획대비 달성율 한 줄 — 주차 행·월 합계 행은 주간보고 계획 표와 같은 기준 */
 export interface SummaryAchievement {
+  key: "printing" | "shipping";
   label: string; // 인쇄공정 / 출하공정
   /** 보고 주차 구간 "10/16~10/22"(월말에서 잘린 주차는 월말까지) */
   rangeLabel: string;
@@ -532,6 +534,8 @@ export interface SummaryAchievement {
   monthActual: number | null;
   /** 월 누계 실적 ÷ 월 전체 계획 */
   monthRate: number | null;
+  /** 1일~보고 주차 종료일까지의 계획 — 월 누계 실적이 이보다 적으면 진도 미달 */
+  monthPlanToDate: number | null;
   /** 계획 출처 설명(계획이 없을 때 안내) */
   planSource: string;
   planMissing: boolean;
@@ -564,6 +568,7 @@ function summaryAchievement(db: DatabaseSync, r: WeeklyReportResult): SummaryAch
   const pb = buildPlanBlock(db, PRINT_PLAN_LINE, r.yearMonth, r.weekEnd, new Map(capaRows.map((x) => [x.line_key, x.daily_capa])));
   const pw = pb.weeks.find((w) => w.weekLabel === `${weekNoOf(r.weekStart)} W`);
   const printing: SummaryAchievement = {
+    key: "printing",
     label: "인쇄공정",
     rangeLabel: pw?.rangeLabel ?? "",
     plan: pb.capaMissing ? null : pw?.plan[0] ?? null,
@@ -573,6 +578,7 @@ function summaryAchievement(db: DatabaseSync, r: WeeklyReportResult): SummaryAch
     monthPlan: pb.capaMissing ? null : pb.month.plan[0],
     monthActual: pb.month.actual[0],
     monthRate: pb.capaMissing ? null : pb.month.rate[0],
+    monthPlanToDate: pb.capaMissing ? null : pb.month.actual[0] - pb.month.diff[0],
     planSource: "계획정보(PLAN-02) 착색 라인 일CAPA × 근무일수",
     planMissing: pb.capaMissing,
   };
@@ -580,6 +586,7 @@ function summaryAchievement(db: DatabaseSync, r: WeeklyReportResult): SummaryAch
   const sw = r.packaging.weeks.find((w) => w.weekStart === r.weekStart);
   const sm = r.packaging.month;
   const shipping: SummaryAchievement = {
+    key: "shipping",
     label: "출하공정",
     rangeLabel: sw?.rangeLabel ?? "",
     plan: sw?.planQty ?? null,
@@ -589,6 +596,7 @@ function summaryAchievement(db: DatabaseSync, r: WeeklyReportResult): SummaryAch
     monthPlan: sm.planQty,
     monthActual: sm.actualQty,
     monthRate: sm.rateQty,
+    monthPlanToDate: r.packaging.monthPlanQtyToDate,
     planSource: "주간보고 출하공정 표 기초계획(계획정보 PLAN-03 포장 일정)",
     planMissing: sm.planQty <= 0,
   };

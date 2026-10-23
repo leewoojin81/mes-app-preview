@@ -93,6 +93,8 @@ export interface WeeklyPackagingBlock {
   weeks: WeeklyPackagingRow[];
   /** 월 합계 행(계획·실적은 그 달 1일~말일 날짜만, 계획대비는 주차별 차이의 합) */
   month: WeeklyPackagingRow;
+  /** 1일~보고 주차 종료일까지의 기초계획 수량(PLAN-03 포장 일정) — 주간요약 원인분석 버튼 표시 판단용 */
+  monthPlanQtyToDate: number;
 }
 
 export interface WeeklyPrintingRow {

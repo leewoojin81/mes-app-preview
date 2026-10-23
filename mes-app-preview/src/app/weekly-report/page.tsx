@@ -13,7 +13,8 @@ import {
   type WeeklyPrintingBlock,
   type WeeklyReportResult,
 } from "@/lib/weekly-report-shared";
-import type { WeeklySummary } from "@/lib/weekly-report";
+import type { SummaryAchievement, WeeklySummary } from "@/lib/weekly-report";
+import type { ShortfallAnalysis, ShortfallPeriod } from "@/lib/weekly-shortfall";
 
 // PROD-11 주간업무보고 — 서식 "생산팀 주간 업무_38W.docx"와 같은 구성(1. 생산계획 및 실적 /
 // 2. 생산공정 수율 / 3. 주요공정 불량률)을 화면에서 미리 보고, Word(.docx)로 내려받는다.
@@ -636,6 +637,7 @@ function DefectSection({ result: r }: { result: WeeklyReportResult }) {
 function SummaryTab({ result, dimmed }: { result: WeeklyReportResult; dimmed: boolean }) {
   const [summary, setSummary] = useState<WeeklySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [analyzeOf, setAnalyzeOf] = useState<{ a: SummaryAchievement; period: ShortfallPeriod } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -692,13 +694,28 @@ function SummaryTab({ result, dimmed }: { result: WeeklyReportResult; dimmed: bo
               </table>
             </div>
             <div className="space-y-1">
-              {summary.achievement.map((a) => (
-                <p key={a.label} className="text-sm text-slate-700" title={`계획: ${a.planSource}`}>
-                  {a.planMissing
-                    ? `☞ ${a.label}: 계획이 없어 달성율을 계산하지 못했습니다(${a.planSource}).`
-                    : `☞ ${a.label} 계획대비 달성율: 당주(${a.rangeLabel}) ${fmtPct(a.rate, 1)} (계획 ${fmtQty(a.plan)} / 실적 ${fmtQty(a.actual)}),  ${a.monthLabel} 누계 ${fmtPct(a.monthRate, 1)} (월 계획 ${fmtQty(a.monthPlan)} / 실적 ${fmtQty(a.monthActual)})`}
-                </p>
-              ))}
+              {summary.achievement.map((a) => {
+                // 당주 달성율 100% 미만이거나 월 누계 실적이 1일~보고 주차까지의 계획에 못 미치면 원인분석 버튼
+                const weekShort = !a.planMissing && a.rate != null && a.rate < 1;
+                const monthShort = !a.planMissing && a.monthPlanToDate != null && a.monthActual != null && a.monthActual < a.monthPlanToDate;
+                return (
+                  <p key={a.label} className="text-sm text-slate-700" title={`계획: ${a.planSource}`}>
+                    {a.planMissing
+                      ? `☞ ${a.label}: 계획이 없어 달성율을 계산하지 못했습니다(${a.planSource}).`
+                      : `☞ ${a.label} 계획대비 달성율: 당주(${a.rangeLabel}) ${fmtPct(a.rate, 1)} (계획 ${fmtQty(a.plan)} / 실적 ${fmtQty(a.actual)}),  ${a.monthLabel} 누계 ${fmtPct(a.monthRate, 1)} (월 계획 ${fmtQty(a.monthPlan)} / 실적 ${fmtQty(a.monthActual)})`}
+                    {(weekShort || monthShort) && (
+                      <button
+                        type="button"
+                        onClick={() => setAnalyzeOf({ a, period: weekShort ? "week" : "month" })}
+                        className="ml-2 px-2 py-0.5 text-xs font-semibold rounded border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 align-middle"
+                        title={weekShort ? "당주 계획 미달 원인을 분석합니다" : "월 누계가 계획 진도에 못 미친 원인을 분석합니다"}
+                      >
+                        원인분석
+                      </button>
+                    )}
+                  </p>
+                );
+              })}
             </div>
             <p className="text-xs text-slate-400">
               집계기간 {result.weekStart} ~ {result.weekEnd} · 이슈는 Word 다운로드 후 직접 작성합니다 · 달성율은 화면에만 표시(요약 다운로드 미포함)
@@ -710,6 +727,148 @@ function SummaryTab({ result, dimmed }: { result: WeeklyReportResult; dimmed: bo
           </section>
         </>
       )}
+      {analyzeOf && (
+        <ShortfallModal
+          weekStart={result.weekStart}
+          achievement={analyzeOf.a}
+          initialPeriod={analyzeOf.period}
+          onClose={() => setAnalyzeOf(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// 원인분석 창(2026-10-23 사용자 요청) — 계산은 src/lib/weekly-shortfall.ts. 화면 전용(요약 다운로드 미포함).
+function ShortfallModal({
+  weekStart,
+  achievement,
+  initialPeriod,
+  onClose,
+}: {
+  weekStart: string;
+  achievement: SummaryAchievement;
+  initialPeriod: ShortfallPeriod;
+  onClose: () => void;
+}) {
+  const [period, setPeriod] = useState<ShortfallPeriod>(initialPeriod);
+  const [data, setData] = useState<ShortfallAnalysis | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setData(null);
+    setError(null);
+    fetch(`/api/weekly-report/shortfall?date=${weekStart}&process=${achievement.key}&period=${period}`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((d: { analysis?: ShortfallAnalysis; error?: string }) => {
+        if (cancelled) return;
+        if (d.analysis) setData(d.analysis);
+        else setError(d.error ?? "원인분석을 불러오지 못했습니다.");
+      })
+      .catch(() => !cancelled && setError("원인분석을 불러오지 못했습니다."));
+    return () => {
+      cancelled = true;
+    };
+  }, [weekStart, achievement.key, period]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const levelCls = { main: "text-red-700 font-semibold", sub: "text-slate-800", info: "text-slate-500" } as const;
+  const levelMark = { main: "●", sub: "○", info: "·" } as const;
+  const cell = (v: string | number | null) => (v == null ? "" : typeof v === "number" ? Math.round(v).toLocaleString("ko-KR") : v);
+  const slash = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+
+  return (
+    <div className="fixed inset-0 z-50 modal-overlay-bg flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+          <h2 className="text-base font-bold text-navy">
+            {achievement.label} 원인분석
+            {data && <span className="ml-2 text-sm font-normal text-slate-500">{data.label}</span>}
+          </h2>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-md border border-slate-300 overflow-hidden text-xs">
+              {(["week", "month"] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPeriod(p)}
+                  className={`px-3 py-1 ${period === p ? "bg-navy text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                >
+                  {p === "week" ? "당주" : `${achievement.monthLabel} 누계`}
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl leading-none px-1" aria-label="닫기">
+              ×
+            </button>
+          </div>
+        </div>
+        <div className="overflow-y-auto px-5 py-4 space-y-5">
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          {!data && !error && <div className="text-center py-10 text-slate-400">분석 중...</div>}
+          {data && (
+            <>
+              <section className="space-y-1.5">
+                <h3 className="text-sm font-bold text-navy">원인 요약</h3>
+                <ul className="space-y-1 text-sm">
+                  {data.findings.map((f, i) => (
+                    <li key={i} className={`flex gap-2 ${levelCls[f.level]}`}>
+                      <span className="shrink-0">{levelMark[f.level]}</span>
+                      <span>{f.text}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-slate-400">
+                  ● 핵심 원인 · ○ 보조 원인 · 전기간 = 바로 앞 같은 일수({slash(data.prevFrom)}~{slash(data.prevTo)})
+                  {data.period === "month" ? " · 월 누계 계획은 1일~보고 주차 끝까지의 계획" : ""}
+                </p>
+              </section>
+              {data.tables.map((t) => (
+                <section key={t.title} className="space-y-1.5">
+                  <h3 className="text-sm font-bold text-navy">{t.title}</h3>
+                  {t.note && <p className="text-xs text-slate-400">{t.note}</p>}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr>
+                          {t.columns.map((c) => (
+                            <th key={c} className={thCls}>{c}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {t.rows.map((r, i) => (
+                          <tr key={i} className={t.highlight.includes(i) ? "bg-red-50" : undefined}>
+                            {r.map((v, j) => (
+                              <td
+                                key={j}
+                                className={`${tdCls} ${t.right.includes(j) ? "text-right" : "text-left"} ${typeof v === "number" && v < 0 ? "text-red-600" : ""}`}
+                              >
+                                {cell(v)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                        {t.rows.length === 0 && (
+                          <tr>
+                            <td colSpan={t.columns.length} className={`${tdCls} text-slate-400`}>자료 없음</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
