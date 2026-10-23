@@ -516,8 +516,6 @@ const MAT_KINDS: { key: MaterialKind; label: string }[] = [
   { key: "box", label: "단상자" },
   { key: "manual", label: "설명서" },
 ];
-/** 접힌 자재일정 1칸에 보여줄 자재 — 실링지 */
-const MAT_FOLDED: MaterialKind = "seal";
 type OrderMaterials = { kinds: Record<MaterialKind, OrderMaterialStatus>; rows: MaterialRow[] };
 const mmdd = (iso: string | null) => (iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "납기미정");
 
@@ -631,7 +629,7 @@ function MaterialHelp({ onClose }: { onClose: () => void }) {
       <h4>참고</h4>
       <ul>
         <li>한 수주에 모델 · 자재가 여럿이면 가장 나쁜 상태로 표시합니다.</li>
-        <li>열 제목 "자재일정"을 누르면 1칸으로 접히고(실링지 상태만 표시, 마우스를 올리면 네 자재 모두), 다시 누르면 펼쳐집니다.</li>
+        <li>펼친 상태에서 열 제목 "자재일정"을 누르면 접혀 고른 자재만 보이고(기본 실링지, 마우스를 올리면 네 자재 모두), 접힌 제목을 누르면 보여줄 자재를 체크하거나 다시 펼칠 수 있습니다.</li>
         <li>칸을 누르면 모델별 · 자재별 소요량 · 현재고 · 과부족 · 발주번호 · 입고예정일을 볼 수 있습니다.</li>
       </ul>
     </HelpModal>
@@ -969,15 +967,16 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
 }
 
 // 사용자별 화면 구성(열 순서·숨김·공정재공 펼침) — 계정마다 서버(user_ui_prefs)에 저장돼 다음에 열어도 그대로 나온다.
-// progPick = 진행률을 접었을 때 보여줄 공정(STAGE_PROG 이름, 기본 출하) — 2026-10-23 사용자 요청
-type Layout = { order: string[]; hidden: string[]; wipOpen: boolean; progOpen: boolean; matOpen: boolean; progPick: string[] };
+// progPick = 진행률을 접었을 때 보여줄 공정(STAGE_PROG 이름, 기본 출하), matPick = 자재일정을 접었을 때 보여줄 자재
+// (MAT_KINDS key, 기본 실링지) — 2026-10-23 사용자 요청
+type Layout = { order: string[]; hidden: string[]; wipOpen: boolean; progOpen: boolean; matOpen: boolean; progPick: string[]; matPick: MaterialKind[] };
 const PREF_KEY = "due-orders-grid";
 const GRID_KEYS = new Set(GRID_COLS.map((c) => c.key));
 const LABELS: Record<string, string> = Object.fromEntries(GRID_COLS.map((c) => [c.key, c.label]));
 const RIGHT = new Set(["rank", "qty", "color", "shipped", "assy", "short"]);
 // 공정별 진행률 열 이름 = lib/due-orders.ts의 SHORT_NAMES(공정 부족분 10개와 같은 순서)
 const STAGE_PROG = ["분리3", "습윤", "검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "완검", "출하"];
-const DEFAULT_LAYOUT: Layout = { order: GRID_COLS.map((c) => c.key), hidden: [], wipOpen: false, progOpen: false, matOpen: true, progPick: ["출하"] };
+const DEFAULT_LAYOUT: Layout = { order: GRID_COLS.map((c) => c.key), hidden: [], wipOpen: false, progOpen: false, matOpen: true, progPick: ["출하"], matPick: ["seal"] };
 
 function sanitizeLayout(v: unknown): Layout {
   const o = (v ?? {}) as Partial<Layout>;
@@ -992,6 +991,7 @@ function sanitizeLayout(v: unknown): Layout {
   });
   // 자재일정은 처음부터 펼친 상태(저장값이 없으면 펼침)
   const pick = Array.isArray(o.progPick) ? STAGE_PROG.filter((st) => o.progPick!.includes(st)) : [];
+  const mpick = Array.isArray(o.matPick) ? MAT_KINDS.map((m) => m.key).filter((key) => o.matPick!.includes(key)) : [];
   return {
     order,
     hidden,
@@ -999,6 +999,7 @@ function sanitizeLayout(v: unknown): Layout {
     progOpen: !!o.progOpen,
     matOpen: o.matOpen === undefined ? true : !!o.matOpen,
     progPick: pick.length > 0 ? pick : DEFAULT_LAYOUT.progPick,
+    matPick: mpick.length > 0 ? mpick : DEFAULT_LAYOUT.matPick,
   };
 }
 
@@ -1033,6 +1034,7 @@ export default function DueOrdersPage() {
   const [layoutReady, setLayoutReady] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [progMenu, setProgMenu] = useState<{ x: number; y: number } | null>(null);
+  const [matMenu, setMatMenu] = useState<{ x: number; y: number } | null>(null);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1176,11 +1178,12 @@ export default function DueOrdersPage() {
   const progOpen = layout.progOpen;
   const threeRows = progOpen && on("stageprog"); // 진행률을 펼치면 그룹 / 공정명 / 부족분·진행률 3단 머리글
   const matOpen = layout.matOpen;
+  const matPick = MAT_KINDS.filter((m) => layout.matPick.includes(m.key));
   const progPick = layout.progPick;
   // 자재일정은 접어도 아래 칸에 "실링지"를, 진행률은 접어도 고른 공정 이름을 표시
   const twoRows = threeRows || (wipOpen && on("wip")) || on("mat") || on("stageprog");
   const rs = threeRows ? 3 : twoRows ? 2 : 1;
-  const colCount = cols.reduce((n, k) => n + (k === "wip" && wipOpen ? STAGES.length : k === "stageprog" ? (progOpen ? STAGE_PROG.length * 2 : progPick.length) : k === "mat" && matOpen ? MAT_KINDS.length : 1), 0);
+  const colCount = cols.reduce((n, k) => n + (k === "wip" && wipOpen ? STAGES.length : k === "stageprog" ? (progOpen ? STAGE_PROG.length * 2 : progPick.length) : k === "mat" ? (matOpen ? MAT_KINDS.length : matPick.length) : 1), 0);
   const dt = (k: string) => (overKey === k ? " dropt" : "");
 
   const headCell = (k: string) => {
@@ -1231,11 +1234,21 @@ export default function DueOrdersPage() {
         </button>
       );
       return matOpen ? (
-        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} colSpan={MAT_KINDS.length} onClick={() => setLayout({ ...layout, matOpen: false })} title="누르면 자재일정 1칸(실링지)으로 접습니다">
+        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} colSpan={MAT_KINDS.length} onClick={() => setLayout({ ...layout, matOpen: false })} title="누르면 접어서 고른 자재만 보여줍니다">
           자재일정 ▾{help}
         </th>
       ) : (
-        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} onClick={() => setLayout({ ...layout, matOpen: true })} title="누르면 실링지 · 라벨 · 단상자 · 설명서로 펼칩니다">
+        <th
+          key={k}
+          {...dnd(k)}
+          className={`grp${dt(k)}`}
+          colSpan={matPick.length}
+          onClick={(e) => {
+            const rc = e.currentTarget.getBoundingClientRect();
+            setMatMenu({ x: Math.min(rc.left, window.innerWidth - 280), y: rc.bottom + 4 });
+          }}
+          title="누르면 보여줄 자재를 고르거나 네 자재 모두 펼칩니다"
+        >
           자재일정 ▸{help}
         </th>
       );
@@ -1268,7 +1281,7 @@ export default function DueOrdersPage() {
         return <td key={k}>{r.pack_method ?? ""}</td>;
       case "mat": {
         const m = mats?.[r.so_no];
-        const n = matOpen ? MAT_KINDS.length : 1;
+        const n = matOpen ? MAT_KINDS.length : matPick.length;
         if (!m) {
           const t = mats ? "-" : matsError ? "불러오기 실패" : "…";
           return <Fragment key={k}>{Array.from({ length: n }, (_, i) => <td key={i}><span className="zero">{t}</span></td>)}</Fragment>;
@@ -1279,17 +1292,17 @@ export default function DueOrdersPage() {
         };
         return (
           <Fragment key={k}>
-            {matOpen ? (
-              MAT_KINDS.map((x) => (
-                <td key={x.key}>
-                  <button className="matb" onClick={open} title={`${x.label} — 누르면 모델별·자재별 상세가 열립니다`}><MatStatus s={m.kinds[x.key]} /></button>
-                </td>
-              ))
-            ) : (
-              <td>
-                <button className="matb" onClick={open} title={MAT_KINDS.map((x) => `${x.label} ${statusText(m.kinds[x.key])}`).join(" · ")}><MatStatus s={m.kinds[MAT_FOLDED]} /></button>
+            {(matOpen ? MAT_KINDS : matPick).map((x) => (
+              <td key={x.key}>
+                <button
+                  className="matb"
+                  onClick={open}
+                  title={matOpen ? `${x.label} — 누르면 모델별·자재별 상세가 열립니다` : MAT_KINDS.map((y) => `${y.label} ${statusText(m.kinds[y.key])}`).join(" · ")}
+                >
+                  <MatStatus s={m.kinds[x.key]} />
+                </button>
               </td>
-            )}
+            ))}
           </Fragment>
         );
       }
@@ -1394,6 +1407,42 @@ export default function DueOrdersPage() {
           )}
         </div>
         <span className="cnt">{rows.length.toLocaleString("ko-KR")}건 표시</span>
+        {matMenu && (
+          <>
+            <div className="pop-scrim" onClick={() => setMatMenu(null)} />
+            <div className="pop" role="menu" style={{ position: "fixed", top: matMenu.y, left: matMenu.x }}>
+              <div className="acts">
+                <button className="chip" onClick={() => setLayout({ ...layout, matPick: MAT_KINDS.map((m) => m.key) })}>전체 선택</button>
+                <button className="chip" onClick={() => setLayout({ ...layout, matPick: ["seal"] })}>실링지만</button>
+                <button
+                  className="chip"
+                  onClick={() => {
+                    setLayout({ ...layout, matOpen: true });
+                    setMatMenu(null);
+                  }}
+                  title="실링지 · 라벨 · 단상자 · 설명서 네 칸 모두 펼칩니다"
+                >
+                  전체 펼치기
+                </button>
+              </div>
+              {MAT_KINDS.map((m) => (
+                <label key={m.key}>
+                  <input
+                    type="checkbox"
+                    checked={layout.matPick.includes(m.key)}
+                    onChange={() => {
+                      const cur = layout.matPick;
+                      const next = cur.includes(m.key) ? cur.filter((x) => x !== m.key) : MAT_KINDS.map((y) => y.key).filter((y) => y === m.key || cur.includes(y));
+                      if (next.length > 0) setLayout({ ...layout, matPick: next });
+                    }}
+                  />
+                  <span style={{ flex: 1 }}>{m.label}</span>
+                </label>
+              ))}
+              <div className="hint">체크한 자재가 열로 나옵니다(최소 1개). 고른 구성은 열 배치와 함께 저장됩니다.</div>
+            </div>
+          </>
+        )}
         {progMenu && (
           <>
             <div className="pop-scrim" onClick={() => setProgMenu(null)} />
@@ -1449,7 +1498,7 @@ export default function DueOrdersPage() {
                       : k === "mat" && matOpen
                         ? MAT_KINDS.map((m) => <th key={`m-${m.key}`} rowSpan={threeRows ? 2 : 1}>{m.label}</th>)
                       : k === "mat"
-                        ? [<th key="m-folded" rowSpan={threeRows ? 2 : 1} title="접힌 칸은 실링지 상태만 표시합니다(마우스를 올리면 네 자재 모두)">{MAT_KINDS.find((m) => m.key === MAT_FOLDED)?.label}</th>]
+                        ? matPick.map((m) => <th key={`m-${m.key}`} rowSpan={threeRows ? 2 : 1} title="접힌 칸은 고른 자재만 표시합니다(마우스를 올리면 네 자재 모두)">{m.label}</th>)
                       : k === "stageprog" && progOpen
                         ? STAGE_PROG.map((s, i) => <th key={`p-${s}`} className="grp2" colSpan={2} style={{ color: STAGE_COLORS[i], boxShadow: `inset 0 -3px 0 ${STAGE_COLORS[i]}` }}>{s}</th>)
                       : k === "stageprog"
