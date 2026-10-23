@@ -1166,7 +1166,7 @@ export default function DueOrdersPage() {
   const progOpen = layout.progOpen;
   const threeRows = progOpen && on("stageprog"); // 진행률을 펼치면 그룹 / 공정명 / 부족분·진행률 3단 머리글
   const matOpen = layout.matOpen;
-  const twoRows = threeRows || (wipOpen && on("wip")) || (matOpen && on("mat"));
+  const twoRows = threeRows || (wipOpen && on("wip")) || on("mat"); // 자재일정은 접어도 아래 칸에 "실링지"를 표시
   const rs = threeRows ? 3 : twoRows ? 2 : 1;
   const colCount = cols.reduce((n, k) => n + (k === "wip" && wipOpen ? STAGES.length : k === "stageprog" && progOpen ? STAGE_PROG.length * 2 : k === "mat" && matOpen ? MAT_KINDS.length : 1), 0);
   const dt = (k: string) => (overKey === k ? " dropt" : "");
@@ -1213,8 +1213,8 @@ export default function DueOrdersPage() {
           자재일정 ▾{help}
         </th>
       ) : (
-        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} rowSpan={rs} onClick={() => setLayout({ ...layout, matOpen: true })} title="누르면 실링지 · 라벨 · 단상자 · 설명서로 펼칩니다">
-          자재일정(실링지) ▸{help}
+        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} onClick={() => setLayout({ ...layout, matOpen: true })} title="누르면 실링지 · 라벨 · 단상자 · 설명서로 펼칩니다">
+          자재일정 ▸{help}
         </th>
       );
     }
@@ -1386,6 +1386,8 @@ export default function DueOrdersPage() {
                       ? STAGES.map((s) => <th key={`w-${s}`} className="r" rowSpan={threeRows ? 2 : 1}>{s}</th>)
                       : k === "mat" && matOpen
                         ? MAT_KINDS.map((m) => <th key={`m-${m.key}`} rowSpan={threeRows ? 2 : 1}>{m.label}</th>)
+                      : k === "mat"
+                        ? [<th key="m-folded" rowSpan={threeRows ? 2 : 1} title="접힌 칸은 실링지 상태만 표시합니다(마우스를 올리면 네 자재 모두)">{MAT_KINDS.find((m) => m.key === MAT_FOLDED)?.label}</th>]
                       : k === "stageprog" && progOpen
                         ? STAGE_PROG.map((s, i) => <th key={`p-${s}`} className="grp2" colSpan={2} style={{ color: STAGE_COLORS[i], boxShadow: `inset 0 -3px 0 ${STAGE_COLORS[i]}` }}>{s}</th>)
                         : []
