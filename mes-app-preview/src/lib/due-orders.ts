@@ -85,7 +85,7 @@ export interface DueOrderRow {
   assy_in: number;
   ship_short: number;
   ship_rate: number;
-  /** 최근 1개월 안에 출고된 완료 수주(ERP 상태 '완료') — 순위·부족분 계산에 넣지 않고 목록 끝에 붙인다(rank 0) */
+  /** 최근 1개월 안에 출고된 완료 수주(ERP 상태 '완료') — 순위·부족분 계산에 넣지 않고 목록 맨 위에 붙인다(rank 0) */
   done?: boolean;
   /** 마지막 출고일(완료 수주만) */
   last_ship?: string | null;
@@ -135,7 +135,7 @@ const cache = new WeakMap<DatabaseSync, Computed>();
 
 function compute(db: DatabaseSync): Computed {
   // 1) 진행 중인 수주(상태가 수주/Packing인 줄이 하나라도 있는 수주번호)의 품목 줄
-  //    fin = 줄이 모두 완료(중단 제외)인 수주 — 최근 1개월 출고분만 목록 끝에 따로 붙인다(아래 6)
+  //    fin = 줄이 모두 완료(중단 제외)인 수주 — 최근 1개월 출고분만 목록 맨 위에 따로 붙인다(아래 6)
   const headsOf = (having: string) => {
     const raw = db
       .prepare(
@@ -318,7 +318,8 @@ function compute(db: DatabaseSync): Computed {
     };
   });
 
-  // 6) 최근 1개월 안에 출고된 완료 수주 — "출하 완료 숨기기"를 끄면 보이도록 목록 끝에 붙인다(2026-10-23 사용자 요청).
+  // 6) 최근 1개월 안에 출고된 완료 수주 — "출하 완료 숨기기"를 끄면 보이도록 목록 맨 위에 붙인다(2026-10-23 사용자 요청).
+  //    마지막 출고일 오래된 순이라 아래로 진행 수주 순위 1위와 날짜가 이어진다.
   //    순위·누적주문·부족분·조립투입·자재일정 계산에는 넣지 않는다. 출고 기록이 없으면 납기일이 최근 1개월 안인 것.
   const now = new Date();
   const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -372,11 +373,11 @@ function compute(db: DatabaseSync): Computed {
       last_ship: ls0,
     });
   }
-  doneRows.sort((a, b) => (b.last_ship ?? b.due_date ?? "").localeCompare(a.last_ship ?? a.due_date ?? ""));
+  doneRows.sort((a, b) => (a.last_ship ?? a.due_date ?? "").localeCompare(b.last_ship ?? b.due_date ?? ""));
 
   const one = (sql: string) => ((db.prepare(sql).get() as { v: string | null } | undefined)?.v ?? null);
   const result: DueOrdersResult = {
-    rows: [...rows, ...doneRows],
+    rows: [...doneRows, ...rows],
     as_of: {
       sales: one("SELECT MAX(created_at) v FROM sales_orders"),
       wip: one("SELECT MAX(uploaded_at) v FROM process_wip_status"),
