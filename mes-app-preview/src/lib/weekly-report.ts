@@ -518,12 +518,81 @@ export interface SummaryYieldPoint {
   total: number | null;
   exInjection: number | null;
 }
+/** 주간요약 "1. 생산실적" 아래 계획대비 달성율 한 줄 — 주차 행·월 합계 행은 주간보고 계획 표와 같은 기준 */
+export interface SummaryAchievement {
+  label: string; // 인쇄공정 / 출하공정
+  /** 보고 주차 구간 "10/16~10/22"(월말에서 잘린 주차는 월말까지) */
+  rangeLabel: string;
+  plan: number | null;
+  actual: number | null;
+  rate: number | null;
+  monthLabel: string; // "10월"
+  monthPlan: number | null;
+  /** 1일~보고 주차 종료일 누계 */
+  monthActual: number | null;
+  /** 월 누계 실적 ÷ 월 전체 계획 */
+  monthRate: number | null;
+  /** 계획 출처 설명(계획이 없을 때 안내) */
+  planSource: string;
+  planMissing: boolean;
+}
 export interface WeeklySummary {
   upperQty: number;
   lowerQty: number;
   printQty: number;
   shipQty: number;
+  /** 인쇄공정 · 출하공정 계획대비 달성율(2026-10-23 사용자 요청, 화면 전용 — 요약 다운로드에는 넣지 않음) */
+  achievement: SummaryAchievement[];
   yieldTrend: SummaryYieldPoint[];
+}
+
+// 인쇄공정 계획 = 계획정보(PLAN-02) 착색 라인(coloring) 일CAPA × 근무일수, 실적 = 착색 인쇄(P220) 양품수량
+// (주간보고 인쇄공정 표·요약 생산수량과 같은 실적). 주간보고 계획 표에는 쓰지 않고 요약 달성율에만 쓴다.
+const PRINT_PLAN_LINE: PlanLineSpec = {
+  key: "printing",
+  title: "인쇄",
+  columns: ["착색 인쇄"],
+  lineKeys: ["coloring"],
+  actual: (db, _i, from, to) => processSum(db, ["P220"], from, to),
+};
+
+function summaryAchievement(db: DatabaseSync, r: WeeklyReportResult): SummaryAchievement[] {
+  const monthLabel = `${Number(r.yearMonth.slice(5, 7))}월`;
+  const capaRows = db
+    .prepare(`SELECT line_key, daily_capa FROM line_capa_plan WHERE year_month = ?`)
+    .all(r.yearMonth) as { line_key: string; daily_capa: number | null }[];
+  const pb = buildPlanBlock(db, PRINT_PLAN_LINE, r.yearMonth, r.weekEnd, new Map(capaRows.map((x) => [x.line_key, x.daily_capa])));
+  const pw = pb.weeks.find((w) => w.weekLabel === `${weekNoOf(r.weekStart)} W`);
+  const printing: SummaryAchievement = {
+    label: "인쇄공정",
+    rangeLabel: pw?.rangeLabel ?? "",
+    plan: pb.capaMissing ? null : pw?.plan[0] ?? null,
+    actual: pw?.actual[0] ?? null,
+    rate: pb.capaMissing ? null : pw?.rate[0] ?? null,
+    monthLabel,
+    monthPlan: pb.capaMissing ? null : pb.month.plan[0],
+    monthActual: pb.month.actual[0],
+    monthRate: pb.capaMissing ? null : pb.month.rate[0],
+    planSource: "계획정보(PLAN-02) 착색 라인 일CAPA × 근무일수",
+    planMissing: pb.capaMissing,
+  };
+  // 출하공정 — 주간보고 "출하공정" 표(계획정보 PLAN-03 포장 일정, 직접 수정한 기초계획 포함)의 수량 열
+  const sw = r.packaging.weeks.find((w) => w.weekStart === r.weekStart);
+  const sm = r.packaging.month;
+  const shipping: SummaryAchievement = {
+    label: "출하공정",
+    rangeLabel: sw?.rangeLabel ?? "",
+    plan: sw?.planQty ?? null,
+    actual: sw?.actualQty ?? null,
+    rate: sw?.rateQty ?? null,
+    monthLabel,
+    monthPlan: sm.planQty,
+    monthActual: sm.actualQty,
+    monthRate: sm.rateQty,
+    planSource: "주간보고 출하공정 표 기초계획(계획정보 PLAN-03 포장 일정)",
+    planMissing: sm.planQty <= 0,
+  };
+  return [printing, shipping];
 }
 
 // 차트 구간 규칙(2026-10-14 사용자 요청: 분기 2~3개, 월 4~7개, 주 1~5개 유지):
@@ -643,6 +712,7 @@ export function computeWeeklySummary(db: DatabaseSync, r: WeeklyReportResult): W
     lowerQty: moldSum(db, "하몰드", weekStart, weekEnd),
     printQty: printTotal?.totalQty ?? 0,
     shipQty: processSum(db, ["P410"], weekStart, weekEnd),
+    achievement: summaryAchievement(db, r),
     yieldTrend: [...quarters, ...monthPoints, ...weekPoints],
   };
 }

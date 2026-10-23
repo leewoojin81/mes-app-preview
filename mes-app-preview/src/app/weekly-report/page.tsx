@@ -691,8 +691,17 @@ function SummaryTab({ result, dimmed }: { result: WeeklyReportResult; dimmed: bo
                 </tbody>
               </table>
             </div>
+            <div className="space-y-1">
+              {summary.achievement.map((a) => (
+                <p key={a.label} className="text-sm text-slate-700" title={`계획: ${a.planSource}`}>
+                  {a.planMissing
+                    ? `☞ ${a.label}: 계획이 없어 달성율을 계산하지 못했습니다(${a.planSource}).`
+                    : `☞ ${a.label} 계획대비 달성율: 당주(${a.rangeLabel}) ${fmtPct(a.rate, 1)} (계획 ${fmtQty(a.plan)} / 실적 ${fmtQty(a.actual)}),  ${a.monthLabel} 누계 ${fmtPct(a.monthRate, 1)} (월 계획 ${fmtQty(a.monthPlan)} / 실적 ${fmtQty(a.monthActual)})`}
+                </p>
+              ))}
+            </div>
             <p className="text-xs text-slate-400">
-              집계기간 {result.weekStart} ~ {result.weekEnd} · 이슈는 Word 다운로드 후 직접 작성합니다
+              집계기간 {result.weekStart} ~ {result.weekEnd} · 이슈는 Word 다운로드 후 직접 작성합니다 · 달성율은 화면에만 표시(요약 다운로드 미포함)
             </p>
           </section>
           <section className="space-y-3">
