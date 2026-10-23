@@ -516,18 +516,8 @@ const MAT_KINDS: { key: MaterialKind; label: string }[] = [
   { key: "box", label: "단상자" },
   { key: "manual", label: "설명서" },
 ];
-const MAT_RANK: Record<OrderMaterialStatus["status"], number> = { none: -1, ok: 0, po: 1, late: 2, order: 3 };
-/** 접힌 자재일정 1칸 — 네 자재 중 가장 나쁜 상태(입고예정일은 가장 늦은 날, 발주필요 수량은 합) */
-function worstMat(kinds: Record<MaterialKind, OrderMaterialStatus>): OrderMaterialStatus {
-  const out: OrderMaterialStatus = { status: "none", eta: null, order_qty: 0 };
-  for (const { key } of MAT_KINDS) {
-    const k = kinds[key];
-    if (MAT_RANK[k.status] > MAT_RANK[out.status]) out.status = k.status;
-    if ((k.status === "po" || k.status === "late") && k.eta && (!out.eta || k.eta > out.eta)) out.eta = k.eta;
-    out.order_qty += k.order_qty;
-  }
-  return out;
-}
+/** 접힌 자재일정 1칸에 보여줄 자재 — 실링지 */
+const MAT_FOLDED: MaterialKind = "seal";
 type OrderMaterials = { kinds: Record<MaterialKind, OrderMaterialStatus>; rows: MaterialRow[] };
 const mmdd = (iso: string | null) => (iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "납기미정");
 
@@ -641,7 +631,7 @@ function MaterialHelp({ onClose }: { onClose: () => void }) {
       <h4>참고</h4>
       <ul>
         <li>한 수주에 모델 · 자재가 여럿이면 가장 나쁜 상태로 표시합니다.</li>
-        <li>열 제목 "자재일정"을 누르면 1칸으로 접히고(네 자재 중 가장 나쁜 상태), 다시 누르면 펼쳐집니다.</li>
+        <li>열 제목 "자재일정"을 누르면 1칸으로 접히고(실링지 상태만 표시, 마우스를 올리면 네 자재 모두), 다시 누르면 펼쳐집니다.</li>
         <li>칸을 누르면 모델별 · 자재별 소요량 · 현재고 · 과부족 · 발주번호 · 입고예정일을 볼 수 있습니다.</li>
       </ul>
     </HelpModal>
@@ -1219,12 +1209,12 @@ export default function DueOrdersPage() {
         </button>
       );
       return matOpen ? (
-        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} colSpan={MAT_KINDS.length} onClick={() => setLayout({ ...layout, matOpen: false })} title="누르면 자재일정 1칸으로 접습니다">
+        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} colSpan={MAT_KINDS.length} onClick={() => setLayout({ ...layout, matOpen: false })} title="누르면 자재일정 1칸(실링지)으로 접습니다">
           자재일정 ▾{help}
         </th>
       ) : (
         <th key={k} {...dnd(k)} className={`grp${dt(k)}`} rowSpan={rs} onClick={() => setLayout({ ...layout, matOpen: true })} title="누르면 실링지 · 라벨 · 단상자 · 설명서로 펼칩니다">
-          자재일정 ▸{help}
+          자재일정(실링지) ▸{help}
         </th>
       );
     }
@@ -1275,7 +1265,7 @@ export default function DueOrdersPage() {
               ))
             ) : (
               <td>
-                <button className="matb" onClick={open} title={MAT_KINDS.map((x) => `${x.label} ${statusText(m.kinds[x.key])}`).join(" · ")}><MatStatus s={worstMat(m.kinds)} /></button>
+                <button className="matb" onClick={open} title={MAT_KINDS.map((x) => `${x.label} ${statusText(m.kinds[x.key])}`).join(" · ")}><MatStatus s={m.kinds[MAT_FOLDED]} /></button>
               </td>
             )}
           </Fragment>
