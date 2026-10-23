@@ -125,10 +125,9 @@ const CSS = `
 .po .help ul{margin:0;padding-left:18px}
 .po .help .ex{background:var(--surface-2);border:1px solid var(--line-2);border-radius:6px;padding:8px 12px;margin-top:4px}
 .po .copied{margin-left:6px;font-size:11px;color:var(--green);font-weight:600}
-.po button.mat{display:grid;grid-template-columns:auto auto;gap:2px 10px;background:none;border:0;padding:0;font:inherit;cursor:pointer;text-align:left}
-.po button.mat:hover .ml{color:var(--accent)}
-.po .mat .mi{display:flex;align-items:center;gap:4px;font-size:11.5px}
-.po .mat .ml{color:var(--fg-3);min-width:3.2em}
+.po button.matb{background:none;border:0;padding:0;font:inherit;cursor:pointer}
+.po button.qm{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;margin-left:6px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--fg-3);font-size:10px;font-weight:700;line-height:1;cursor:help;vertical-align:1px}
+.po button.qm:hover{color:var(--accent);border-color:var(--accent)}
 .po .note{font-size:12px;color:var(--fg-3);line-height:1.6}
 `;
 
@@ -509,15 +508,31 @@ function ItemChangeHelp({ onClose }: { onClose: () => void }) {
   );
 }
 
-// 자재일정 — 자재수급(PUR-03, lib/material-supply.ts) 계산을 수주별로 묶은 것. 종류 순서·이름은 MATERIAL_KINDS와 같다
+// 자재일정 — 자재수급(PUR-03, lib/material-supply.ts) 계산을 수주별로 묶은 것. 이름은 MATERIAL_KINDS와 같고,
+// 순서는 공정 흐름(실링 → 라벨 → 포장)에 맞춰 실링지 · 라벨 · 단상자 · 설명서
 const MAT_KINDS: { key: MaterialKind; label: string }[] = [
   { key: "seal", label: "실링지" },
-  { key: "box", label: "단상자" },
   { key: "label", label: "라벨" },
+  { key: "box", label: "단상자" },
   { key: "manual", label: "설명서" },
 ];
+const MAT_RANK: Record<OrderMaterialStatus["status"], number> = { none: -1, ok: 0, po: 1, late: 2, order: 3 };
+/** 접힌 자재일정 1칸 — 네 자재 중 가장 나쁜 상태(입고예정일은 가장 늦은 날, 발주필요 수량은 합) */
+function worstMat(kinds: Record<MaterialKind, OrderMaterialStatus>): OrderMaterialStatus {
+  const out: OrderMaterialStatus = { status: "none", eta: null, order_qty: 0 };
+  for (const { key } of MAT_KINDS) {
+    const k = kinds[key];
+    if (MAT_RANK[k.status] > MAT_RANK[out.status]) out.status = k.status;
+    if ((k.status === "po" || k.status === "late") && k.eta && (!out.eta || k.eta > out.eta)) out.eta = k.eta;
+    out.order_qty += k.order_qty;
+  }
+  return out;
+}
 type OrderMaterials = { kinds: Record<MaterialKind, OrderMaterialStatus>; rows: MaterialRow[] };
 const mmdd = (iso: string | null) => (iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "납기미정");
+
+const statusText = (s: OrderMaterialStatus) =>
+  s.status === "none" ? "-" : s.status === "ok" ? "충족" : s.status === "order" ? "발주필요" : `${mmdd(s.eta)}${s.status === "late" ? " 납기후" : ""}`;
 
 function MatStatus({ s }: { s: OrderMaterialStatus }) {
   if (s.status === "none") return <span className="zero" title="BOM에 이 종류 자재가 없습니다">-</span>;
@@ -626,6 +641,7 @@ function MaterialHelp({ onClose }: { onClose: () => void }) {
       <h4>참고</h4>
       <ul>
         <li>한 수주에 모델 · 자재가 여럿이면 가장 나쁜 상태로 표시합니다.</li>
+        <li>열 제목 "자재일정"을 누르면 1칸으로 접히고(네 자재 중 가장 나쁜 상태), 다시 누르면 펼쳐집니다.</li>
         <li>칸을 누르면 모델별 · 자재별 소요량 · 현재고 · 과부족 · 발주번호 · 입고예정일을 볼 수 있습니다.</li>
       </ul>
     </HelpModal>
@@ -963,14 +979,14 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
 }
 
 // 사용자별 화면 구성(열 순서·숨김·공정재공 펼침) — 계정마다 서버(user_ui_prefs)에 저장돼 다음에 열어도 그대로 나온다.
-type Layout = { order: string[]; hidden: string[]; wipOpen: boolean; progOpen: boolean };
+type Layout = { order: string[]; hidden: string[]; wipOpen: boolean; progOpen: boolean; matOpen: boolean };
 const PREF_KEY = "due-orders-grid";
 const GRID_KEYS = new Set(GRID_COLS.map((c) => c.key));
 const LABELS: Record<string, string> = Object.fromEntries(GRID_COLS.map((c) => [c.key, c.label]));
 const RIGHT = new Set(["rank", "qty", "color", "shipped", "assy", "short"]);
 // 공정별 진행률 열 이름 = lib/due-orders.ts의 SHORT_NAMES(공정 부족분 10개와 같은 순서)
 const STAGE_PROG = ["분리3", "습윤", "검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "완검", "출하"];
-const DEFAULT_LAYOUT: Layout = { order: GRID_COLS.map((c) => c.key), hidden: [], wipOpen: false, progOpen: false };
+const DEFAULT_LAYOUT: Layout = { order: GRID_COLS.map((c) => c.key), hidden: [], wipOpen: false, progOpen: false, matOpen: true };
 
 function sanitizeLayout(v: unknown): Layout {
   const o = (v ?? {}) as Partial<Layout>;
@@ -983,7 +999,8 @@ function sanitizeLayout(v: unknown): Layout {
     order.splice(prev >= 0 ? prev + 1 : order.length, 0, c.key);
     if (DEFAULT_LAYOUT.hidden.includes(c.key) && !hidden.includes(c.key)) hidden.push(c.key);
   });
-  return { order, hidden, wipOpen: !!o.wipOpen, progOpen: !!o.progOpen };
+  // 자재일정은 처음부터 펼친 상태(저장값이 없으면 펼침)
+  return { order, hidden, wipOpen: !!o.wipOpen, progOpen: !!o.progOpen, matOpen: o.matOpen === undefined ? true : !!o.matOpen };
 }
 
 // 공정별 색 — 진행률 펼침 때 막대와 공정명 머리글에 쓴다(흰 글씨가 읽히는 진한 색)
@@ -1158,9 +1175,10 @@ export default function DueOrdersPage() {
 
   const progOpen = layout.progOpen;
   const threeRows = progOpen && on("stageprog"); // 진행률을 펼치면 그룹 / 공정명 / 부족분·진행률 3단 머리글
-  const twoRows = threeRows || (wipOpen && on("wip"));
+  const matOpen = layout.matOpen;
+  const twoRows = threeRows || (wipOpen && on("wip")) || (matOpen && on("mat"));
   const rs = threeRows ? 3 : twoRows ? 2 : 1;
-  const colCount = cols.reduce((n, k) => n + (k === "wip" && wipOpen ? STAGES.length : k === "stageprog" && progOpen ? STAGE_PROG.length * 2 : 1), 0);
+  const colCount = cols.reduce((n, k) => n + (k === "wip" && wipOpen ? STAGES.length : k === "stageprog" && progOpen ? STAGE_PROG.length * 2 : k === "mat" && matOpen ? MAT_KINDS.length : 1), 0);
   const dt = (k: string) => (overKey === k ? " dropt" : "");
 
   const headCell = (k: string) => {
@@ -1187,9 +1205,26 @@ export default function DueOrdersPage() {
       );
     }
     if (k === "mat") {
-      return (
-        <th key={k} {...dnd(k)} className={dt(k).trim() || undefined} rowSpan={rs}>
-          <button className="hh" onClick={() => setMatHelp(true)} title="누르면 자재일정 계산 기준이 열립니다">{LABELS[k]}</button>
+      const help = (
+        <button
+          className="qm"
+          onClick={(e) => {
+            e.stopPropagation();
+            setMatHelp(true);
+          }}
+          title="자재일정 계산 기준"
+          aria-label="자재일정 계산 기준"
+        >
+          ?
+        </button>
+      );
+      return matOpen ? (
+        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} colSpan={MAT_KINDS.length} onClick={() => setLayout({ ...layout, matOpen: false })} title="누르면 자재일정 1칸으로 접습니다">
+          자재일정 ▾{help}
+        </th>
+      ) : (
+        <th key={k} {...dnd(k)} className={`grp${dt(k)}`} rowSpan={rs} onClick={() => setLayout({ ...layout, matOpen: true })} title="누르면 실링지 · 라벨 · 단상자 · 설명서로 펼칩니다">
+          자재일정 ▸{help}
         </th>
       );
     }
@@ -1221,22 +1256,29 @@ export default function DueOrdersPage() {
         return <td key={k}>{r.pack_method ?? ""}</td>;
       case "mat": {
         const m = mats?.[r.so_no];
-        if (!m) return <td key={k}><span className="zero">{mats ? "-" : matsError ? "불러오기 실패" : "…"}</span></td>;
+        const n = matOpen ? MAT_KINDS.length : 1;
+        if (!m) {
+          const t = mats ? "-" : matsError ? "불러오기 실패" : "…";
+          return <Fragment key={k}>{Array.from({ length: n }, (_, i) => <td key={i}><span className="zero">{t}</span></td>)}</Fragment>;
+        }
+        const open = (e: { stopPropagation: () => void }) => {
+          e.stopPropagation();
+          setMatOf(r);
+        };
         return (
-          <td key={k}>
-            <button
-              className="mat"
-              onClick={(e) => {
-                e.stopPropagation();
-                setMatOf(r);
-              }}
-              title="누르면 모델별·자재별 상세가 열립니다"
-            >
-              {MAT_KINDS.map((x) => (
-                <span key={x.key} className="mi"><span className="ml">{x.label}</span><MatStatus s={m.kinds[x.key]} /></span>
-              ))}
-            </button>
-          </td>
+          <Fragment key={k}>
+            {matOpen ? (
+              MAT_KINDS.map((x) => (
+                <td key={x.key}>
+                  <button className="matb" onClick={open} title={`${x.label} — 누르면 모델별·자재별 상세가 열립니다`}><MatStatus s={m.kinds[x.key]} /></button>
+                </td>
+              ))
+            ) : (
+              <td>
+                <button className="matb" onClick={open} title={MAT_KINDS.map((x) => `${x.label} ${statusText(m.kinds[x.key])}`).join(" · ")}><MatStatus s={worstMat(m.kinds)} /></button>
+              </td>
+            )}
+          </Fragment>
         );
       }
       case "qty":
@@ -1352,6 +1394,8 @@ export default function DueOrdersPage() {
                   {cols.flatMap((k) =>
                     k === "wip" && wipOpen
                       ? STAGES.map((s) => <th key={`w-${s}`} className="r" rowSpan={threeRows ? 2 : 1}>{s}</th>)
+                      : k === "mat" && matOpen
+                        ? MAT_KINDS.map((m) => <th key={`m-${m.key}`} rowSpan={threeRows ? 2 : 1}>{m.label}</th>)
                       : k === "stageprog" && progOpen
                         ? STAGE_PROG.map((s, i) => <th key={`p-${s}`} className="grp2" colSpan={2} style={{ color: STAGE_COLORS[i], boxShadow: `inset 0 -3px 0 ${STAGE_COLORS[i]}` }}>{s}</th>)
                         : []
