@@ -102,6 +102,10 @@ const CSS = `
 .po .pop .acts{display:flex;gap:6px;border-bottom:1px solid var(--line-2);padding-bottom:6px;margin-bottom:4px}
 .po .pop-scrim{position:fixed;inset:0;z-index:29}
 .po button.pill{border:0;cursor:pointer;font-size:11.5px;font-weight:600}
+.po .pill.tmp{outline:1px dashed currentColor;outline-offset:-1px}.po .pill.tmp sup{font-size:9px;margin-left:2px;font-family:var(--sans,inherit)}
+.po .mtemp{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:8px 10px;margin-bottom:10px;border:1px dashed var(--line);border-radius:4px;font-size:12.5px}
+.po .mtemp select,.po .mtemp input{font:inherit;padding:2px 6px;border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--fg)}
+.po .mtemp .hint{color:var(--fg-3);font-size:12px}
 .po button.p-amb:hover{background:#ffe6bd}
 .po .modal-scrim{position:fixed;inset:0;background:rgba(10,18,40,.3);z-index:50}
 .po .modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(1480px,calc(100% - 32px));max-height:calc(100% - 64px);background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 16px 40px rgba(0,20,60,.25);z-index:51;display:flex;flex-direction:column}
@@ -518,9 +522,24 @@ type OrderMaterials = { kinds: Record<MaterialKind, OrderMaterialStatus>; rows: 
 const mmdd = (iso: string | null) => (iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "납기미정");
 
 const statusText = (s: OrderMaterialStatus) =>
-  s.status === "none" ? "-" : s.status === "ok" ? "충족" : s.status === "order" ? "발주필요" : `${mmdd(s.eta)}${s.status === "late" ? " 납기후" : ""}`;
+  (s.status === "none" ? "-" : s.status === "ok" ? "충족" : s.status === "order" ? "발주필요" : `${mmdd(s.eta)}${s.status === "late" ? " 납기후" : ""}`) +
+  (s.temp ? " (임시)" : "");
 
 function MatStatus({ s }: { s: OrderMaterialStatus }) {
+  if (s.temp) {
+    // 임시 입력값 — 점선 테두리 + "임시" 표시, 새 발주가 올라오면 서버에서 지워져 계산값으로 돌아간다
+    const t = s.temp;
+    const calc = statusText({ status: t.calc.status, eta: t.calc.eta, order_qty: t.calc.order_qty });
+    return (
+      <span
+        className={`pill tmp ${s.status === "order" ? "p-red" : "p-amb"}`}
+        title={`임시 입력${t.note ? ` — ${t.note}` : ""} (${t.created_by ?? ""} ${t.created_at.slice(5, 16)})\n계산값: ${calc}\n이 자재의 새 발주가 구매발주현황에 올라오면 자동으로 계산값으로 돌아갑니다.`}
+      >
+        {s.status === "order" ? "발주필요" : mmdd(s.eta)}
+        <sup>임시</sup>
+      </span>
+    );
+  }
   if (s.status === "none") return <span className="zero" title="BOM에 이 종류 자재가 없습니다">-</span>;
   if (s.status === "ok") return <span className="pill p-grn">충족</span>;
   if (s.status === "order") return <span className="pill p-red" title={`미입고 발주로도 모자랍니다 — 발주 필요 ${fmt(s.order_qty)}`}>발주필요</span>;
@@ -537,7 +556,68 @@ function MatCellPill({ c }: { c: MaterialCell }) {
   return <span className="pill p-red">발주필요 {fmt(c.order_qty)}</span>;
 }
 
-function MaterialModal({ row, mats, onClose }: { row: DueOrderRow; mats: OrderMaterials | undefined; onClose: () => void }) {
+/** 자재일정 임시 입력 — 계산상 충족이지만 다시 발주해야 할 때(예: 생산 후 불량) 발주가 올라올 때까지 칸을 임시로 채운다 */
+function MaterialTempEditor({ soNo, mats, onChanged }: { soNo: string; mats: OrderMaterials; onChanged: () => void }) {
+  const [kind, setKind] = useState<MaterialKind>(() => MAT_KINDS.find((k) => mats.kinds[k.key].status !== "none")?.key ?? "seal");
+  const [status, setStatus] = useState<"order" | "po">("order");
+  const [eta, setEta] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const temps = MAT_KINDS.filter((k) => mats.kinds[k.key].temp);
+  const call = async (init: RequestInit, url = "/api/due-orders") => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch(url, init);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error ?? "저장하지 못했습니다.");
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = () =>
+    call({ method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ so_no: soNo, kind, status, eta: status === "po" ? eta : null, note }) });
+  const release = (k: MaterialKind) => call({ method: "DELETE" }, `/api/due-orders?so=${encodeURIComponent(soNo)}&kind=${k}`);
+  return (
+    <div className="mtemp">
+      <b>임시 입력</b>
+      <select value={kind} onChange={(e) => setKind(e.target.value as MaterialKind)} disabled={busy}>
+        {MAT_KINDS.filter((k) => mats.kinds[k.key].status !== "none").map((k) => (
+          <option key={k.key} value={k.key}>{k.label}</option>
+        ))}
+      </select>
+      <select value={status} onChange={(e) => setStatus(e.target.value as "order" | "po")} disabled={busy}>
+        <option value="order">발주필요</option>
+        <option value="po">입고예정일</option>
+      </select>
+      {status === "po" && <input type="date" value={eta} onChange={(e) => setEta(e.target.value)} disabled={busy} />}
+      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="메모 (예: 불량 재발주)" maxLength={100} disabled={busy} style={{ width: 200 }} />
+      <button className="chip" onClick={save} disabled={busy || (status === "po" && !eta)}>저장</button>
+      <span className="hint">이 자재의 새 발주가 구매발주현황에 올라오면 자동으로 계산값으로 돌아갑니다.</span>
+      {err && <span style={{ color: "var(--red)" }}>{err}</span>}
+      {temps.length > 0 && (
+        <div style={{ flexBasis: "100%", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          {temps.map((k) => {
+            const t = mats.kinds[k.key].temp!;
+            return (
+              <span key={k.key}>
+                {k.label} <MatStatus s={mats.kinds[k.key]} />
+                <span className="hint"> {t.note ?? ""} · 계산값 {statusText({ status: t.calc.status, eta: t.calc.eta, order_qty: t.calc.order_qty })}</span>{" "}
+                <button className="chip" onClick={() => release(k.key)} disabled={busy}>해제</button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MaterialModal({ row, mats, onClose, onChanged }: { row: DueOrderRow; mats: OrderMaterials | undefined; onClose: () => void; onChanged: () => void }) {
   const lines = (mats?.rows ?? []).flatMap((r) => MAT_KINDS.flatMap((k) => r.cells[k.key].map((c) => ({ r, k, c }))));
   return (
     <>
@@ -563,6 +643,7 @@ function MaterialModal({ row, mats, onClose }: { row: DueOrderRow; mats: OrderMa
         </div>
         <div className="mb">
           {!mats && <div className="empty">이 수주의 자재일정이 없습니다(자재수급 계산 대상 아님).</div>}
+          {mats && <MaterialTempEditor soNo={row.so_no} mats={mats} onChanged={onChanged} />}
           {mats && (
             <table>
               <thead>
@@ -623,6 +704,7 @@ function MaterialHelp({ onClose }: { onClose: () => void }) {
         <li><span className="pill p-red">10/30 납기후</span> 발주로 채우지만 입고예정일이 수주 납기일보다 늦음</li>
         <li><span className="pill p-red">발주필요</span> 미입고 발주로도 모자람</li>
         <li><span className="zero">-</span> 이 수주 모델들의 BOM에 그 자재가 없음</li>
+        <li><span className="pill tmp p-red">발주필요<sup>임시</sup></span> 상세 창에서 임시로 입력한 값 — 그 자재의 새 발주가 구매발주현황에 올라오면 자동으로 계산값으로 돌아감</li>
       </ul>
       <h4>참고</h4>
       <ul>
@@ -1597,7 +1679,7 @@ export default function DueOrdersPage() {
       </p>
 
       {matHelp && <MaterialHelp onClose={() => setMatHelp(false)} />}
-      {matOf && <MaterialModal row={matOf} mats={mats?.[matOf.so_no]} onClose={() => setMatOf(null)} />}
+      {matOf && <MaterialModal row={matOf} mats={mats?.[matOf.so_no]} onClose={() => setMatOf(null)} onChanged={requestMats} />}
       {selected && (
         <DetailPanel
           key={selected}

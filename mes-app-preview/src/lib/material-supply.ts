@@ -100,6 +100,8 @@ export interface OrderMaterialStatus {
   eta: string | null;
   /** order — 발주해야 하는 수량 합 */
   order_qty: number;
+  /** 임시 입력으로 덮어쓴 값이면 그 정보(calc = 원래 계산값) — applyMaterialTemps */
+  temp?: { note: string | null; created_at: string; created_by: string | null; calc: { status: OrderMaterialStatus["status"]; eta: string | null; order_qty: number } };
 }
 
 /** 납기별수주현황(PLAN-04) 자재일정 열용 — 자재수급 줄을 수주번호별로 묶어 종류별 상태를 요약한다 */
@@ -123,6 +125,86 @@ export function summarizeByOrder(rows: MaterialRow[]): Record<string, { kinds: R
     }
   }
   return out;
+}
+
+// 임시 자재일정 — 계산상 충족이지만 실제로는 다시 발주해야 하는 경우(예: 생산 후 불량으로 자재 재발주) PLAN-04에서
+// 수주×자재 종류 칸에 상태를 임시로 적어 둔다(2026-10-23 사용자 요청). 적을 때 그 수주 모델들의 그 종류 자재코드와
+// 이미 있던 발주번호를 같이 저장해 두고, 구매발주현황에 그 자재의 새 발주번호(중단 제외)가 올라오면 임시값을 지워
+// 정상 계산값으로 돌아간다.
+export type MaterialTempStatus = "order" | "po";
+
+function ensureTempTable(db: DatabaseSync) {
+  db.exec(`CREATE TABLE IF NOT EXISTS material_supply_temp (
+    so_no TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    eta TEXT,
+    note TEXT,
+    codes TEXT NOT NULL,
+    known_po TEXT NOT NULL,
+    created_by TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY (so_no, kind)
+  )`);
+}
+
+function poNosOf(db: DatabaseSync, codes: string[]): Set<string> {
+  if (!codes.length) return new Set();
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT po_no FROM purchase_order_status
+        WHERE COALESCE(json_extract(detail, '$."상태"'), '') <> '중단' AND po_no IS NOT NULL AND item_code IN (${codes.map(() => "?").join(",")})`
+    )
+    .all(...codes) as { po_no: string }[];
+  return new Set(rows.map((r) => r.po_no));
+}
+
+/** 임시값 저장 — rows는 fetchMaterialSupply 결과(그 수주 모델들의 그 종류 자재코드를 찾는 데 씀) */
+export function saveMaterialTemp(
+  db: DatabaseSync,
+  rows: MaterialRow[],
+  t: { so_no: string; kind: MaterialKind; status: MaterialTempStatus; eta: string | null; note: string | null; user: string | null }
+) {
+  const codes = [...new Set(rows.filter((r) => r.so_no === t.so_no).flatMap((r) => r.cells[t.kind].map((c) => c.code)))];
+  if (!codes.length) throw new Error("이 수주 모델들의 BOM에 그 자재가 없습니다.");
+  if (t.status === "po" && !(t.eta && /^\d{4}-\d{2}-\d{2}$/.test(t.eta))) throw new Error("입고예정일을 입력하세요.");
+  ensureTempTable(db);
+  db.prepare(
+    `INSERT INTO material_supply_temp (so_no, kind, status, eta, note, codes, known_po, created_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+     ON CONFLICT(so_no, kind) DO UPDATE SET status = excluded.status, eta = excluded.eta, note = excluded.note,
+       codes = excluded.codes, known_po = excluded.known_po, created_by = excluded.created_by, created_at = excluded.created_at`
+  ).run(t.so_no, t.kind, t.status, t.status === "po" ? t.eta : null, t.note, JSON.stringify(codes), JSON.stringify([...poNosOf(db, codes)]), t.user);
+}
+
+export function deleteMaterialTemp(db: DatabaseSync, so_no: string, kind: MaterialKind) {
+  ensureTempTable(db);
+  db.prepare("DELETE FROM material_supply_temp WHERE so_no = ? AND kind = ?").run(so_no, kind);
+}
+
+/** summarizeByOrder 결과에 임시값을 덮어쓴다 — 새 발주가 올라온 임시값은 지운다 */
+export function applyMaterialTemps(db: DatabaseSync, orders: ReturnType<typeof summarizeByOrder>) {
+  ensureTempTable(db);
+  const temps = db.prepare("SELECT * FROM material_supply_temp").all() as {
+    so_no: string; kind: MaterialKind; status: MaterialTempStatus; eta: string | null; note: string | null;
+    codes: string; known_po: string; created_by: string | null; created_at: string;
+  }[];
+  for (const t of temps) {
+    const known = new Set(JSON.parse(t.known_po) as string[]);
+    if ([...poNosOf(db, JSON.parse(t.codes) as string[])].some((po) => !known.has(po))) {
+      deleteMaterialTemp(db, t.so_no, t.kind); // 발주가 들어갔으니 정상 계산값으로
+      continue;
+    }
+    const s = orders[t.so_no]?.kinds[t.kind];
+    if (!s) continue;
+    orders[t.so_no].kinds[t.kind] = {
+      status: t.status,
+      eta: t.status === "po" ? t.eta : null,
+      order_qty: 0,
+      temp: { note: t.note, created_at: t.created_at, created_by: t.created_by, calc: { status: s.status, eta: s.eta, order_qty: s.order_qty } },
+    };
+  }
+  return orders;
 }
 
 export function ensureSettingsTable(db: DatabaseSync) {
