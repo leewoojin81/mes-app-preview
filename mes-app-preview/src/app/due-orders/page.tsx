@@ -47,6 +47,7 @@ const CSS = `
 .po thead tr.h1 th{height:35px}
 .po tbody tr.row{cursor:pointer}.po tbody tr.row:hover{background:var(--surface-2)}.po tbody tr.row.sel{background:var(--blue-bg)}
 .po tbody tr.row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.po tbody tr.row.done td{color:var(--fg-3)}
 .po .so{font-family:var(--mono);font-size:12.5px;color:var(--accent);font-weight:500}
 .po .pill{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 7px;border-radius:3px;font-family:var(--mono)}
 .po .p-red{background:var(--red-bg);color:var(--red)}.po .p-amb{background:var(--amber-bg);color:var(--amber)}.po .p-grn{background:var(--green-bg);color:var(--green)}.po .p-gry{background:var(--line-2);color:var(--fg-3)}
@@ -172,6 +173,7 @@ function dday(due: string | null, base: string): number | null {
 }
 function DueBadge({ row, base }: { row: DueOrderRow; base: string }) {
   if (row.order_qty > 0 && row.shipped >= row.order_qty) return <span className="pill p-grn">출하완료</span>;
+  if (row.done) return <span className="pill p-gry" title="ERP 상태 완료(주문량보다 적게 출고하고 닫힘)">완료</span>;
   const n = dday(row.due_date, base);
   if (n == null) return <span className="pill p-gry">미정</span>;
   const cls = n < 0 ? "p-red" : n <= 14 ? "p-amb" : "p-gry";
@@ -861,7 +863,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                 <span>납기 <b className="num">{row.due_date ?? "-"}</b></span>
                 {row.pack_method && <span>포장 {row.pack_method}</span>}
                 <span>상태 <b>{row.status}</b></span>
-                <span>순위 {row.rank}</span>
+                {row.done ? <span>완료 수주 · 마지막 출고 <b className="num">{row.last_ship ?? "-"}</b></span> : <span>순위 {row.rank}</span>}
                 {row.mo_no && <span className="num">{row.mo_no}</span>}
               </div>
             )}
@@ -1242,7 +1244,8 @@ export default function DueOrdersPage() {
   const rows = useMemo(() => {
     const kw = search.trim().toLowerCase();
     return (data?.rows ?? []).filter((r) => {
-      if (hideDone && r.order_qty > 0 && r.shipped >= r.order_qty) return false;
+      // 완료 수주(최근 1개월 출고, done)와 다 출고했는데 아직 수주/Packing인 수주를 숨긴다
+      if (hideDone && (r.done || (r.order_qty > 0 && r.shipped >= r.order_qty))) return false;
       if (needOnly && r.assy_in <= 0) return false;
       if (dueSoon && (dday(r.due_date, base) ?? 999) > 14) return false;
       if (customer && r.customer !== customer) return false;
@@ -1251,12 +1254,14 @@ export default function DueOrdersPage() {
     });
   }, [data, search, customer, needOnly, dueSoon, hideDone, base]);
 
+  // 요약 카드는 진행 수주만 — 완료 수주(done)는 건수만 따로
+  const doneN = rows.filter((r) => r.done).length;
   const kpis = [
-    ["진행 수주", `${rows.length}건`, "표시 중인 수주"],
-    ["총 주문량", fmt(sum(rows.map((r) => r.order_qty))), "렌즈 매수"],
+    ["진행 수주", `${rows.length - doneN}건`, doneN ? `표시 중인 수주 · 완료 ${doneN}건 별도` : "표시 중인 수주"],
+    ["총 주문량", fmt(sum(rows.filter((r) => !r.done).map((r) => r.order_qty))), "렌즈 매수"],
     ["조립투입 필요", `${rows.filter((r) => r.assy_in > 0).length}건`, `${fmt(sum(rows.map((r) => r.assy_in)))} 매`],
     ["공정재공", fmt(sum(rows.map((r) => sum(r.wip)))), "조립~출하포장"],
-    ["납기 경과·미출하", `${rows.filter((r) => (dday(r.due_date, base) ?? 1) < 0 && r.shipped < r.order_qty).length}건`, "출하부족 남은 수주"],
+    ["납기 경과·미출하", `${rows.filter((r) => !r.done && (dday(r.due_date, base) ?? 1) < 0 && r.shipped < r.order_qty).length}건`, "출하부족 남은 수주"],
   ];
 
   const progOpen = layout.progOpen;
@@ -1359,7 +1364,7 @@ export default function DueOrdersPage() {
     const stagePs = STAGE_PROG.map((_, i) => (r.order_qty > 0 ? Math.max(0, Math.min(1, (r.order_qty - ((r.shorts ?? [])[i] ?? 0)) / r.order_qty)) : 0));
     switch (k) {
       case "rank":
-        return <td key={k} className="r num">{r.rank}</td>;
+        return <td key={k} className="r num">{r.done ? <span className="pill p-gry" title={`최근 1개월 완료 수주 · 마지막 출고 ${r.last_ship ?? "-"}`}>완료</span> : r.rank}</td>;
       case "so":
         return <td key={k} className="so">{r.so_no}</td>;
       case "mo":
@@ -1653,7 +1658,7 @@ export default function DueOrdersPage() {
                 return (
                   <tr
                     key={r.so_no}
-                    className={`row${selected === r.so_no ? " sel" : ""}`}
+                    className={`row${r.done ? " done" : ""}${selected === r.so_no ? " sel" : ""}`}
                     tabIndex={0}
                     onClick={() => setSelected(r.so_no)}
                     onKeyDown={(e) => e.key === "Enter" && setSelected(r.so_no)}

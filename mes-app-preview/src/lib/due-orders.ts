@@ -85,6 +85,10 @@ export interface DueOrderRow {
   assy_in: number;
   ship_short: number;
   ship_rate: number;
+  /** 최근 1개월 안에 출고된 완료 수주(ERP 상태 '완료') — 순위·부족분 계산에 넣지 않고 목록 끝에 붙인다(rank 0) */
+  done?: boolean;
+  /** 마지막 출고일(완료 수주만) */
+  last_ship?: string | null;
 }
 
 export interface DueOrdersResult {
@@ -131,55 +135,60 @@ const cache = new WeakMap<DatabaseSync, Computed>();
 
 function compute(db: DatabaseSync): Computed {
   // 1) 진행 중인 수주(상태가 수주/Packing인 줄이 하나라도 있는 수주번호)의 품목 줄
-  const raw = db
-    .prepare(
-      `WITH s AS (
-         SELECT so.*, COALESCE(NULLIF(json_extract(so.detail, '$."수주번호"'), ''),
-                  CASE WHEN instr(so.so_no, '-') > 0 THEN substr(so.so_no, 1, instr(so.so_no, '-') - 1) ELSE so.so_no END) sono,
-                COALESCE(json_extract(so.detail, '$."상태"'), so.status) st
-           FROM sales_orders so
-       ), act AS (
-         SELECT sono FROM s
-          WHERE REPLACE(COALESCE(json_extract(detail, '$."거래처명"'), ''), ' ', '') <> '(주)메디오스'
-          GROUP BY sono
-         HAVING SUM(CASE WHEN st IN ('수주', 'Packing') THEN 1 ELSE 0 END) > 0
-       )
-       SELECT s.sono, s.item_code, s.order_qty qty, s.due_date due, s.st,
-              NULLIF(TRIM(json_extract(s.detail, '$."MO-번호"')), '') mo,
-              COALESCE(NULLIF(TRIM(cu.short_name), ''), json_extract(s.detail, '$."거래처명"')) cname,
-              json_extract(s.detail, '$."품목군"') grp,
-              CAST(json_extract(s.detail, '$."작업순서"') AS INTEGER) seq,
-              json_extract(it.detail, '$."포장방법"') pm,
-              it.item_name
-         FROM s JOIN act ON act.sono = s.sono
-         LEFT JOIN customers cu ON cu.customer_code = s.customer_code
-         LEFT JOIN items it ON it.item_code = s.item_code
-        WHERE s.st <> '중단'`
-    )
-    .all() as {
-    sono: string; item_code: string; qty: number | null; due: string | null; st: string;
-    mo: string | null; cname: string | null; grp: string | null; seq: number | null; pm: string | null; item_name: string | null;
-  }[];
+  //    fin = 줄이 모두 완료(중단 제외)인 수주 — 최근 1개월 출고분만 목록 끝에 따로 붙인다(아래 6)
+  const headsOf = (having: string) => {
+    const raw = db
+      .prepare(
+        `WITH s AS (
+           SELECT so.*, COALESCE(NULLIF(json_extract(so.detail, '$."수주번호"'), ''),
+                    CASE WHEN instr(so.so_no, '-') > 0 THEN substr(so.so_no, 1, instr(so.so_no, '-') - 1) ELSE so.so_no END) sono,
+                  COALESCE(json_extract(so.detail, '$."상태"'), so.status) st
+             FROM sales_orders so
+         ), act AS (
+           SELECT sono FROM s
+            WHERE REPLACE(COALESCE(json_extract(detail, '$."거래처명"'), ''), ' ', '') <> '(주)메디오스'
+            GROUP BY sono
+           HAVING ${having}
+         )
+         SELECT s.sono, s.item_code, s.order_qty qty, s.due_date due, s.st,
+                NULLIF(TRIM(json_extract(s.detail, '$."MO-번호"')), '') mo,
+                COALESCE(NULLIF(TRIM(cu.short_name), ''), json_extract(s.detail, '$."거래처명"')) cname,
+                json_extract(s.detail, '$."품목군"') grp,
+                CAST(json_extract(s.detail, '$."작업순서"') AS INTEGER) seq,
+                json_extract(it.detail, '$."포장방법"') pm,
+                it.item_name
+           FROM s JOIN act ON act.sono = s.sono
+           LEFT JOIN customers cu ON cu.customer_code = s.customer_code
+           LEFT JOIN items it ON it.item_code = s.item_code
+          WHERE s.st <> '중단'`
+      )
+      .all() as {
+      sono: string; item_code: string; qty: number | null; due: string | null; st: string;
+      mo: string | null; cname: string | null; grp: string | null; seq: number | null; pm: string | null; item_name: string | null;
+    }[];
 
-  type Head = { so_no: string; mo: string | null; cname: string | null; grp: string | null; due: string | null; seq: number | null; pm: string | null; sts: Set<string>; items: Map<string, { qty: number; name: string | null }> };
-  const heads = new Map<string, Head>();
-  for (const r of raw) {
-    let h = heads.get(r.sono);
-    if (!h) {
-      h = { so_no: r.sono, mo: null, cname: null, grp: null, due: null, seq: null, pm: null, sts: new Set(), items: new Map() };
-      heads.set(r.sono, h);
+    const heads = new Map<string, Head>();
+    for (const r of raw) {
+      let h = heads.get(r.sono);
+      if (!h) {
+        h = { so_no: r.sono, mo: null, cname: null, grp: null, due: null, seq: null, pm: null, sts: new Set(), items: new Map() };
+        heads.set(r.sono, h);
+      }
+      h.mo ??= r.mo;
+      h.cname ??= r.cname;
+      h.grp ??= r.grp;
+      h.pm ??= r.pm;
+      h.sts.add(r.st);
+      if (r.due && (!h.due || r.due < h.due)) h.due = r.due;
+      if (r.seq != null && (h.seq == null || r.seq < h.seq)) h.seq = r.seq;
+      const it = h.items.get(r.item_code) ?? { qty: 0, name: r.item_name };
+      it.qty += r.qty ?? 0;
+      h.items.set(r.item_code, it);
     }
-    h.mo ??= r.mo;
-    h.cname ??= r.cname;
-    h.grp ??= r.grp;
-    h.pm ??= r.pm;
-    h.sts.add(r.st);
-    if (r.due && (!h.due || r.due < h.due)) h.due = r.due;
-    if (r.seq != null && (h.seq == null || r.seq < h.seq)) h.seq = r.seq;
-    const it = h.items.get(r.item_code) ?? { qty: 0, name: r.item_name };
-    it.qty += r.qty ?? 0;
-    h.items.set(r.item_code, it);
-  }
+    return heads;
+  };
+  type Head = { so_no: string; mo: string | null; cname: string | null; grp: string | null; due: string | null; seq: number | null; pm: string | null; sts: Set<string>; items: Map<string, { qty: number; name: string | null }> };
+  const heads = headsOf(`SUM(CASE WHEN st IN ('수주', 'Packing') THEN 1 ELSE 0 END) > 0`);
   // 순위: 납기일 → 생산순위지정(PLAN-01) 작업순서 → 수주번호 (계획정보 납기진행 탭과 같은 기준)
   const ordered = [...heads.values()].sort((a, b) => {
     const da = a.due ?? "9999", dbb = b.due ?? "9999";
@@ -229,13 +238,19 @@ function compute(db: DatabaseSync): Computed {
     colorMap.set(r.p, { mu: r.mu ?? 0, yu: r.yu ?? 0 });
   }
 
-  // 4) 수주번호·품목별 출고
+  // 4) 수주번호·품목별 출고, 수주번호별 마지막 출고일
   const shipMap = new Map<string, number>();
+  const lastShip = new Map<string, string>();
   for (const r of db
-    .prepare(`SELECT so_no, item_code, SUM(COALESCE(CAST(json_extract(detail, '$."출고수량"') AS REAL), 0)) q FROM product_shipment_status WHERE so_no IS NOT NULL GROUP BY so_no, item_code`)
-    .all() as { so_no: string; item_code: string; q: number }[]) {
-    const k = `${soBase(r.so_no.trim())}|${r.item_code}`;
+    .prepare(
+      `SELECT so_no, item_code, SUM(COALESCE(CAST(json_extract(detail, '$."출고수량"') AS REAL), 0)) q, MAX(ship_date) d
+         FROM product_shipment_status WHERE so_no IS NOT NULL GROUP BY so_no, item_code`
+    )
+    .all() as { so_no: string; item_code: string; q: number; d: string | null }[]) {
+    const so = soBase(r.so_no.trim());
+    const k = `${so}|${r.item_code}`;
     shipMap.set(k, (shipMap.get(k) ?? 0) + (r.q ?? 0));
+    if (r.d && r.d > (lastShip.get(so) ?? "")) lastShip.set(so, r.d);
   }
 
   // 5) 순위대로 누적주문·누적출고를 쌓으며 부족분·조립투입 계산
@@ -303,9 +318,65 @@ function compute(db: DatabaseSync): Computed {
     };
   });
 
+  // 6) 최근 1개월 안에 출고된 완료 수주 — "출하 완료 숨기기"를 끄면 보이도록 목록 끝에 붙인다(2026-10-23 사용자 요청).
+  //    순위·누적주문·부족분·조립투입·자재일정 계산에는 넣지 않는다. 출고 기록이 없으면 납기일이 최근 1개월 안인 것.
+  const now = new Date();
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const todayStr = ymd(now);
+  const since = ymd(new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()));
+  const doneRows: DueOrderRow[] = [];
+  for (const h of headsOf(`SUM(CASE WHEN st IN ('수주', 'Packing') THEN 1 ELSE 0 END) = 0 AND SUM(CASE WHEN st = '완료' THEN 1 ELSE 0 END) > 0`).values()) {
+    const ls0 = lastShip.get(h.so_no) ?? null;
+    const recent = ls0 ? ls0.slice(0, 10) >= since : !!h.due && h.due.slice(0, 10) >= since && h.due.slice(0, 10) <= todayStr;
+    if (!recent) continue;
+    const ls: DueOrderLine[] = [...h.items].map(([code, it]) => ({
+      item_code: code,
+      model: code.length >= 9 ? code.slice(0, 9) : code,
+      power: powerOf(code),
+      item_name: it.name,
+      order_qty: it.qty,
+      cum_order: 0,
+      wip: STAGES.map(() => 0),
+      shipped: shipMap.get(`${h.so_no}|${code}`) ?? 0,
+      cum_shipped: 0,
+      base_stock: 0,
+      color_stock: 0,
+      model_color_stock: 0,
+      shorts: SHORT_NAMES.map(() => null),
+      assy_in: 0,
+    }));
+    ls.sort((a, b) => (a.model === b.model ? (b.power ?? 0) - (a.power ?? 0) : a.model < b.model ? -1 : 1));
+    lines.set(h.so_no, ls);
+    const order_qty = ls.reduce((s, l) => s + l.order_qty, 0);
+    const shipped = ls.reduce((s, l) => s + l.shipped, 0);
+    doneRows.push({
+      rank: 0,
+      so_no: h.so_no,
+      mo_no: h.mo,
+      customer: h.cname,
+      brand: h.grp,
+      due_date: h.due,
+      pack_method: h.pm,
+      status: [...h.sts].sort().join("/"),
+      seq: h.seq,
+      line_count: ls.length,
+      order_qty,
+      shipped,
+      wip: STAGES.map(() => 0),
+      color_stock: 0,
+      shorts: SHORT_NAMES.map(() => 0),
+      assy_in: 0,
+      ship_short: 0,
+      ship_rate: order_qty > 0 ? Math.min(1, shipped / order_qty) : 1,
+      done: true,
+      last_ship: ls0,
+    });
+  }
+  doneRows.sort((a, b) => (b.last_ship ?? b.due_date ?? "").localeCompare(a.last_ship ?? a.due_date ?? ""));
+
   const one = (sql: string) => ((db.prepare(sql).get() as { v: string | null } | undefined)?.v ?? null);
   const result: DueOrdersResult = {
-    rows,
+    rows: [...rows, ...doneRows],
     as_of: {
       sales: one("SELECT MAX(created_at) v FROM sales_orders"),
       wip: one("SELECT MAX(uploaded_at) v FROM process_wip_status"),
@@ -339,7 +410,8 @@ const POWER_GRID = [
 export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOrderRow | null; lines: DueOrderLine[] } {
   const c = load(db);
   const lines = c.lines.get(soNo) ?? [];
-  if (lines.length === 0) return { row: c.result.rows.find((r) => r.so_no === soNo) ?? null, lines };
+  const row0 = c.result.rows.find((r) => r.so_no === soNo) ?? null;
+  if (lines.length === 0 || row0?.done) return { row: row0, lines }; // 완료 수주는 주문·출고만
 
   // 고객 요청 도수(예: 0.00, -0.50) 외에 도수변경(-0.25 등)으로 생긴 재공도 보이도록, 수주에 든 모델마다
   // 기본 도수표 + 재공이 있는 도수를 덧붙인다. 덧붙인 줄은 수주 계산(주문·부족분·조립투입)에 들어가지 않는다.
@@ -638,5 +710,5 @@ export function fetchItemChange(db: DatabaseSync, itemCode: string): { item_code
 /** 자재수급(PUR-03)처럼 수주별 품목 줄까지 한꺼번에 쓰는 화면용 — 같은 30초 캐시를 쓴다 */
 export function fetchDueOrdersWithLines(db: DatabaseSync): { rows: DueOrderRow[]; lines: Map<string, DueOrderLine[]>; as_of: DueOrdersResult["as_of"] } {
   const c = load(db);
-  return { rows: c.result.rows, lines: c.lines, as_of: c.result.as_of };
+  return { rows: c.result.rows.filter((r) => !r.done), lines: c.lines, as_of: c.result.as_of };
 }
