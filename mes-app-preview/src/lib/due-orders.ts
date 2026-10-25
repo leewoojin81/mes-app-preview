@@ -50,6 +50,8 @@ export interface DueOrderLine {
   color_stock: number;
   /** 모델 단위 착색재고(무도수 + 유도수) */
   model_color_stock: number;
+  /** 모델 단위 착색재고 중 무도수용(유도수용 = model_color_stock − 이 값) */
+  model_color_mu: number;
   /** 분리3~출하 부족분 10개 — null은 "완료" */
   shorts: (number | null)[];
   assy_in: number;
@@ -123,10 +125,13 @@ function soBase(soNo: string): string {
 const COLOR_MU = `(l.base_auto = 1 OR (l.has_base IS NULL AND l.color_auto = 1))`;
 
 /** 도수 줄의 착색재고 — 0.00은 무도수용만, 그 외(도수 없는 품목코드 포함)는 무도수용 + 유도수용 */
-function colorStockOf(c: { mu: number; yu: number } | undefined, power: number | null): { color_stock: number; model_color_stock: number } {
+function colorStockOf(
+  c: { mu: number; yu: number } | undefined,
+  power: number | null
+): { color_stock: number; model_color_stock: number; model_color_mu: number } {
   const mu = c?.mu ?? 0;
   const yu = c?.yu ?? 0;
-  return { color_stock: power === 0 ? mu : mu + yu, model_color_stock: mu + yu };
+  return { color_stock: power === 0 ? mu : mu + yu, model_color_stock: mu + yu, model_color_mu: mu };
 }
 
 export function powerOf(itemCode: string): number | null {
@@ -356,6 +361,7 @@ function compute(db: DatabaseSync): Computed {
       base_stock: 0,
       color_stock: 0,
       model_color_stock: 0,
+      model_color_mu: 0,
       shorts: SHORT_NAMES.map(() => null),
       assy_in: 0,
     }));
@@ -421,7 +427,10 @@ const POWER_GRID = [
   ...Array.from({ length: 8 }, (_, i) => 650 + i * 50),
 ].map((n) => String(n).padStart(4, "0"));
 
-export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOrderRow | null; lines: DueOrderLine[] } {
+export function fetchDueOrderLines(
+  db: DatabaseSync,
+  soNo: string
+): { row: DueOrderRow | null; lines: DueOrderLine[]; /** 수주에 든 모델들의 실링지 재고(같은 자재코드는 한 번만) */ seal?: { codes: string[]; stock: number } } {
   const c = load(db);
   const lines = c.lines.get(soNo) ?? [];
   const row0 = c.result.rows.find((r) => r.so_no === soNo) ?? null;
@@ -496,22 +505,25 @@ export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOr
   for (const l of out) l.dosu_changes = changes.get(l.item_code) ?? 0;
 
   // 실링지재고 — 모델의 BOM 직접 구성품 중 BFS 자재의 부자재 창고 재고(자재수급 PUR-03과 같은 창고)
+  //  수주 합계(상단 요약 칸)는 여러 모델이 같은 실링지를 쓰면 한 번만 센다
+  const sealOf = new Map<string, number>();
   for (const m of models) {
     const codes = (db.prepare("SELECT DISTINCT child_item_code c FROM bom WHERE parent_item_code = ? AND child_item_code LIKE 'BFS%'").all(m) as { c: string }[]).map((r) => r.c);
-    const q = codes.length
-      ? ((db
-          .prepare(
-            `SELECT SUM(COALESCE(stock_qty, 0)) q FROM inventory_status
-              WHERE item_code IN (${codes.map(() => "?").join(",")}) AND warehouse IN (${SEAL_WAREHOUSES.map(() => "?").join(",")})`
-          )
-          .get(...codes, ...SEAL_WAREHOUSES) as { q: number | null } | undefined)?.q ?? 0)
-      : 0;
+    for (const code of codes) {
+      if (sealOf.has(code)) continue;
+      const r = db
+        .prepare(`SELECT SUM(COALESCE(stock_qty, 0)) q FROM inventory_status WHERE item_code = ? AND warehouse IN (${SEAL_WAREHOUSES.map(() => "?").join(",")})`)
+        .get(code, ...SEAL_WAREHOUSES) as { q: number | null } | undefined;
+      sealOf.set(code, r?.q ?? 0);
+    }
+    const q = codes.reduce((s, code) => s + (sealOf.get(code) ?? 0), 0);
     for (const l of out) {
       if (l.model !== m) continue;
       l.seal_stock = q;
       l.seal_codes = codes;
     }
   }
+  const seal = { codes: [...sealOf.keys()], stock: [...sealOf.values()].reduce((s, v) => s + v, 0) };
 
   // 조립투입 표시(모든 사용자 공유)
   const marks = assyMarks(db, soNo);
@@ -525,7 +537,7 @@ export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOr
       l.item_change = cands.filter((x) => fitsPower(x, l.power!)).reduce((s, x) => s + x.qty, 0);
     }
   }
-  return { row: c.result.rows.find((r) => r.so_no === soNo) ?? null, lines: out };
+  return { row: c.result.rows.find((r) => r.so_no === soNo) ?? null, lines: out, seal };
 }
 
 /** 도수변경 건수 집계 기간 — 오늘 기준 최근 1개월(조립일자) */

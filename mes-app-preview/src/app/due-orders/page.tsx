@@ -209,7 +209,7 @@ function StageFlow({ wip }: { wip: number[] }) {
   );
 }
 
-type Detail = { row: DueOrderRow | null; lines: DueOrderLine[] };
+type Detail = { row: DueOrderRow | null; lines: DueOrderLine[]; seal?: { codes: string[]; stock: number } };
 
 type NearPower = { item_code: string; power: number | null; label: "위" | "아래" };
 
@@ -902,6 +902,17 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
   }, [detail]);
 
   const row = detail?.row;
+  // 상단 요약 칸의 착색재고 무도수용/유도수용 — 모델별 값(같은 모델 줄은 모두 같음)을 수주에 든 모델마다 한 번씩 더한다(row.color_stock과 같은 방식)
+  const colorSplit = useMemo(() => {
+    const byModel = new Map((detail?.lines ?? []).filter((l) => !l.extra).map((l) => [l.model, l]));
+    let mu = 0,
+      all = 0;
+    for (const l of byModel.values()) {
+      mu += l.model_color_mu ?? 0;
+      all += l.model_color_stock;
+    }
+    return { mu, yu: all - mu };
+  }, [detail]);
   // 도수별 상세 = 수주 도수 + 기본 도수표(0.00 ~ -10.00) — 도수 높은 순(0.00이 위)
   const powers = (detail?.lines ?? [])
     .filter((l) => l.model === model)
@@ -940,14 +951,19 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
             <>
               <div className="facts">
                 {([
-                  ["주문량", fmt(row.order_qty), ""],
-                  ["착색재고", fmt(row.color_stock), ""],
-                  ["출고", fmt(row.shipped), ""],
-                  ["조립투입 필요", fmt(row.assy_in), row.assy_in > 0 ? "need" : ""],
-                  ["출하부족(누적)", fmt(row.ship_short), ""],
-                  ["품목 수", `${row.line_count}개`, ""],
-                ] as const).map(([l, v, c]) => (
-                  <div key={l} className="fact">
+                  ["주문량", fmt(row.order_qty), "", ""],
+                  ["착색재고(무도수)", fmt(colorSplit.mu), "", "조립창고 착색 재고 중 무도수용 — 0.00과 유도수 모두에 쓸 수 있음"],
+                  ["착색재고(유도수)", fmt(colorSplit.yu), "", "조립창고 착색 재고 중 유도수용 — 0.00에는 못 씀"],
+                  [
+                    "실링지재고",
+                    detail?.seal?.codes.length ? fmt(detail.seal.stock) : "-",
+                    "",
+                    detail?.seal?.codes.length ? `실링지 ${detail.seal.codes.join(", ")} — 원.부자재창고·포장창고·조립창고 합` : "BOM에 실링지(BFS)가 없습니다",
+                  ],
+                  ["출고", fmt(row.shipped), "", ""],
+                  ["조립투입 필요", fmt(row.assy_in), row.assy_in > 0 ? "need" : "", ""],
+                ] as const).map(([l, v, c, t]) => (
+                  <div key={l} className="fact" title={t || undefined}>
                     <div className="l">{l}</div>
                     <div className={`v num ${c}`}>{v}</div>
                   </div>
