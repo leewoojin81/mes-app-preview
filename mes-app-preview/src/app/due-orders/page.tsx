@@ -1055,7 +1055,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r" title="분리3 부족분 = 누적주문 − 기초재고 − 누적출고 − 습윤~출하포장 재공">분리부족</th><th className="r">검사부족</th>
                       <th className="r"><button className="hh" onClick={() => setHelp("swap")} title="누르면 품목변경 계산 기준이 열립니다">품목변경</button></th>
                       <th className="r"><button className="hh" onClick={() => setHelp("dosu")} title="누르면 도수변경 계산 기준이 열립니다">도수변경</button></th>
-                      <th className="r" title="칸을 누르면 투입함(초록 ✓)으로 표시 — 모든 사용자 공유, 다시 누르면 해제">조립투입</th><th className="r">출하부족</th>
+                      <th className="r" title="칸을 누르면 투입함(초록 ✓)으로 표시 — 모든 사용자 공유, 다시 누르면 해제. 공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다">조립투입</th><th className="r">출하부족</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1106,7 +1106,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                             aria-busy={markBusy === l.item_code}
                             title={
                               l.assy_mark
-                                ? `투입함 — ${l.assy_mark.marked_by ?? ""} ${l.assy_mark.marked_at}${l.assy_mark.qty !== l.assy_in ? ` (표시할 때 ${fmt(l.assy_mark.qty)})` : ""}\n누르면 표시를 풉니다`
+                                ? `투입함 — ${l.assy_mark.marked_by ?? ""} ${l.assy_mark.marked_at}${l.assy_mark.qty !== l.assy_in ? ` (표시할 때 ${fmt(l.assy_mark.qty)})` : ""}\n누르면 표시를 풉니다(공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라짐)`
                                 : "누르면 투입함으로 표시합니다(모든 사용자 공유)"
                             }
                           >
@@ -1785,7 +1785,7 @@ export default function DueOrdersPage() {
         진행률 = (주문량 − 출하부족) ÷ 주문량, 공정별 진행률 = (주문량 − 그 공정 부족분) ÷ 주문량입니다.
         순위는 납기일 → 생산순위지정(PLAN-01) 작업순서 순입니다.
         도수별 상세의 도수변경 = 최근 1개월(조립일자 기준) 그 도수(이전도수)에서 다른 도수로 변경되어 조립된 작업지시 건수입니다.
-        조립투입 칸을 누르면 &ldquo;투입함&rdquo;으로 초록색 표시되고(모든 사용자 공유), 다시 누르면 풀립니다.
+        조립투입 칸을 누르면 &ldquo;투입함&rdquo;으로 초록색 표시되고(모든 사용자 공유), 다시 누르면 풀립니다. 표시는 공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다.
       </p>
 
       {matHelp && <MaterialHelp onClose={() => setMatHelp(false)} />}

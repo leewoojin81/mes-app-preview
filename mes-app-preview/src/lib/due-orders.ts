@@ -549,7 +549,8 @@ const PREV_ITEM = `NULLIF(TRIM(json_extract(detail, '$."이전품목"')), '')`;
 const SEAL_WAREHOUSES = ["원.부자재창고", "포장창고", "조립창고"];
 
 // 조립투입 표시 — 도수별 상세에서 조립투입 칸을 눌러 "투입함"으로 표시한 수주×품목(2026-10-25 사용자 요청, 모든 사용자 공유).
-// 계산과 무관한 표시용이라 조립투입 수량이 바뀌어도 그대로 남고, 다시 누르면 풀린다.
+// 계산과 무관한 표시용이고 다시 누르면 풀린다. 표시할 때의 공정재공현황·현재고현황 업로드 시각(wip_at·inv_at)을 같이 저장해 두고,
+// 두 자료가 모두 그 뒤에 새로 올라오면(실제 투입이 재공·재고에 반영되면) 표시를 지운다(2026-10-25 사용자 요청).
 function ensureAssyMarkTable(db: DatabaseSync) {
   db.exec(`CREATE TABLE IF NOT EXISTS due_order_assy_marks (
     so_no TEXT NOT NULL,
@@ -557,22 +558,42 @@ function ensureAssyMarkTable(db: DatabaseSync) {
     qty REAL NOT NULL DEFAULT 0,
     marked_by TEXT,
     marked_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    wip_at TEXT,
+    inv_at TEXT,
     PRIMARY KEY (so_no, item_code)
   )`);
+  // 업로드 시각 칸이 생기기 전에 만든 표시는 지금 업로드 시각을 넣어 다음 업로드까지 남긴다
+  const cols = new Set((db.prepare("PRAGMA table_info(due_order_assy_marks)").all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has("wip_at")) db.exec("ALTER TABLE due_order_assy_marks ADD COLUMN wip_at TEXT");
+  if (!cols.has("inv_at")) db.exec("ALTER TABLE due_order_assy_marks ADD COLUMN inv_at TEXT");
+  if (!cols.has("wip_at") || !cols.has("inv_at")) {
+    const s = uploadStamps(db);
+    db.prepare("UPDATE due_order_assy_marks SET wip_at = COALESCE(wip_at, ?), inv_at = COALESCE(inv_at, ?)").run(s.wip, s.inv);
+  }
+}
+
+/** 공정재공현황·현재고현황의 마지막 업로드 시각 */
+function uploadStamps(db: DatabaseSync): { wip: string; inv: string } {
+  const one = (sql: string) => ((db.prepare(sql).get() as { v: string | null } | undefined)?.v ?? "");
+  return { wip: one("SELECT MAX(uploaded_at) v FROM process_wip_status"), inv: one("SELECT MAX(uploaded_at) v FROM inventory_status") };
 }
 
 function assyMarks(db: DatabaseSync, soNo: string): Map<string, AssyMark> {
   ensureAssyMarkTable(db);
+  const s = uploadStamps(db);
+  db.prepare("DELETE FROM due_order_assy_marks WHERE COALESCE(wip_at, '') < ? AND COALESCE(inv_at, '') < ?").run(s.wip, s.inv);
   const rows = db.prepare("SELECT item_code, qty, marked_by, marked_at FROM due_order_assy_marks WHERE so_no = ?").all(soNo) as unknown as (AssyMark & { item_code: string })[];
   return new Map(rows.map(({ item_code, ...m }) => [item_code, m]));
 }
 
 export function setAssyMark(db: DatabaseSync, soNo: string, itemCode: string, qty: number, user: string | null) {
   ensureAssyMarkTable(db);
+  const s = uploadStamps(db);
   db.prepare(
-    `INSERT INTO due_order_assy_marks (so_no, item_code, qty, marked_by, marked_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))
-     ON CONFLICT(so_no, item_code) DO UPDATE SET qty = excluded.qty, marked_by = excluded.marked_by, marked_at = excluded.marked_at`
-  ).run(soNo, itemCode, qty, user);
+    `INSERT INTO due_order_assy_marks (so_no, item_code, qty, marked_by, marked_at, wip_at, inv_at) VALUES (?, ?, ?, ?, datetime('now','localtime'), ?, ?)
+     ON CONFLICT(so_no, item_code) DO UPDATE SET qty = excluded.qty, marked_by = excluded.marked_by, marked_at = excluded.marked_at,
+       wip_at = excluded.wip_at, inv_at = excluded.inv_at`
+  ).run(soNo, itemCode, qty, user, s.wip, s.inv);
 }
 
 export function clearAssyMark(db: DatabaseSync, soNo: string, itemCode: string) {
