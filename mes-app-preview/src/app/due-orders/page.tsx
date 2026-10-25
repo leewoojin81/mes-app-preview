@@ -45,7 +45,7 @@ const CSS = `
 .po thead tr.h2.tall th{height:30px}
 .po thead tr.h3 th{top:65px}
 .po thead tr.h1 th{height:35px}
-.po tbody tr.row{cursor:pointer}.po tbody tr.row:hover{background:var(--surface-2)}.po tbody tr.row.sel{background:var(--blue-bg)}
+.po tbody tr.row{cursor:pointer}.po tbody tr.row:hover{background:#dce7ff}.po tbody tr.row.sel{background:var(--blue-bg)}
 .po tbody tr.row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .po tbody tr.row.done td{color:var(--fg-3)}
 .po .so{font-family:var(--mono);font-size:12.5px;color:var(--accent);font-weight:500}
