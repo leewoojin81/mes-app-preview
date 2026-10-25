@@ -1201,7 +1201,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                         ) : (
                           <td className="r num"><Z n={l.assy_in} /></td>
                         )}
-                        <td className="r">{l.extra ? <span className="zero">-</span> : <span className="num">{fmt(overOf(l))}</span>}</td>
+                        <td className="r">{l.extra ? <span className="zero">-</span> : <span className="num" style={overOf(l) < 0 ? { color: "var(--red)" } : undefined}>{fmt(overOf(l))}</span>}</td>
                       </tr>
                     ))}
                     <tr className="tot">
@@ -1217,7 +1217,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       <td />
                       <td className="r num">{fmt(sum(powers.map((l) => l.dosu_changes ?? 0)))}건</td>
                       <td className="r num">{fmt(sum(powers.map((l) => l.assy_in)))}</td>
-                      <td className="r num">{fmt(sum(powers.filter((l) => !l.extra).map(overOf)))}</td>
+                      <td className="r num" style={sum(powers.filter((l) => !l.extra).map(overOf)) < 0 ? { color: "var(--red)" } : undefined}>{fmt(sum(powers.filter((l) => !l.extra).map(overOf)))}</td>
                     </tr>
                   </tbody>
                 </table>
