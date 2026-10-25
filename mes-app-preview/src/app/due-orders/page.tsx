@@ -942,6 +942,30 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
     .sort((a, b) => (b.power ?? -99) - (a.power ?? -99) || (a.item_code < b.item_code ? -1 : 1));
   const orderedPowers = powers.filter((l) => !l.extra).length;
   const pw = STAGES.map((_, i) => sum(powers.map((l) => l.wip[i])));
+  // 상단 요약 칸 — 모델을 열면 그 모델(품목코드) 줄만, 아니면 수주 전체
+  const ordered = powers.filter((l) => !l.extra);
+  const m0 = ordered[0];
+  const facts = model && m0
+    ? {
+        qty: sum(ordered.map((l) => l.order_qty)),
+        color: m0.model_color_stock,
+        mu: m0.model_color_mu ?? 0,
+        seal: { codes: m0.seal_codes ?? [], stock: m0.seal_stock ?? 0 },
+        shipped: sum(ordered.map((l) => l.shipped)),
+        assy: sum(ordered.map((l) => l.assy_in)),
+        models: [model],
+      }
+    : row
+      ? {
+          qty: row.order_qty,
+          color: row.color_stock,
+          mu: colorSplit.mu,
+          seal: detail?.seal ?? { codes: [], stock: 0 },
+          shipped: row.shipped,
+          assy: row.assy_in,
+          models: orderModels,
+        }
+      : null;
 
   return (
     <>
@@ -970,20 +994,20 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
         <div className="db">
           {error && <div className="empty"><b>{error}</b></div>}
           {!detail && !error && <div className="empty">불러오는 중…</div>}
-          {row && (
+          {row && facts && (
             <>
               <div className="facts">
                 {([
-                  ["주문량", fmt(row.order_qty), "", ""],
-                  ["착색재고", fmt(row.color_stock), "", ""],
+                  ["주문량", fmt(facts.qty), "", ""],
+                  ["착색재고", fmt(facts.color), "", ""],
                   [
                     "실링지재고",
-                    detail?.seal?.codes.length ? fmt(detail.seal.stock) : "-",
+                    facts.seal.codes.length ? fmt(facts.seal.stock) : "-",
                     "",
-                    detail?.seal?.codes.length ? `실링지 ${detail.seal.codes.join(", ")} — 원.부자재창고·포장창고·조립창고 합` : "BOM에 실링지(BFS)가 없습니다",
+                    facts.seal.codes.length ? `실링지 ${facts.seal.codes.join(", ")} — 원.부자재창고·포장창고·조립창고 합` : "BOM에 실링지(BFS)가 없습니다",
                   ],
-                  ["출고", fmt(row.shipped), "", ""],
-                  ["조립투입 필요", fmt(row.assy_in), row.assy_in > 0 ? "need" : "", ""],
+                  ["출고", fmt(facts.shipped), "", ""],
+                  ["조립투입 필요", fmt(facts.assy), facts.assy > 0 ? "need" : "", ""],
                 ] as const).map(([l, v, c, t]) =>
                   l === "착색재고" ? (
                     // 착색재고 — 무도수용/유도수용을 함께 보여주고, 누르면 도수별 상세 착색재고 칸처럼 LOT별 착색 현재고 창을 연다
@@ -992,12 +1016,12 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       type="button"
                       className="fact"
                       onClick={() => setOrderColor(true)}
-                      disabled={orderModels.length === 0}
-                      title="누르면 수주에 든 모델들의 착색 현재고(LOT별 무도수용/유도수용)가 열립니다"
+                      disabled={facts.models.length === 0}
+                      title={`누르면 ${model ? `${model} 모델` : "수주에 든 모델들"}의 착색 현재고(LOT별 무도수용/유도수용)가 열립니다`}
                     >
                       <div className="l">{l}</div>
                       <div className="v num">{v}</div>
-                      <div className="s num">무도수 {fmt(colorSplit.mu)} · 유도수 {fmt(colorSplit.yu)}</div>
+                      <div className="s num">무도수 {fmt(facts.mu)} · 유도수 {fmt(facts.color - facts.mu)}</div>
                     </button>
                   ) : (
                     <div key={l} className="fact" title={t || undefined}>
@@ -1194,7 +1218,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
       {help === "dosu" && <DosuChangeHelp onClose={() => setHelp(null)} />}
       {help === "swap" && <ItemChangeHelp onClose={() => setHelp(null)} />}
       {swapOf && <ItemChangeModal line={swapOf} onClose={() => setSwapOf(null)} />}
-      {orderColor && <ColorStockModal models={orderModels} onClose={() => setOrderColor(false)} />}
+      {orderColor && facts && <ColorStockModal models={facts.models} onClose={() => setOrderColor(false)} />}
     </>
   );
 }
