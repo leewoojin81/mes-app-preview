@@ -72,6 +72,14 @@ const CSS = `
 .po .drawer.wide{width:min(1720px,100%)}
 .po .pwtbl{table-layout:fixed;min-width:1480px}
 .po .pwtbl th,.po .pwtbl td{padding-left:7px;padding-right:7px;overflow:hidden;text-overflow:ellipsis}
+.po .pwwrap{max-height:calc(100vh - 150px)}
+.po .pwtbl tbody td{border-bottom:1px solid var(--navy)}
+.po .pwtbl tr.tot td{border-top:1px solid var(--navy)}
+.po .pwtbl td.assy{cursor:pointer}
+.po .pwtbl td.assy:hover{box-shadow:inset 0 0 0 1px var(--accent)}
+.po .pwtbl td.assy.marked{background:#d7f0e0;color:var(--green);font-weight:700}
+.po .pwtbl td.assy.marked::before{content:"✓ ";font-weight:700}
+.po .modal tr.gh td{background:var(--surface-2);color:var(--navy);font-weight:600;font-size:12.5px;border-top:1px solid var(--line)}
 @keyframes po-slide{from{transform:translateX(24px);opacity:.6}to{transform:none;opacity:1}}
 .po .dh{background:var(--surface);border-bottom:1px solid var(--line);padding:14px 18px;display:flex;gap:12px;align-items:flex-start}
 .po .dh .t{flex:1;min-width:0}
@@ -203,24 +211,39 @@ function StageFlow({ wip }: { wip: number[] }) {
 
 type Detail = { row: DueOrderRow | null; lines: DueOrderLine[] };
 
-function DosuChangeModal({ itemCode, power, onClose }: { itemCode: string; power: number | null; onClose: () => void }) {
+type NearPower = { item_code: string; power: number | null; label: "위" | "아래" };
+
+/** 도수변경 창 — 이 도수(이전도수 기준)와 상세 표의 위·아래 도수 조립 기록을 도수별로 묶어 보여준다 */
+function DosuChangeModal({ itemCode, power, near, onClose }: { itemCode: string; power: number | null; near: NearPower[]; onClose: () => void }) {
   const [data, setData] = useState<{ from: string; to: string; records: AssemblyRecord[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const nearKey = near.map((n) => n.item_code).join(",");
 
   useEffect(() => {
     let alive = true;
-    fetch(`/api/due-orders?dosu=${encodeURIComponent(itemCode)}`, { cache: "no-store" })
+    fetch(`/api/due-orders?dosu=${encodeURIComponent(itemCode)}&near=${encodeURIComponent(nearKey)}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d) => alive && setData(d))
       .catch(() => alive && setError("조립 기록을 불러오지 못했습니다."));
     return () => {
       alive = false;
     };
-  }, [itemCode]);
+  }, [itemCode, nearKey]);
 
   const v = (n: number | null) => (n == null ? <span className="zero">-</span> : n);
   const pw = (n: number | null) => (n == null ? <span className="zero">-</span> : powerText(n));
-  const changed = data?.records.filter((r) => r.changed).length ?? 0;
+  const fromHere = data?.records.filter((r) => r.from_here).length ?? 0;
+  // 묶음 순서: 위 도수 → 이 도수 → 아래 도수 → 그 밖의 도수(이 도수에서 더 멀리 변경된 것)
+  const up = near.find((n) => n.label === "위");
+  const down = near.find((n) => n.label === "아래");
+  const groups = data
+    ? [
+        ...(up ? [{ key: up.item_code, title: `${powerText(up.power)} (위 도수)`, recs: data.records.filter((r) => r.item_code === up.item_code) }] : []),
+        { key: itemCode, title: `${powerText(power)} (이 도수)`, recs: data.records.filter((r) => r.item_code === itemCode) },
+        ...(down ? [{ key: down.item_code, title: `${powerText(down.power)} (아래 도수)`, recs: data.records.filter((r) => r.item_code === down.item_code) }] : []),
+        { key: "etc", title: "그 밖의 도수로 변경", recs: data.records.filter((r) => ![itemCode, up?.item_code, down?.item_code].includes(r.item_code)) },
+      ].filter((g) => g.key !== "etc" || g.recs.length > 0)
+    : [];
   return (
     <>
       <div className="modal-scrim" onClick={onClose} />
@@ -231,7 +254,7 @@ function DosuChangeModal({ itemCode, power, onClose }: { itemCode: string; power
             <span className="num" style={{ fontSize: 12.5, color: "var(--fg-2)", fontWeight: 400 }}>{itemCode}</span>
             {data && (
               <small>
-                조립일자 {data.from} ~ {data.to} · 조립 {data.records.length}건 · <span className="pill p-amb">도수변경 {changed}건</span>
+                조립일자 {data.from} ~ {data.to} · 조립 {data.records.length}건 · <span className="pill p-amb">{powerText(power)}에서 변경 {fromHere}건</span>
               </small>
             )}
           </h3>
@@ -252,15 +275,27 @@ function DosuChangeModal({ itemCode, power, onClose }: { itemCode: string; power
                 </tr>
               </thead>
               <tbody>
-                {data.records.map((r) => (
-                  <tr key={r.wo_no} className={r.changed ? "chg" : ""} title={r.changed ? "도수변경 건" : undefined}>
+                {groups.map((g) => (
+                  <Fragment key={g.key}>
+                    <tr className="gh">
+                      <td colSpan={16}>
+                        {g.title} · 조립 {g.recs.length}건
+                        {g.recs.some((r) => r.from_here) && <> · <span className="pill p-amb">{powerText(power)}에서 변경 {g.recs.filter((r) => r.from_here).length}건</span></>}
+                      </td>
+                    </tr>
+                    {g.recs.map((r) => (
+                  <tr
+                    key={r.wo_no}
+                    className={r.from_here ? "chg" : ""}
+                    title={r.from_here ? `${powerText(power)}에서 ${powerText(r.power)}(으)로 도수변경 — ${powerText(power)} 줄 도수변경 건수에 들어감` : r.changed ? `${powerText(r.prev_power)}에서 변경된 건(그 도수 줄에 셈)` : undefined}
+                  >
                     <td className="num">{r.wo_no}</td>
                     <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{r.lot_no ?? "-"}</td>
                     <td className="num">{r.assembled_at ?? "-"}</td>
                     <td>{r.machine ?? "-"}</td>
                     <td>{r.worker ?? "-"}</td>
                     <td className="r num sep"><b>{pw(r.power)}</b></td>
-                    <td className="r num">{r.changed ? <span className="pill p-amb">{powerText(r.prev_power)}</span> : <span className="zero">-</span>}</td>
+                    <td className="r num">{r.changed ? <span className={`pill ${r.from_here ? "p-amb" : "p-gry"}`}>{powerText(r.prev_power)}</span> : <span className="zero">-</span>}</td>
                     <td className="r num sep">{v(r.upper1)}</td>
                     <td className="r num">{v(r.upper2)}</td>
                     <td className="r num">{v(r.lower1)}</td>
@@ -271,6 +306,8 @@ function DosuChangeModal({ itemCode, power, onClose }: { itemCode: string; power
                     <td className="r num sep">{r.color_radius ?? <span className="zero">-</span>}</td>
                     <td className="r num">{r.mold_radius ?? <span className="zero">-</span>}</td>
                   </tr>
+                    ))}
+                  </Fragment>
                 ))}
                 {data.records.length === 0 && (
                   <tr><td colSpan={16} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>최근 1개월 조립 기록이 없습니다.</td></tr>
@@ -449,8 +486,8 @@ function DosuChangeHelp({ onClose }: { onClose: () => void }) {
     <HelpModal title="도수변경 계산 기준" onClose={onClose}>
       <h4>무엇을 보여주나</h4>
       <ul>
-        <li>최근 1개월 동안 <b>이 도수로 변경되어 조립된 작업지시 건수</b>입니다(도수변경현황 QC-01 기준).</li>
-        <li>품목코드는 변경 후, 즉 실제로 조립된 도수입니다.</li>
+        <li>최근 1개월 동안 <b>이 도수(이전도수)로 지시했다가 다른 도수로 변경해 조립한 작업지시 건수</b>입니다(도수변경현황 QC-01 기준).</li>
+        <li>건수는 변경 전 도수 줄에 셉니다. 실제로 조립된 도수는 숫자를 누르면 열리는 창에서 봅니다.</li>
       </ul>
       <h4>기간</h4>
       <ul>
@@ -462,12 +499,13 @@ function DosuChangeHelp({ onClose }: { onClose: () => void }) {
         <li>이전도수가 실제도수와 같은 행(이전 품목이 자기 자신)과 이전도수가 깨진 값인 행은 뺍니다.</li>
       </ul>
       <div className="ex">
-        예) -2.00으로 조립된 작업지시의 이전도수가 -2.25 → 도수변경 1건<br />
-        이전도수가 -2.00(실제도수와 같음) → 제외
+        예) -4.25로 지시했다가 -4.00으로 조립 → <b>-4.25 줄</b> 도수변경 1건<br />
+        이전도수가 실제도수와 같음 → 제외
       </div>
       <h4>참고</h4>
       <ul>
-        <li>숫자를 누르면 그 기간에 이 품목으로 조립된 기록 전부가 열리고, 도수변경 건은 주황색으로 강조됩니다.</li>
+        <li>숫자를 누르면 그 기간에 이 도수와 위 · 아래 도수(예: -4.25면 -4.00 · -4.50)로 조립된 기록이 도수별로 묶여 열립니다.</li>
+        <li>이 도수에서 변경된 건은 주황색으로 강조됩니다. 위 · 아래 도수 밖으로 변경된 건은 &ldquo;그 밖의 도수로 변경&rdquo;에 모읍니다.</li>
         <li>창의 착색품 · 하몰드 RADIUS는 투입 LOT No 끝 3자리입니다(예: 726).</li>
       </ul>
     </HelpModal>
@@ -800,10 +838,11 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
-  const [changeOf, setChangeOf] = useState<DueOrderLine | null>(null);
+  const [changeOf, setChangeOf] = useState<{ line: DueOrderLine; near: NearPower[] } | null>(null);
   const [colorOf, setColorOf] = useState<DueOrderLine | null>(null);
   const [swapOf, setSwapOf] = useState<DueOrderLine | null>(null);
   const [help, setHelp] = useState<"color" | "dosu" | "swap" | null>(null);
+  const [markBusy, setMarkBusy] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -815,6 +854,29 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
       alive = false;
     };
   }, [soNo]);
+
+  // 조립투입 칸을 누르면 "투입함" 표시/해제 — 서버에 저장(모든 사용자 공유)하고 화면은 바로 바꾼다
+  const toggleAssy = async (l: DueOrderLine) => {
+    if (markBusy) return;
+    setMarkBusy(l.item_code);
+    try {
+      const r = l.assy_mark
+        ? await fetch(`/api/due-orders?so=${encodeURIComponent(soNo)}&item=${encodeURIComponent(l.item_code)}`, { method: "DELETE" })
+        : await fetch("/api/due-orders", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ assy: true, so_no: soNo, item_code: l.item_code, qty: l.assy_in }),
+          });
+      if (!r.ok) throw new Error(String(r.status));
+      const mark = l.assy_mark ? null : { qty: l.assy_in, marked_by: null, marked_at: new Date().toLocaleString("sv-SE").slice(0, 16) };
+      setDetail((d) => (d ? { ...d, lines: d.lines.map((x) => (x.item_code === l.item_code ? { ...x, assy_mark: mark } : x)) } : d));
+    } catch {
+      window.setTimeout(() => setError(null), 3000);
+      setError("조립투입 표시를 저장하지 못했습니다.");
+    } finally {
+      setMarkBusy(null);
+    }
+  };
 
   useEffect(() => {
     // Esc는 작업지시 목록 창이 열려 있으면 그 창만 닫는다
@@ -974,28 +1036,30 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                 <span className="num">{model}</span> 도수별 상세 <small>수주 {orderedPowers}개 도수 · 전체 {powers.length}개</small>
                 <span className="legend"><i />BASE-01 미사용·미등록</span>
               </h3>
-              <div className="tbl-wrap">
+              {/* 표 안에서 세로 스크롤 — 열 제목(th sticky)이 위에 고정된다 */}
+              <div className="tbl-wrap pwwrap">
                 <table className="pwtbl">
-                  {/* 열 폭 고정: 도수·품목코드는 내용만큼, 주문량~착색재고 / 조립~출고 / 검사부족~출하부족(품목변경·도수변경 포함 5열)은 묶음끼리 같은 폭 */}
+                  {/* 열 폭 고정: 도수·품목코드는 내용만큼, 주문량~실링지재고 / 조립~출고 / 분리부족~출하부족(6열)은 묶음끼리 같은 폭 */}
                   <colgroup>
-                    <col style={{ width: "4.6%" }} />
-                    <col style={{ width: "7.7%" }} />
-                    {[0, 1, 2].map((i) => (<col key={`o${i}`} style={{ width: "5.3%" }} />))}
-                    {[...STAGES, "기초재고", "출고"].map((s) => (<col key={s} style={{ width: "4%" }} />))}
-                    {[0, 1, 2, 3, 4].map((i) => (<col key={`s${i}`} style={{ width: "3.92%" }} />))}
+                    <col style={{ width: "4.4%" }} />
+                    <col style={{ width: "7.2%" }} />
+                    {[0, 1, 2, 3].map((i) => (<col key={`o${i}`} style={{ width: "4.8%" }} />))}
+                    {[...STAGES, "기초재고", "출고"].map((s) => (<col key={s} style={{ width: "3.8%" }} />))}
+                    {[0, 1, 2, 3, 4, 5].map((i) => (<col key={`s${i}`} style={{ width: "3.3%" }} />))}
                   </colgroup>
                   <thead>
                     <tr>
                       <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r"><button className="hh" onClick={() => setHelp("color")} title="누르면 착색재고 계산 기준이 열립니다">착색재고</button></th>
+                      <th className="r" title="모델 BOM의 실링지(BFS) 현재고 — 원.부자재창고·포장창고·조립창고 합, 같은 모델은 모든 도수가 같은 값">실링지재고</th>
                       {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
-                      <th className="r">기초재고</th><th className="r">출고</th><th className="r">검사부족</th>
+                      <th className="r">기초재고</th><th className="r">출고</th><th className="r" title="분리3 부족분 = 누적주문 − 기초재고 − 누적출고 − 습윤~출하포장 재공">분리부족</th><th className="r">검사부족</th>
                       <th className="r"><button className="hh" onClick={() => setHelp("swap")} title="누르면 품목변경 계산 기준이 열립니다">품목변경</button></th>
                       <th className="r"><button className="hh" onClick={() => setHelp("dosu")} title="누르면 도수변경 계산 기준이 열립니다">도수변경</button></th>
-                      <th className="r">조립투입</th><th className="r">출하부족</th>
+                      <th className="r" title="칸을 누르면 투입함(초록 ✓)으로 표시 — 모든 사용자 공유, 다시 누르면 해제">조립투입</th><th className="r">출하부족</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {powers.map((l) => (
+                    {powers.map((l, idx) => (
                       <tr
                         key={l.item_code}
                         className={`${l.use_yn !== "Y" ? "off" : ""}${l.extra ? " extra" : ""}`}
@@ -1006,13 +1070,51 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                         <td className="r num"><Z n={l.order_qty} /></td>
                         <td className="r num">{l.extra ? <span className="zero">-</span> : <Z n={l.cum_order} />}</td>
                         <td className="r num">{l.color_stock ? <button className="lnk" onClick={() => setColorOf(l)} title="누르면 착색 현재고(LOT별 무도수용/유도수용)가 열립니다"><Z n={l.color_stock} /></button> : <Z n={l.color_stock} />}</td>
+                        <td className="r num" title={l.seal_codes?.length ? `실링지 ${l.seal_codes.join(", ")}` : "BOM에 실링지(BFS)가 없습니다"}>
+                          {l.seal_codes?.length ? <Z n={l.seal_stock ?? 0} /> : <span className="zero">-</span>}
+                        </td>
                         {l.wip.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
                         <td className="r num"><Z n={l.base_stock} /></td>
                         <td className="r num"><Z n={l.shipped} /></td>
+                        <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[0] == null ? <span className="pill p-grn">완료</span> : <span className="num">{fmt(l.shorts[0])}</span>}</td>
                         <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[2] == null ? <span className="pill p-grn">완료</span> : <span className="num">{fmt(l.shorts[2])}</span>}</td>
                         <td className="r">{l.item_change ? <button className="pill p-grn" onClick={() => setSwapOf(l)} title="누르면 품목변경할 수 있는 다른 도수 재공이 열립니다">{fmt(l.item_change)}</button> : <span className="zero">-</span>}</td>
-                        <td className="r">{l.dosu_changes ? <button className="pill p-amb" onClick={() => setChangeOf(l)} title="누르면 최근 1개월 조립 기록이 열립니다(도수변경 건 강조)">{fmt(l.dosu_changes)}건</button> : <span className="zero">-</span>}</td>
-                        <td className={`r num ${l.assy_in > 0 ? "need" : ""}`}>{l.extra ? <span className="zero">-</span> : <Z n={l.assy_in} />}</td>
+                        <td className="r">
+                          {l.dosu_changes ? (
+                            <button
+                              className="pill p-amb"
+                              onClick={() => {
+                                const near: NearPower[] = [];
+                                if (idx > 0) near.push({ item_code: powers[idx - 1].item_code, power: powers[idx - 1].power, label: "위" });
+                                if (idx < powers.length - 1) near.push({ item_code: powers[idx + 1].item_code, power: powers[idx + 1].power, label: "아래" });
+                                setChangeOf({ line: l, near });
+                              }}
+                              title="이 도수로 지시했다가 다른 도수로 변경해 조립한 건수 — 누르면 이 도수와 위·아래 도수의 최근 1개월 조립 기록이 열립니다"
+                            >
+                              {fmt(l.dosu_changes)}건
+                            </button>
+                          ) : (
+                            <span className="zero">-</span>
+                          )}
+                        </td>
+                        {l.extra ? (
+                          <td className="r num"><span className="zero">-</span></td>
+                        ) : l.assy_in > 0 || l.assy_mark ? (
+                          <td
+                            className={`r num assy ${l.assy_mark ? "marked" : l.assy_in > 0 ? "need" : ""}`}
+                            onClick={() => toggleAssy(l)}
+                            aria-busy={markBusy === l.item_code}
+                            title={
+                              l.assy_mark
+                                ? `투입함 — ${l.assy_mark.marked_by ?? ""} ${l.assy_mark.marked_at}${l.assy_mark.qty !== l.assy_in ? ` (표시할 때 ${fmt(l.assy_mark.qty)})` : ""}\n누르면 표시를 풉니다`
+                                : "누르면 투입함으로 표시합니다(모든 사용자 공유)"
+                            }
+                          >
+                            <Z n={l.assy_in} />
+                          </td>
+                        ) : (
+                          <td className="r num"><Z n={l.assy_in} /></td>
+                        )}
                         <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[9] == null ? <span className="pill p-grn">완료</span> : <span className="pill p-red">{fmt(l.shorts[9])}</span>}</td>
                       </tr>
                     ))}
@@ -1021,9 +1123,11 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       <td className="r num">{fmt(sum(powers.map((l) => l.order_qty)))}</td>
                       <td />
                       <td />
+                      <td />
                       {pw.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
                       <td />
                       <td className="r num">{fmt(sum(powers.map((l) => l.shipped)))}</td>
+                      <td />
                       <td />
                       {/* 품목변경은 한 재공이 여러 도수의 후보로 잡힐 수 있어 더하지 않는다 */}
                       <td />
@@ -1038,7 +1142,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
           )}
         </div>
       </aside>
-      {changeOf && <DosuChangeModal itemCode={changeOf.item_code} power={changeOf.power} onClose={() => setChangeOf(null)} />}
+      {changeOf && <DosuChangeModal itemCode={changeOf.line.item_code} power={changeOf.line.power} near={changeOf.near} onClose={() => setChangeOf(null)} />}
       {help === "color" && <ColorStockHelp onClose={() => setHelp(null)} />}
       {help === "dosu" && <DosuChangeHelp onClose={() => setHelp(null)} />}
       {help === "swap" && <ItemChangeHelp onClose={() => setHelp(null)} />}
@@ -1680,7 +1784,8 @@ export default function DueOrdersPage() {
         조립투입 = 검사부족분 ÷ 직진율 − 조립 − 분리3 − 습윤 − 외관검사×108%(60 단위 올림). 공정재공은 품목코드 기준이라 같은 품목을 가진 수주에 똑같이 보입니다.
         진행률 = (주문량 − 출하부족) ÷ 주문량, 공정별 진행률 = (주문량 − 그 공정 부족분) ÷ 주문량입니다.
         순위는 납기일 → 생산순위지정(PLAN-01) 작업순서 순입니다.
-        도수별 상세의 도수변경 = 최근 1개월(조립일자 기준) 그 도수로 변경되어 조립된 작업지시 건수입니다.
+        도수별 상세의 도수변경 = 최근 1개월(조립일자 기준) 그 도수(이전도수)에서 다른 도수로 변경되어 조립된 작업지시 건수입니다.
+        조립투입 칸을 누르면 &ldquo;투입함&rdquo;으로 초록색 표시되고(모든 사용자 공유), 다시 누르면 풀립니다.
       </p>
 
       {matHelp && <MaterialHelp onClose={() => setMatHelp(false)} />}

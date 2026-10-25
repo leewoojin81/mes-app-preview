@@ -57,10 +57,23 @@ export interface DueOrderLine {
   use_yn?: string | null;
   /** 수주에 없는 도수 — 도수변경 재공을 보려고 상세에 기본 도수표로 덧붙인 줄(주문·부족분·조립투입 없음) */
   extra?: boolean;
-  /** 최근 1개월(조립일자 기준) 이 품목코드로 도수변경된 작업지시 건수(상세 조회에서만 채움) */
+  /** 최근 1개월(조립일자 기준) 이 품목코드(이전도수)에서 다른 도수로 변경되어 조립된 작업지시 건수(상세 조회에서만 채움) */
   dosu_changes?: number;
+  /** 모델(BOM 대표코드)의 실링지(BFS) 현재고 — 원.부자재창고·포장창고·조립창고 합, 같은 모델은 모든 도수 줄이 같은 값(상세 조회에서만 채움) */
+  seal_stock?: number;
+  /** 실링지 자재코드(BOM에 없으면 빈 배열) */
+  seal_codes?: string[];
+  /** 조립투입 표시 — 화면에서 "투입함"으로 표시한 줄(모든 사용자 공유, 상세 조회에서만 채움) */
+  assy_mark?: AssyMark | null;
   /** 품목변경 가능 수량 — 검사부족이 있는 줄만, 같은 모델 다른 도수의 외관검사 이후 재공 중 도수1~3이 모두 이 도수 ±0.225인 것(상세 조회에서만 채움) */
   item_change?: number;
+}
+
+export interface AssyMark {
+  /** 표시할 때의 조립투입 수량 */
+  qty: number;
+  marked_by: string | null;
+  marked_at: string;
 }
 
 export interface DueOrderRow {
@@ -464,22 +477,45 @@ export function fetchDueOrderLines(db: DatabaseSync, soNo: string): { row: DueOr
   }
 
   // 도수변경 건수 — 조립일자("조립 실적 입력시각"의 날짜, 지시일자와 다른 경우가 많다)가 최근 1개월인
-  // 이전도수가 있고 실제도수와 다른 행을 작업지시번호로 중복 제거해 센다. 품목코드는 변경 후(실제로 조립된) 도수의 품목이다.
+  // 이전도수가 있고 실제도수와 다른 행을 작업지시번호로 중복 제거해 이전도수(이전품목) 줄에 센다 —
+  // -4.25로 지시했다가 -4.00으로 조립했으면 -4.25 줄(2026-10-25 사용자 요청).
   // 입력시각이 비어 깨진 문자로 들어온 행은 날짜 범위에 걸리지 않아 저절로 빠진다.
   const { from, to } = dosuChangeWindow();
   const changes = new Map<string, number>();
   for (const m of models) {
     for (const r of db
       .prepare(
-        `SELECT item_code, COUNT(DISTINCT wo_no) n FROM dosu_change_status
+        `SELECT ${PREV_ITEM} prev, COUNT(DISTINCT wo_no) n FROM dosu_change_status
           WHERE item_code LIKE ? AND ${DOSU_CHANGE_COND}
-          GROUP BY item_code`
+          GROUP BY prev`
       )
-      .all(like(m), from, to) as { item_code: string; n: number }[]) {
-      changes.set(r.item_code, r.n);
+      .all(like(m), from, to) as { prev: string | null; n: number }[]) {
+      if (r.prev) changes.set(r.prev, r.n);
     }
   }
   for (const l of out) l.dosu_changes = changes.get(l.item_code) ?? 0;
+
+  // 실링지재고 — 모델의 BOM 직접 구성품 중 BFS 자재의 부자재 창고 재고(자재수급 PUR-03과 같은 창고)
+  for (const m of models) {
+    const codes = (db.prepare("SELECT DISTINCT child_item_code c FROM bom WHERE parent_item_code = ? AND child_item_code LIKE 'BFS%'").all(m) as { c: string }[]).map((r) => r.c);
+    const q = codes.length
+      ? ((db
+          .prepare(
+            `SELECT SUM(COALESCE(stock_qty, 0)) q FROM inventory_status
+              WHERE item_code IN (${codes.map(() => "?").join(",")}) AND warehouse IN (${SEAL_WAREHOUSES.map(() => "?").join(",")})`
+          )
+          .get(...codes, ...SEAL_WAREHOUSES) as { q: number | null } | undefined)?.q ?? 0)
+      : 0;
+    for (const l of out) {
+      if (l.model !== m) continue;
+      l.seal_stock = q;
+      l.seal_codes = codes;
+    }
+  }
+
+  // 조립투입 표시(모든 사용자 공유)
+  const marks = assyMarks(db, soNo);
+  for (const l of out) l.assy_mark = marks.get(l.item_code) ?? null;
 
   // 품목변경 — 검사부족이 있는 도수만, 같은 모델의 다른 도수 재공 중 측정 도수가 허용오차 안인 수량
   for (const m of models) {
@@ -508,17 +544,58 @@ const ASSY_IN_WINDOW = `${ASSY_DATE} BETWEEN ? AND ?`;
 const CHANGED = `typeof(json_extract(detail, '$."이전도수"')) IN ('integer', 'real')
   AND json_extract(detail, '$."이전도수"') IS NOT json_extract(detail, '$."실제도수"')`;
 const DOSU_CHANGE_COND = `${ASSY_IN_WINDOW} AND ${CHANGED}`;
+/** 이전품목 = 이전도수의 품목코드(2026-10 데이터 13,510행 모두 같은 모델·이전도수와 일치) */
+const PREV_ITEM = `NULLIF(TRIM(json_extract(detail, '$."이전품목"')), '')`;
+const SEAL_WAREHOUSES = ["원.부자재창고", "포장창고", "조립창고"];
+
+// 조립투입 표시 — 도수별 상세에서 조립투입 칸을 눌러 "투입함"으로 표시한 수주×품목(2026-10-25 사용자 요청, 모든 사용자 공유).
+// 계산과 무관한 표시용이라 조립투입 수량이 바뀌어도 그대로 남고, 다시 누르면 풀린다.
+function ensureAssyMarkTable(db: DatabaseSync) {
+  db.exec(`CREATE TABLE IF NOT EXISTS due_order_assy_marks (
+    so_no TEXT NOT NULL,
+    item_code TEXT NOT NULL,
+    qty REAL NOT NULL DEFAULT 0,
+    marked_by TEXT,
+    marked_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY (so_no, item_code)
+  )`);
+}
+
+function assyMarks(db: DatabaseSync, soNo: string): Map<string, AssyMark> {
+  ensureAssyMarkTable(db);
+  const rows = db.prepare("SELECT item_code, qty, marked_by, marked_at FROM due_order_assy_marks WHERE so_no = ?").all(soNo) as unknown as (AssyMark & { item_code: string })[];
+  return new Map(rows.map(({ item_code, ...m }) => [item_code, m]));
+}
+
+export function setAssyMark(db: DatabaseSync, soNo: string, itemCode: string, qty: number, user: string | null) {
+  ensureAssyMarkTable(db);
+  db.prepare(
+    `INSERT INTO due_order_assy_marks (so_no, item_code, qty, marked_by, marked_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))
+     ON CONFLICT(so_no, item_code) DO UPDATE SET qty = excluded.qty, marked_by = excluded.marked_by, marked_at = excluded.marked_at`
+  ).run(soNo, itemCode, qty, user);
+}
+
+export function clearAssyMark(db: DatabaseSync, soNo: string, itemCode: string) {
+  ensureAssyMarkTable(db);
+  db.prepare("DELETE FROM due_order_assy_marks WHERE so_no = ? AND item_code = ?").run(soNo, itemCode);
+}
 
 export interface AssemblyRecord {
   wo_no: string;
+  /** 실제로 조립된 품목코드 */
+  item_code: string;
+  /** 이전품목(이전도수의 품목코드) — 도수변경 건만 */
+  prev_item: string | null;
   lot_no: string | null;
   assembled_at: string | null;
   machine: string | null;
   worker: string | null;
   power: number | null;
   prev_power: number | null;
-  /** 이전도수가 있고 실제도수와 다른 작업지시(도수변경 건수에 들어간 것) */
+  /** 이전도수가 있고 실제도수와 다른 작업지시 */
   changed: boolean;
+  /** 창을 연 도수에서 다른 도수로 변경된 작업지시(그 도수 줄의 도수변경 건수에 들어간 것) */
+  from_here: boolean;
   upper1: number | null;
   upper2: number | null;
   lower1: number | null;
@@ -532,21 +609,23 @@ export interface AssemblyRecord {
 }
 
 /**
- * 도수별 상세의 도수변경 건수를 누르면 보여줄 조립 기록 — 그 품목코드로 조립일자 최근 1개월 안에 조립된
- * 작업지시 전부(도수변경 안 된 것 포함). 원본은 투입자재(HEMA·하몰드·착색)별로 행이 나뉘어 있어 작업지시번호당 1줄로 합친다.
+ * 도수별 상세의 도수변경 건수를 누르면 보여줄 조립 기록 — 조립일자 최근 1개월 안에 그 품목코드와 위아래 도수(near = 상세 표의
+ * 바로 위·아래 줄)로 조립된 작업지시 전부(도수변경 안 된 것 포함) + 그 품목코드에서 더 먼 도수로 변경된 작업지시.
+ * 원본은 투입자재(HEMA·하몰드·착색)별로 행이 나뉘어 있어 작업지시번호당 1줄로 합친다.
  * Radius는 품목정보·MOLD입고현황 모두 0으로만 들어와 있어, 투입 LOT No 끝 3자리(상몰드1·2와 같은 단위)를 쓴다.
  */
-export function fetchAssemblyRecords(db: DatabaseSync, itemCode: string): { from: string; to: string; records: AssemblyRecord[] } {
+export function fetchAssemblyRecords(db: DatabaseSync, itemCode: string, near: string[] = []): { from: string; to: string; records: AssemblyRecord[] } {
   const { from, to } = dosuChangeWindow();
   const keys = ["조립 실적 입력시각", "조립 호기", "조립자", "실제도수", "이전도수", "상몰드1", "상몰드2", "하몰드1", "하몰드2", "도수1", "도수2", "도수3", "조립투입품목명", "조립투입LOT No"];
+  const codes = [...new Set([itemCode, ...near])];
   const raw = db
     .prepare(
-      `SELECT wo_no, lot_no, ${keys.map((k, i) => `json_extract(detail, '$."${k}"') k${i}`).join(", ")}
+      `SELECT wo_no, lot_no, item_code, ${PREV_ITEM} prev, ${keys.map((k, i) => `json_extract(detail, '$."${k}"') k${i}`).join(", ")}
          FROM dosu_change_status
-        WHERE item_code = ? AND ${ASSY_IN_WINDOW}
+        WHERE (item_code IN (${codes.map(() => "?").join(",")}) OR (item_code LIKE ? AND ${PREV_ITEM} = ?)) AND ${ASSY_IN_WINDOW}
         ORDER BY id`
     )
-    .all(itemCode, from, to) as Record<string, string | number | null>[];
+    .all(...codes, `${itemCode.slice(0, 9)}-%`, itemCode, from, to) as Record<string, string | number | null>[];
   const num = (v: unknown) => (typeof v === "number" ? v : null);
   const str = (v: unknown) => (v == null || v === "" ? null : String(v));
   const radius = (lot: unknown) => /-(\d{3})$/.exec(String(lot ?? ""))?.[1] ?? null;
@@ -555,15 +634,19 @@ export function fetchAssemblyRecords(db: DatabaseSync, itemCode: string): { from
     const wo = String(r.wo_no);
     let a = byWo.get(wo);
     if (!a) {
+      const changed = num(r.k4) != null && num(r.k4) !== num(r.k3);
       a = {
         wo_no: wo,
+        item_code: String(r.item_code),
+        prev_item: changed ? str(r.prev) : null,
         lot_no: str(r.lot_no),
         assembled_at: str(r.k0),
         machine: str(r.k1),
         worker: str(r.k2),
         power: num(r.k3),
         prev_power: num(r.k4),
-        changed: num(r.k4) != null && num(r.k4) !== num(r.k3),
+        changed,
+        from_here: changed && str(r.prev) === itemCode,
         upper1: num(r.k5),
         upper2: num(r.k6),
         lower1: num(r.k7),
