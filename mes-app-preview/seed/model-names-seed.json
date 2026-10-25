@@ -1,17 +1,26 @@
 {
  "source": "F706-3형명식별기호 관리대장_20251212.xlsx",
+ "revised": "2025-12-09",
  "rows": [
   {
    "name": "48-MB",
    "seq": 1,
    "permit_item": "Moisture balance",
    "shelf_years": 5,
+   "pack_vial": "O",
+   "pack_blister": "O",
+   "use_period": "Monthly",
+   "use_period_cn": "Monthly",
+   "reg_countries": "KGMP, CFDA",
+   "export_countries": "중국",
    "uv": "N",
    "ph": "",
    "material_type": "HD",
    "material_code": "B2",
+   "note": "",
    "lots": [
     {
+     "item_class": "블루틴트",
      "raw_lot": "48M",
      "symbol": "B1"
     }
@@ -22,12 +31,20 @@
    "seq": 2,
    "permit_item": "HI-COLOR 38",
    "shelf_years": 5,
+   "pack_vial": "O",
+   "pack_blister": "O",
+   "use_period": "Half yearly",
+   "use_period_cn": "Half yearly",
+   "reg_countries": "KGMP, CFDA, 베트남",
+   "export_countries": "중국, 국내, 베트남",
    "uv": "N",
    "ph": "",
    "material_type": "HD",
    "material_code": "YE2",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "38C",
      "symbol": "E1"
     }
@@ -38,12 +55,20 @@
    "seq": 3,
    "permit_item": "HI-CLEAR 38",
    "shelf_years": 5,
+   "pack_vial": "O",
+   "pack_blister": "O",
+   "use_period": "Extended",
+   "use_period_cn": "",
+   "reg_countries": "KGMP",
+   "export_countries": "",
    "uv": "N",
    "ph": "",
    "material_type": "HD",
    "material_code": "C0",
+   "note": "취하예정",
    "lots": [
     {
+     "item_class": "클리어",
      "raw_lot": "38C",
      "symbol": "C1"
     }
@@ -54,28 +79,40 @@
    "seq": 4,
    "permit_item": "HI-TINT 38",
    "shelf_years": 5,
+   "pack_vial": "O",
+   "pack_blister": "O",
+   "use_period": "Half yearly",
+   "use_period_cn": "Half yearly",
+   "reg_countries": "KGMP, CFDA, 베트남",
+   "export_countries": "중국, 베트남",
    "uv": "N",
    "ph": "",
    "material_type": "HD",
    "material_code": "DB",
+   "note": "",
    "lots": [
     {
+     "item_class": "브라운틴트",
      "raw_lot": "38Y",
      "symbol": "D1"
     },
     {
+     "item_class": "바이올렛틴트",
      "raw_lot": "38V",
      "symbol": "D2"
     },
     {
+     "item_class": "그린틴트",
      "raw_lot": "38G",
      "symbol": "D3"
     },
     {
+     "item_class": "블루틴트",
      "raw_lot": "38B",
      "symbol": "D4"
     },
     {
+     "item_class": "샤닌블루틴트",
      "raw_lot": "38S",
      "symbol": "D5"
     }
@@ -86,12 +123,20 @@
    "seq": 5,
    "permit_item": "BONO 48",
    "shelf_years": 5,
+   "pack_vial": "O",
+   "pack_blister": "O",
+   "use_period": "Extended",
+   "use_period_cn": "",
+   "reg_countries": "KGMP, CE, HAS",
+   "export_countries": "싱가폴",
    "uv": "N",
    "ph": "",
    "material_type": "HD",
    "material_code": "",
+   "note": "취하예정",
    "lots": [
     {
+     "item_class": "클리어, 칼라, 블루틴트",
      "raw_lot": "48C",
      "symbol": "A3"
     }
@@ -102,12 +147,20 @@
    "seq": 6,
    "permit_item": "Cube-i 38",
    "shelf_years": 5,
+   "pack_vial": "O",
+   "pack_blister": "O",
+   "use_period": "Extended",
+   "use_period_cn": "",
+   "reg_countries": "KGMP, CE, ANVISA, HAS",
+   "export_countries": "브라질, 싱가폴",
    "uv": "Y",
    "ph": "",
    "material_type": "HD",
    "material_code": "YF2",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "38K",
      "symbol": "G1"
     }
@@ -118,16 +171,25 @@
    "seq": 6,
    "permit_item": "Cube-i 38",
    "shelf_years": 5,
+   "pack_vial": "O",
+   "pack_blister": "O",
+   "use_period": "Extended",
+   "use_period_cn": "",
+   "reg_countries": "KGMP, CE, ANVISA, HAS",
+   "export_countries": "브라질, 싱가폴",
    "uv": "Y",
    "ph": "",
    "material_type": "HD",
    "material_code": "YF2",
+   "note": "",
    "lots": [
     {
+     "item_class": "클리어",
      "raw_lot": "38W",
      "symbol": "G2"
     },
     {
+     "item_class": "블루틴트",
      "raw_lot": "38D",
      "symbol": "G3"
     }
@@ -138,12 +200,20 @@
    "seq": 7,
    "permit_item": "Cube-i 55",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP, CE, ANVISA",
+   "export_countries": "",
    "uv": "Y",
    "ph": "",
    "material_type": "HD",
    "material_code": "",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "55C",
      "symbol": "H1"
     }
@@ -154,16 +224,25 @@
    "seq": 7,
    "permit_item": "Cube-i 55",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP, CE, ANVISA",
+   "export_countries": "",
    "uv": "Y",
    "ph": "",
    "material_type": "HD",
    "material_code": "",
+   "note": "",
    "lots": [
     {
+     "item_class": "클리어",
      "raw_lot": "55W",
      "symbol": "H2"
     },
     {
+     "item_class": "블루틴트",
      "raw_lot": "55B",
      "symbol": "H3"
     }
@@ -174,12 +253,20 @@
    "seq": 8,
    "permit_item": "Cube-i 45",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Extended",
+   "use_period_cn": "",
+   "reg_countries": "KGMP, CE, ANVISA, 인도네시아",
+   "export_countries": "브라질, 싱가폴",
    "uv": "Y",
    "ph": "",
    "material_type": "HD",
    "material_code": "",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "45C",
      "symbol": "F1"
     }
@@ -190,16 +277,25 @@
    "seq": 8,
    "permit_item": "Cube-i 45",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Extended",
+   "use_period_cn": "",
+   "reg_countries": "KGMP, CE, ANVISA, 인도네시아",
+   "export_countries": "브라질, 싱가폴",
    "uv": "Y",
    "ph": "",
    "material_type": "HD",
    "material_code": "",
+   "note": "",
    "lots": [
     {
+     "item_class": "클리어",
      "raw_lot": "45W",
      "symbol": "F2"
     },
     {
+     "item_class": "블루틴트",
      "raw_lot": "45B",
      "symbol": "F3"
     }
@@ -210,12 +306,20 @@
    "seq": 9,
    "permit_item": "Magic star",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "Daily",
+   "reg_countries": "KGMP, CFDA",
+   "export_countries": "중국, 국내",
    "uv": "N",
    "ph": "4.5 ~ 7.5",
    "material_type": "HD",
    "material_code": "YQ7",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "43C",
      "symbol": "M1"
     }
@@ -226,12 +330,20 @@
    "seq": 10,
    "permit_item": "Shiny star",
    "shelf_years": 5,
+   "pack_vial": "O",
+   "pack_blister": "O",
+   "use_period": "Monthly",
+   "use_period_cn": "Monthly",
+   "reg_countries": "KGMP, CFDA, PMDA",
+   "export_countries": "중국, 일본, 국내",
    "uv": "N",
    "ph": "4.5 ~ 7.5",
    "material_type": "HD",
    "material_code": "YO2",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "38H",
      "symbol": "K1"
     }
@@ -242,12 +354,20 @@
    "seq": 11,
    "permit_item": "Charming star",
    "shelf_years": 5,
+   "pack_vial": "O (중국X)",
+   "pack_blister": "O",
+   "use_period": "Extended",
+   "use_period_cn": "Yearly",
+   "reg_countries": "KGMP, CFDA",
+   "export_countries": "국내, 중국",
    "uv": "N",
    "ph": "4.5 ~ 7.5",
    "material_type": "HD",
    "material_code": "",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라(핑크)",
      "raw_lot": "38P",
      "symbol": "K2"
     }
@@ -258,12 +378,20 @@
    "seq": null,
    "permit_item": "Color-Toric",
    "shelf_years": null,
+   "pack_vial": "O",
+   "pack_blister": "O",
+   "use_period": "",
+   "use_period_cn": "",
+   "reg_countries": "KGMP",
+   "export_countries": "",
    "uv": "N",
    "ph": "4.5 ~ 7.5",
    "material_type": "HD",
    "material_code": "",
+   "note": "취하예정",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "39C",
      "symbol": "N1"
     }
@@ -274,12 +402,20 @@
    "seq": 12,
    "permit_item": "SIHY-COL",
    "shelf_years": 8,
+   "pack_vial": "O",
+   "pack_blister": "O",
+   "use_period": "",
+   "use_period_cn": "",
+   "reg_countries": "KGMP",
+   "export_countries": "",
    "uv": "N",
    "ph": "4.5 ~ 7.5",
    "material_type": "HD",
    "material_code": "",
+   "note": "취하예정",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "38A",
      "symbol": "P1"
     }
@@ -290,12 +426,20 @@
    "seq": 13,
    "permit_item": "Twinkle star",
    "shelf_years": 8,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP",
+   "export_countries": "국내",
    "uv": "Y",
    "ph": "4.5 ~ 7.5",
    "material_type": "HD",
    "material_code": "YT1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "48H",
      "symbol": "T1"
     }
@@ -306,12 +450,20 @@
    "seq": 14,
    "permit_item": "O-LENS SIGNAL Magic color",
    "shelf_years": 8,
+   "pack_vial": "O",
+   "pack_blister": "O",
+   "use_period": "Extended",
+   "use_period_cn": "",
+   "reg_countries": "KGMP",
+   "export_countries": "국내, 베트남",
    "uv": "Y",
    "ph": "4.5 ~ 7.5",
    "material_type": "PC",
    "material_code": "YU1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "43PC",
      "symbol": "U1"
     }
@@ -322,12 +474,20 @@
    "seq": 15,
    "permit_item": "O-LENS PERSONAL Twinkle color",
    "shelf_years": 8,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP",
+   "export_countries": "국내",
    "uv": "Y",
    "ph": "4.5 ~ 7.5",
    "material_type": "PC",
    "material_code": "YU2",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "48PC",
      "symbol": "U2"
     }
@@ -338,12 +498,20 @@
    "seq": 16,
    "permit_item": "HI-TINT 58",
    "shelf_years": 8,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP",
+   "export_countries": "국내",
    "uv": "Y",
    "ph": "4.5 ~ 7.5",
    "material_type": "PC",
    "material_code": "YV1",
+   "note": "",
    "lots": [
     {
+     "item_class": "클리어",
      "raw_lot": "58H",
      "symbol": "V1"
     }
@@ -354,12 +522,20 @@
    "seq": 17,
    "permit_item": "HI-COLOR 58",
    "shelf_years": 8,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP, TFDA",
+   "export_countries": "태국",
    "uv": "Y",
    "ph": "6.0 ~ 8.0",
    "material_type": "PC",
    "material_code": "YB1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "58C",
      "symbol": "W1"
     }
@@ -370,12 +546,20 @@
    "seq": 18,
    "permit_item": "Blue Shield 365",
    "shelf_years": 8,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP",
+   "export_countries": "국내",
    "uv": "Y",
    "ph": "5.0~8.0",
    "material_type": "PC",
    "material_code": "YR1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "48BS",
      "symbol": "R1"
     }
@@ -386,12 +570,20 @@
    "seq": 19,
    "permit_item": "Blue Clear 365",
    "shelf_years": 8,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP",
+   "export_countries": "국내",
    "uv": "Y",
    "ph": "5.0~8.0",
    "material_type": "PC",
    "material_code": "YR2",
+   "note": "",
    "lots": [
     {
+     "item_class": "클리어",
      "raw_lot": "48BC",
      "symbol": "R2"
     }
@@ -402,12 +594,20 @@
    "seq": 20,
    "permit_item": "Shiny color",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Half yearly",
+   "use_period_cn": "Half yearly",
+   "reg_countries": "KGMP, CFDA",
+   "export_countries": "중국, 국내",
    "uv": "N",
    "ph": "5.0~8.0",
    "material_type": "HD",
    "material_code": "YO2",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "38H",
      "symbol": "E2"
     }
@@ -418,12 +618,20 @@
    "seq": 21,
    "permit_item": "Blue Shield M",
    "shelf_years": 8,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Monthly",
+   "use_period_cn": "",
+   "reg_countries": "KGMP",
+   "export_countries": "국내",
    "uv": "N",
    "ph": "5.0~8.0",
    "material_type": "HD",
    "material_code": "YR1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "48BS",
      "symbol": "R3"
     }
@@ -434,12 +642,20 @@
    "seq": 22,
    "permit_item": "Blissful color",
    "shelf_years": 8,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP",
+   "export_countries": "국내",
    "uv": "Y",
    "ph": "4.5 ~ 7.5",
    "material_type": "PC",
    "material_code": "YU2",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라",
      "raw_lot": "48PC",
      "symbol": "U2"
     }
@@ -450,12 +666,20 @@
    "seq": 23,
    "permit_item": "Purury Oneday",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP(수출용)",
+   "export_countries": "일본",
    "uv": "N",
    "ph": "일반, MPC",
    "material_type": "HD",
    "material_code": "YJ1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라/클리어",
      "raw_lot": "39JP",
      "symbol": "J1"
     }
@@ -466,12 +690,20 @@
    "seq": 24,
    "permit_item": "Purury Monthly",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Monthly",
+   "use_period_cn": "",
+   "reg_countries": "KGMP(수출용)",
+   "export_countries": "일본",
    "uv": "N",
    "ph": "일반, MPC",
    "material_type": "HD",
    "material_code": "YJ1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라/클리어",
      "raw_lot": "39JP",
      "symbol": "J1"
     }
@@ -482,12 +714,20 @@
    "seq": 25,
    "permit_item": "Venus Eyes Beaute 1day ANW 1day Eve",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP(수출용)",
+   "export_countries": "일본",
    "uv": "N",
    "ph": "일반",
    "material_type": "HD",
    "material_code": "YJ1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라/클리어",
      "raw_lot": "39JP",
      "symbol": "J1"
     }
@@ -498,12 +738,20 @@
    "seq": 26,
    "permit_item": "Venus Eyes Beaute ANW Monthly Eve",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Monthly",
+   "use_period_cn": "",
+   "reg_countries": "KGMP(수출용)",
+   "export_countries": "일본",
    "uv": "N",
    "ph": "붕산붕사",
    "material_type": "HD",
    "material_code": "YJ1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라/클리어",
      "raw_lot": "39JP",
      "symbol": "J1"
     }
@@ -514,12 +762,20 @@
    "seq": 27,
    "permit_item": "MI 1day plus",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP(수출용)",
+   "export_countries": "일본",
    "uv": "N",
    "ph": "MPC",
    "material_type": "HD",
    "material_code": "YJ2",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라/클리어",
      "raw_lot": "38JP",
      "symbol": "J2"
     }
@@ -530,12 +786,20 @@
    "seq": 28,
    "permit_item": "MC-3 Lens",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Monthly",
+   "use_period_cn": "",
+   "reg_countries": "KGMP(수출용)",
+   "export_countries": "일본",
    "uv": "N",
    "ph": "일반",
    "material_type": "HD",
    "material_code": "YJ2",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라/클리어",
      "raw_lot": "38JP",
      "symbol": "J2"
     }
@@ -546,12 +810,20 @@
    "seq": 29,
    "permit_item": "Clear scene 1day",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP(수출용)",
+   "export_countries": "일본",
    "uv": "N",
    "ph": "일반",
    "material_type": "HD",
    "material_code": "YJ1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라/클리어",
      "raw_lot": "39JP",
      "symbol": "J1"
     }
@@ -562,12 +834,20 @@
    "seq": 30,
    "permit_item": "ANW 1day 38 UV",
    "shelf_years": 8,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP(수출용)",
+   "export_countries": "일본",
    "uv": "Y",
    "ph": "일반, 붕산붕사, MPC",
    "material_type": "HD",
    "material_code": "YJ3",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라/클리어",
      "raw_lot": "38JU",
      "symbol": "J3"
     }
@@ -578,12 +858,20 @@
    "seq": 31,
    "permit_item": "SHOBIDO 38 1day",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP(수출용)",
+   "export_countries": "일본",
    "uv": "Y",
    "ph": "붕산붕사MPC",
    "material_type": "HD",
    "material_code": "YJ3",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라/클리어",
      "raw_lot": "38JU",
      "symbol": "J3"
     }
@@ -594,12 +882,20 @@
    "seq": 32,
    "permit_item": "Sweet 1day",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Daily",
+   "use_period_cn": "",
+   "reg_countries": "KGMP(수출용)",
+   "export_countries": "일본",
    "uv": "N",
    "ph": "일반, MPC",
    "material_type": "HD",
    "material_code": "YJ1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라/클리어",
      "raw_lot": "39JP",
      "symbol": "J1"
     }
@@ -610,12 +906,20 @@
    "seq": 33,
    "permit_item": "Sweet Monthly",
    "shelf_years": 5,
+   "pack_vial": "",
+   "pack_blister": "O",
+   "use_period": "Monthly",
+   "use_period_cn": "",
+   "reg_countries": "KGMP(수출용)",
+   "export_countries": "일본",
    "uv": "N",
    "ph": "일반, MPC",
    "material_type": "HD",
    "material_code": "YJ1",
+   "note": "",
    "lots": [
     {
+     "item_class": "칼라/클리어",
      "raw_lot": "39JP",
      "symbol": "J1"
     }

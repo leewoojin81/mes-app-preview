@@ -16,7 +16,6 @@ export default function CommonInfoPage() {
     <div>
       <div className="w-full px-4 sm:px-6 pt-6">
         <h1 className="text-xl font-bold text-navy">공통정보</h1>
-        <p className="text-sm text-slate-500 mt-1">BASE-10 · 여러 화면이 같이 쓰는 기준 값</p>
         <div className="flex gap-1 mt-4 border-b border-slate-200">
           {TABS.map((t) => (
             <button

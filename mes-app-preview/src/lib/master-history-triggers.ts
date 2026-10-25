@@ -12,7 +12,8 @@ import { ENTITY_TYPE_WORKER, WORKER_TRACKED_FIELDS } from "@/lib/master-data-his
 
 // 2: 생산 라인(production_lines)·공정의 라인(processes.line_key) 추가(2026-10-22)
 // 3: 공통정보(BASE-10) 형명(model_names)·형명 원료로트(model_name_lots) 추가(2026-10-23)
-const HISTORY_TRIGGER_VERSION = 3;
+// 4: 형명 관리대장 개정본 칸(포장·사용기간·등록/수출국가·품목구분) 추가(2026-10-26)
+const HISTORY_TRIGGER_VERSION = 4;
 const NOW_SEC = "CAST(strftime('%s','now') AS INTEGER)";
 const ACTOR_SQL = `(SELECT CASE WHEN until_sec >= ${NOW_SEC} THEN actor END FROM master_history_ctx WHERE id = 1)`;
 const SKIP_TRACKED_SQL = `COALESCE((SELECT CASE WHEN until_sec >= ${NOW_SEC} THEN skip_tracked END FROM master_history_ctx WHERE id = 1), 0)`;
@@ -139,8 +140,9 @@ const HISTORY_TABLES: HistoryTableDef[] = [
     type: () => lit("형명"),
     summary: (r) => `${r}.permit_item`,
     labels: {
-      list_no: "연번", permit_item: "허가품목", shelf_years: "유효기간(년)", uv_yn: "UV", ph: "pH", material_type: "원료 구분",
-      material_code: "원료 기호", note: "비고", use_yn: "사용여부",
+      list_no: "연번", permit_item: "허가품목", shelf_years: "유효기간(년)", pack_vial: "포장 Vial", pack_blister: "포장 Blister",
+      use_period: "사용기간(국내&해외)", use_period_cn: "사용기간(중국)", reg_countries: "등록국가", export_countries: "수출국가",
+      uv_yn: "UV", ph: "pH", material_type: "원료 구분", material_code: "원료 기호", note: "비고", use_yn: "사용여부",
     },
     skip: ["updated_by"],
   },
@@ -149,7 +151,7 @@ const HISTORY_TABLES: HistoryTableDef[] = [
     id: (r) => `${r}.model_name || ' / ' || ${r}.raw_lot`,
     type: () => lit("형명 원료로트"),
     summary: (r) => `'형명식별 ' || ${r}.symbol`,
-    labels: { model_name: "형명", raw_lot: "원료로트 식별", symbol: "형명식별 기호" },
+    labels: { model_name: "형명", item_class: "품목구분", raw_lot: "원료로트 식별", symbol: "형명식별 기호" },
     skip: ["id", "sort_no"],
   },
   {
