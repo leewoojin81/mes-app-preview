@@ -953,6 +953,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
         seal: { codes: m0.seal_codes ?? [], stock: m0.seal_stock ?? 0 },
         shipped: sum(ordered.map((l) => l.shipped)),
         assy: sum(ordered.map((l) => l.assy_in)),
+        marked: sum(ordered.filter((l) => l.assy_mark).map((l) => l.assy_in)),
         models: [model],
       }
     : row
@@ -963,6 +964,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
           seal: detail?.seal ?? { codes: [], stock: 0 },
           shipped: row.shipped,
           assy: row.assy_in,
+          marked: sum((detail?.lines ?? []).filter((l) => !l.extra && l.assy_mark).map((l) => l.assy_in)),
           models: orderModels,
         }
       : null;
@@ -998,17 +1000,25 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
             <>
               <div className="facts">
                 {([
-                  ["주문량", fmt(facts.qty), "", ""],
-                  ["착색재고", fmt(facts.color), "", ""],
+                  ["주문량", fmt(facts.qty), "", "", ""],
+                  ["착색재고", fmt(facts.color), "", "", ""],
                   [
                     "실링지재고",
                     facts.seal.codes.length ? fmt(facts.seal.stock) : "-",
                     "",
                     facts.seal.codes.length ? `실링지 ${facts.seal.codes.join(", ")} — 원.부자재창고·포장창고·조립창고 합` : "BOM에 실링지(BFS)가 없습니다",
+                    facts.seal.codes.join(", "),
                   ],
-                  ["출고", fmt(facts.shipped), "", ""],
-                  ["조립투입 필요", fmt(facts.assy), facts.assy > 0 ? "need" : "", ""],
-                ] as const).map(([l, v, c, t]) =>
+                  ["출고", fmt(facts.shipped), "", "", ""],
+                  // 조립투입 필요 — 그리드에서 투입함(초록 ✓)으로 표시한 도수의 수량은 뺀다
+                  [
+                    "조립투입 필요",
+                    fmt(facts.assy - facts.marked),
+                    facts.assy - facts.marked > 0 ? "need" : "",
+                    facts.marked ? "도수별 상세 그리드에서 투입함으로 표시한 수량을 뺀 값" : "",
+                    facts.marked ? `전체 ${fmt(facts.assy)} · 투입함 ${fmt(facts.marked)}` : "",
+                  ],
+                ] as const).map(([l, v, c, t, s]) =>
                   l === "착색재고" ? (
                     // 착색재고 — 무도수용/유도수용을 함께 보여주고, 누르면 도수별 상세 착색재고 칸처럼 LOT별 착색 현재고 창을 연다
                     <button
@@ -1027,6 +1037,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                     <div key={l} className="fact" title={t || undefined}>
                       <div className="l">{l}</div>
                       <div className={`v num ${c}`}>{v}</div>
+                      {s && <div className="s num">{s}</div>}
                     </div>
                   )
                 )}
