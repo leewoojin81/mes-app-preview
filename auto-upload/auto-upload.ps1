@@ -8,11 +8,13 @@
   - 계정은 setup-credential.ps1 로 저장한 암호화 파일(.local\cred.xml)에서 읽는다.
     (환경변수 MES_USER / MES_PASS 가 있으면 그쪽이 우선)
 
-  사용:  .\auto-upload.ps1 [-DryRun] [-Only 구매발주] [-Force] [-BaseUrl http://localhost:3001]
+  - 기본은 3001 → 3000 순서로 두 서버 모두 올린다(서버마다 업로드 여부를 따로 기억).
+
+  사용:  .\auto-upload.ps1 [-DryRun] [-Only 구매발주] [-Force] [-BaseUrl http://localhost:3001[,http://localhost:3000]]
   종료코드: 0 = 전부 성공(또는 올릴 것 없음), 1 = 하나라도 실패
 #>
 param(
-  [string]$BaseUrl = "http://localhost:3001",
+  [string[]]$BaseUrl = @("http://localhost:3001", "http://localhost:3000"),
   [string]$Dir = "C:\Users\Administrator\Desktop\mes-system\업로드자료",
   [string]$Only = "",
   [int]$MinAgeSec = 120,
@@ -21,7 +23,19 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# 서버가 여러 개면 서버마다 이 스크립트를 따로 실행한다(한 서버가 꺼져 있어도 다른 서버는 진행).
+if ($BaseUrl.Count -gt 1) {
+  $rc = 0
+  foreach ($u in $BaseUrl) {
+    & $MyInvocation.MyCommand.Path -BaseUrl $u -Dir $Dir -Only $Only -MinAgeSec $MinAgeSec -DryRun:$DryRun -Force:$Force
+    if ($LASTEXITCODE -ne 0) { $rc = 1 }
+  }
+  exit $rc
+}
+$BaseUrl = $BaseUrl[0]
+
+$root =Split-Path -Parent $MyInvocation.MyCommand.Path
 $local = Join-Path $root ".local"
 New-Item -ItemType Directory -Force $local | Out-Null
 $logFile = Join-Path $local ("upload-{0}.log" -f (Get-Date -Format yyyyMMdd))
@@ -79,7 +93,7 @@ foreach ($t in $targets) {
   $plan += @{ t = $t; file = $cand; sig = $sig; skey = $skey }
 }
 
-if ($plan.Count -eq 0) { Log "올릴 파일 없음"; exit 0 }
+if ($plan.Count -eq 0) { Log "올릴 파일 없음 ($BaseUrl)"; exit 0 }
 if ($DryRun) {
   foreach ($p in $plan) { Log ("DRY   {0} -> /api/{1}/import{2}" -f $p.file.Name, $p.t.api, $(if ($p.t.cats) { " (cats=$($p.t.cats))" } else { "" })) }
   exit 0
