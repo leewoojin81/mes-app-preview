@@ -916,7 +916,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
       x.qty += l.order_qty;
       l.wip.forEach((v, i) => (x.wip[i] += v));
       x.shipped += l.shipped;
-      x.assy += l.assy_in;
+      if (!l.assy_mark) x.assy += l.assy_in; // 도수별 상세에서 투입함으로 표시한 수량은 뺀다(상단 조립투입 필요 칸과 같은 기준)
       x.short += l.shorts[9] ?? 0;
       g.set(l.model, x);
     }
