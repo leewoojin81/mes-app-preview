@@ -859,7 +859,6 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
   const [error, setError] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [changeOf, setChangeOf] = useState<{ line: DueOrderLine; near: NearPower[] } | null>(null);
-  const [colorOf, setColorOf] = useState<DueOrderLine | null>(null);
   const [swapOf, setSwapOf] = useState<DueOrderLine | null>(null);
   const [help, setHelp] = useState<"color" | "dosu" | "swap" | null>(null);
   const [markBusy, setMarkBusy] = useState<string | null>(null);
@@ -903,10 +902,10 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
     // Esc는 작업지시 목록 창이 열려 있으면 그 창만 닫는다
     const onKey = (e: KeyboardEvent) =>
       e.key === "Escape" &&
-      (help ? setHelp(null) : swapOf ? setSwapOf(null) : colorOf ? setColorOf(null) : orderColor ? setOrderColor(false) : changeOf ? setChangeOf(null) : onClose());
+      (help ? setHelp(null) : swapOf ? setSwapOf(null) : orderColor ? setOrderColor(false) : changeOf ? setChangeOf(null) : onClose());
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, changeOf, colorOf, orderColor, swapOf, help]);
+  }, [onClose, changeOf, orderColor, swapOf, help]);
 
   const models = useMemo(() => {
     const g = new Map<string, { model: string; name: string | null; n: number; qty: number; wip: number[]; color: number; shipped: number; assy: number; short: number }>();
@@ -1094,18 +1093,17 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
               {/* 표 안에서 세로 스크롤 — 열 제목(th sticky)이 위에 고정된다 */}
               <div className="tbl-wrap pwwrap">
                 <table className="pwtbl">
-                  {/* 열 폭 고정: 도수·품목코드는 내용만큼, 주문량~실링지재고 / 조립~출고 / 분리부족~출하부족(6열)은 묶음끼리 같은 폭 */}
+                  {/* 열 폭 고정: 도수·품목코드는 내용만큼, 주문량~누적주문 / 조립~출고 / 분리부족~출하부족(6열)은 묶음끼리 같은 폭 */}
                   <colgroup>
                     <col style={{ width: "4.4%" }} />
                     <col style={{ width: "7.2%" }} />
-                    {[0, 1, 2, 3].map((i) => (<col key={`o${i}`} style={{ width: "4.8%" }} />))}
+                    {[0, 1].map((i) => (<col key={`o${i}`} style={{ width: "4.8%" }} />))}
                     {[...STAGES, "기초재고", "출고"].map((s) => (<col key={s} style={{ width: "3.8%" }} />))}
                     {[0, 1, 2, 3, 4, 5].map((i) => (<col key={`s${i}`} style={{ width: "3.3%" }} />))}
                   </colgroup>
                   <thead>
                     <tr>
-                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th><th className="r"><button className="hh" onClick={() => setHelp("color")} title="누르면 착색재고 계산 기준이 열립니다">착색재고</button></th>
-                      <th className="r" title="모델 BOM의 실링지(BFS) 현재고 — 원.부자재창고·포장창고·조립창고 합, 같은 모델은 모든 도수가 같은 값">실링지재고</th>
+                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th>
                       {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r" title="분리3 부족분 = 누적주문 − 기초재고 − 누적출고 − 습윤~출하포장 재공">분리부족</th><th className="r">검사부족</th>
                       <th className="r"><button className="hh" onClick={() => setHelp("swap")} title="누르면 품목변경 계산 기준이 열립니다">품목변경</button></th>
@@ -1124,10 +1122,6 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                         <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{l.item_code}</td>
                         <td className="r num"><Z n={l.order_qty} /></td>
                         <td className="r num">{l.extra ? <span className="zero">-</span> : <Z n={l.cum_order} />}</td>
-                        <td className="r num">{l.color_stock ? <button className="lnk" onClick={() => setColorOf(l)} title="누르면 착색 현재고(LOT별 무도수용/유도수용)가 열립니다"><Z n={l.color_stock} /></button> : <Z n={l.color_stock} />}</td>
-                        <td className="r num" title={l.seal_codes?.length ? `실링지 ${l.seal_codes.join(", ")}` : "BOM에 실링지(BFS)가 없습니다"}>
-                          {l.seal_codes?.length ? <Z n={l.seal_stock ?? 0} /> : <span className="zero">-</span>}
-                        </td>
                         {l.wip.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
                         <td className="r num"><Z n={l.base_stock} /></td>
                         <td className="r num"><Z n={l.shipped} /></td>
@@ -1177,8 +1171,6 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       <td colSpan={2}>합계</td>
                       <td className="r num">{fmt(sum(powers.map((l) => l.order_qty)))}</td>
                       <td />
-                      <td />
-                      <td />
                       {pw.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
                       <td />
                       <td className="r num">{fmt(sum(powers.map((l) => l.shipped)))}</td>
@@ -1202,7 +1194,6 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
       {help === "dosu" && <DosuChangeHelp onClose={() => setHelp(null)} />}
       {help === "swap" && <ItemChangeHelp onClose={() => setHelp(null)} />}
       {swapOf && <ItemChangeModal line={swapOf} onClose={() => setSwapOf(null)} />}
-      {colorOf && <ColorStockModal models={[colorOf.model]} power={colorOf.power} onClose={() => setColorOf(null)} />}
       {orderColor && <ColorStockModal models={orderModels} onClose={() => setOrderColor(false)} />}
     </>
   );
