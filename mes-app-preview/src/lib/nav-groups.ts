@@ -1,9 +1,12 @@
 // 사이드바 메뉴 구조 — 탭바(TabsProvider)가 경로별 탭 제목/코드를 찾을 때도
 // 이 목록을 그대로 참조한다(하나의 소스만 유지).
-export type NavChild = { href: string; label: string; code: string };
-export type NavGroup = { label: string; children: NavChild[] };
+// devOnly(화면 하나): 대분류의 devOnly와 같고 그 화면만 개발서버(3000)에 보인다
+export type NavChild = { href: string; label: string; code: string; devOnly?: boolean };
+// devOnly: 개발서버(3000)에서만 보이는 작업 중 대분류 — 오픈서버(3001)는 빌드 때
+// NEXT_PUBLIC_MES_SERVER=preview(deploy-3001.ps1)라서 목록에서 빠지고 URL 접근도 막힌다.
+export type NavGroup = { label: string; children: NavChild[]; devOnly?: boolean };
 
-export const NAV_GROUPS: NavGroup[] = [
+const ALL_NAV_GROUPS: NavGroup[] = [
   {
     label: "기준정보",
     children: [
@@ -16,6 +19,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/warehouses", label: "창고정보", code: "BASE-07" },
       { href: "/production-calendar", label: "생산캘린더", code: "BASE-08" },
       { href: "/workers", label: "작업자정보", code: "BASE-09" },
+      { href: "/common-info", label: "공통정보", code: "BASE-10", devOnly: true }, // 2026-10-23 개발 중 — 형명 탭
       { href: "/master-data-change-history", label: "기준정보변경이력", code: "BASE-20" },
     ],
   },
@@ -37,6 +41,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/sales-monthly-target", label: "월별수주(목표)", code: "SALES-01" },
       { href: "/sales-orders", label: "수주등록", code: "SALES-02" },
       { href: "/product-shipment", label: "제품출고등록", code: "SALES-03" },
+      { href: "/packing-list", label: "Packing List", code: "SALES-04" },
     ],
   },
   {
@@ -60,6 +65,18 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/defect-type-status", label: "불량종합현황", code: "PROD-07" },
       { href: "/daily-work-status", label: "일일작업현황", code: "PROD-10" },
       { href: "/weekly-report", label: "업무보고", code: "PROD-11" },
+    ],
+  },
+  {
+    // 공정별로 따로 쓰던 업무관리(엑셀·수기 등)를 옮겨올 대분류
+    label: "공정관리",
+    children: [
+      { href: "/proc/injection", label: "사출공정", code: "PROC-01" },
+      { href: "/proc/printing", label: "인쇄공정", code: "PROC-02" },
+      { href: "/proc/assembly-separation", label: "조립분리공정", code: "PROC-03" },
+      { href: "/proc/visual-inspection", label: "외관검사공정", code: "PROC-04" },
+      { href: "/proc/sealing", label: "실링공정", code: "PROC-05" },
+      { href: "/proc/marking-shipping", label: "마킹출하공정", code: "PROC-06" },
     ],
   },
   {
@@ -105,6 +122,11 @@ export const NAV_GROUPS: NavGroup[] = [
     children: [{ href: "/users", label: "사용자계정관리", code: "SYS-01" }],
   },
 ];
+
+export const NAV_GROUPS: NavGroup[] =
+  process.env.NEXT_PUBLIC_MES_SERVER === "preview"
+    ? ALL_NAV_GROUPS.filter((g) => !g.devOnly).map((g) => ({ ...g, children: g.children.filter((c) => !c.devOnly) }))
+    : ALL_NAV_GROUPS;
 
 // href -> {label, code} 조회용 flat map (탭 제목 표시에 사용)
 export const NAV_ITEM_BY_HREF: Record<string, { label: string; code: string }> = Object.fromEntries(

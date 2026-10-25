@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import type { SalesOrder } from "@/lib/types";
 import { SALES_ORDER_DETAIL_COLS, salesOrderFallbackCell } from "@/lib/sales-order-columns";
 import * as XLSX from "xlsx";
+import { ensurePackingTables, overlayPackingStatus, packingStatusSql } from "@/lib/packing-list";
 
 export const runtime = "nodejs";
 
@@ -17,12 +18,13 @@ const ORDER_DATE_EXPR = `COALESCE(NULLIF(replace(json_extract(so.detail, '$.수�
 
 // 상태 필터 기준도 화면과 동일하게 원본 엑셀 "상태" 우선, 없으면 내부 워크플로 상태로 대체.
 // api/sales-orders/route.ts 와 동일.
-const STATUS_EXPR = `COALESCE(json_extract(so.detail, '$.상태'), so.status)`;
+const STATUS_EXPR = packingStatusSql("so"); // Packing List(SALES-04) 확정분은 'Packing' — 목록과 같다
 
 // 현재 화면 필터(상태·거래처·수주번호·수주일자) 조건에 해당하는 수주를 원본 엑셀
 // 컬럼 그대로 xlsx로 내려준다.
 export async function GET(req: NextRequest) {
   const db = getDb();
+  ensurePackingTables(db);
   const params = req.nextUrl.searchParams;
   const statusParam = params.get("status");
   const customerParam = params.get("customer");
@@ -63,10 +65,12 @@ export async function GET(req: NextRequest) {
   // 객체 키 기반(json_to_sheet)이 아니라 위치 기반(aoa_to_sheet)으로 시트를 만든다.
   const header = ["수주번호", ...SALES_ORDER_DETAIL_COLS.map((c) => c.title)];
   const aoa: (string | number | null)[][] = [header];
-  for (const r of rows) {
-    const detail = r.detail
-      ? (JSON.parse(r.detail) as Record<string, string | number | null>)
-      : null;
+  const parsed = overlayPackingStatus(
+    db,
+    rows.map((r) => ({ ...r, detail: r.detail ? (JSON.parse(r.detail) as Record<string, string | number | null>) : null }))
+  );
+  for (const r of parsed) {
+    const detail = r.detail as Record<string, string | number | null> | null;
     const so: SalesOrder = { ...r, detail };
     const rowValues: (string | number | null)[] = [detail?.["수주번호"] ?? so.so_no];
     for (const col of SALES_ORDER_DETAIL_COLS) {

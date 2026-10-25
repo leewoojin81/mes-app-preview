@@ -1,4 +1,5 @@
 import { ensureMasterHistoryTriggers } from "@/lib/master-history-triggers";
+import { ensureModelNameTables } from "@/lib/model-names";
 import { ensureProductionLines } from "@/lib/production-lines";
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
@@ -1463,6 +1464,7 @@ export function getDb(): DatabaseSync {
   db.exec("PRAGMA temp_store = MEMORY;");
   db.exec(SCHEMA_SQL);
   migrate(db);
+  ensureModelNameTables(db); // 공통정보(BASE-10) 형명 — 변경이력 트리거보다 먼저 만든다
   ensureMasterHistoryTriggers(db);
   globalForDb.__mesDb = db;
   dbInstance = db;

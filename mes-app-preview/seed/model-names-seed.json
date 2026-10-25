@@ -1,0 +1,625 @@
+{
+ "source": "F706-3형명식별기호 관리대장_20251212.xlsx",
+ "rows": [
+  {
+   "name": "48-MB",
+   "seq": 1,
+   "permit_item": "Moisture balance",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "",
+   "material_type": "HD",
+   "material_code": "B2",
+   "lots": [
+    {
+     "raw_lot": "48M",
+     "symbol": "B1"
+    }
+   ]
+  },
+  {
+   "name": "38-HR",
+   "seq": 2,
+   "permit_item": "HI-COLOR 38",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "",
+   "material_type": "HD",
+   "material_code": "YE2",
+   "lots": [
+    {
+     "raw_lot": "38C",
+     "symbol": "E1"
+    }
+   ]
+  },
+  {
+   "name": "38-HC",
+   "seq": 3,
+   "permit_item": "HI-CLEAR 38",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "",
+   "material_type": "HD",
+   "material_code": "C0",
+   "lots": [
+    {
+     "raw_lot": "38C",
+     "symbol": "C1"
+    }
+   ]
+  },
+  {
+   "name": "38-HT",
+   "seq": 4,
+   "permit_item": "HI-TINT 38",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "",
+   "material_type": "HD",
+   "material_code": "DB",
+   "lots": [
+    {
+     "raw_lot": "38Y",
+     "symbol": "D1"
+    },
+    {
+     "raw_lot": "38V",
+     "symbol": "D2"
+    },
+    {
+     "raw_lot": "38G",
+     "symbol": "D3"
+    },
+    {
+     "raw_lot": "38B",
+     "symbol": "D4"
+    },
+    {
+     "raw_lot": "38S",
+     "symbol": "D5"
+    }
+   ]
+  },
+  {
+   "name": "48-VC",
+   "seq": 5,
+   "permit_item": "BONO 48",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "",
+   "material_type": "HD",
+   "material_code": "",
+   "lots": [
+    {
+     "raw_lot": "48C",
+     "symbol": "A3"
+    }
+   ]
+  },
+  {
+   "name": "MDC-38",
+   "seq": 6,
+   "permit_item": "Cube-i 38",
+   "shelf_years": 5,
+   "uv": "Y",
+   "ph": "",
+   "material_type": "HD",
+   "material_code": "YF2",
+   "lots": [
+    {
+     "raw_lot": "38K",
+     "symbol": "G1"
+    }
+   ]
+  },
+  {
+   "name": "MD-38",
+   "seq": 6,
+   "permit_item": "Cube-i 38",
+   "shelf_years": 5,
+   "uv": "Y",
+   "ph": "",
+   "material_type": "HD",
+   "material_code": "YF2",
+   "lots": [
+    {
+     "raw_lot": "38W",
+     "symbol": "G2"
+    },
+    {
+     "raw_lot": "38D",
+     "symbol": "G3"
+    }
+   ]
+  },
+  {
+   "name": "MDC-55",
+   "seq": 7,
+   "permit_item": "Cube-i 55",
+   "shelf_years": 5,
+   "uv": "Y",
+   "ph": "",
+   "material_type": "HD",
+   "material_code": "",
+   "lots": [
+    {
+     "raw_lot": "55C",
+     "symbol": "H1"
+    }
+   ]
+  },
+  {
+   "name": "MD-55",
+   "seq": 7,
+   "permit_item": "Cube-i 55",
+   "shelf_years": 5,
+   "uv": "Y",
+   "ph": "",
+   "material_type": "HD",
+   "material_code": "",
+   "lots": [
+    {
+     "raw_lot": "55W",
+     "symbol": "H2"
+    },
+    {
+     "raw_lot": "55B",
+     "symbol": "H3"
+    }
+   ]
+  },
+  {
+   "name": "MDC-45",
+   "seq": 8,
+   "permit_item": "Cube-i 45",
+   "shelf_years": 5,
+   "uv": "Y",
+   "ph": "",
+   "material_type": "HD",
+   "material_code": "",
+   "lots": [
+    {
+     "raw_lot": "45C",
+     "symbol": "F1"
+    }
+   ]
+  },
+  {
+   "name": "MD-45",
+   "seq": 8,
+   "permit_item": "Cube-i 45",
+   "shelf_years": 5,
+   "uv": "Y",
+   "ph": "",
+   "material_type": "HD",
+   "material_code": "",
+   "lots": [
+    {
+     "raw_lot": "45W",
+     "symbol": "F2"
+    },
+    {
+     "raw_lot": "45B",
+     "symbol": "F3"
+    }
+   ]
+  },
+  {
+   "name": "MDF-43",
+   "seq": 9,
+   "permit_item": "Magic star",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "4.5 ~ 7.5",
+   "material_type": "HD",
+   "material_code": "YQ7",
+   "lots": [
+    {
+     "raw_lot": "43C",
+     "symbol": "M1"
+    }
+   ]
+  },
+  {
+   "name": "MDD-38",
+   "seq": 10,
+   "permit_item": "Shiny star",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "4.5 ~ 7.5",
+   "material_type": "HD",
+   "material_code": "YO2",
+   "lots": [
+    {
+     "raw_lot": "38H",
+     "symbol": "K1"
+    }
+   ]
+  },
+  {
+   "name": "MDE-38",
+   "seq": 11,
+   "permit_item": "Charming star",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "4.5 ~ 7.5",
+   "material_type": "HD",
+   "material_code": "",
+   "lots": [
+    {
+     "raw_lot": "38P",
+     "symbol": "K2"
+    }
+   ]
+  },
+  {
+   "name": "TOR-39",
+   "seq": null,
+   "permit_item": "Color-Toric",
+   "shelf_years": null,
+   "uv": "N",
+   "ph": "4.5 ~ 7.5",
+   "material_type": "HD",
+   "material_code": "",
+   "lots": [
+    {
+     "raw_lot": "39C",
+     "symbol": "N1"
+    }
+   ]
+  },
+  {
+   "name": "SIHY-38",
+   "seq": 12,
+   "permit_item": "SIHY-COL",
+   "shelf_years": 8,
+   "uv": "N",
+   "ph": "4.5 ~ 7.5",
+   "material_type": "HD",
+   "material_code": "",
+   "lots": [
+    {
+     "raw_lot": "38A",
+     "symbol": "P1"
+    }
+   ]
+  },
+  {
+   "name": "TSR-48",
+   "seq": 13,
+   "permit_item": "Twinkle star",
+   "shelf_years": 8,
+   "uv": "Y",
+   "ph": "4.5 ~ 7.5",
+   "material_type": "HD",
+   "material_code": "YT1",
+   "lots": [
+    {
+     "raw_lot": "48H",
+     "symbol": "T1"
+    }
+   ]
+  },
+  {
+   "name": "OLS-43",
+   "seq": 14,
+   "permit_item": "O-LENS SIGNAL Magic color",
+   "shelf_years": 8,
+   "uv": "Y",
+   "ph": "4.5 ~ 7.5",
+   "material_type": "PC",
+   "material_code": "YU1",
+   "lots": [
+    {
+     "raw_lot": "43PC",
+     "symbol": "U1"
+    }
+   ]
+  },
+  {
+   "name": "OLP-48",
+   "seq": 15,
+   "permit_item": "O-LENS PERSONAL Twinkle color",
+   "shelf_years": 8,
+   "uv": "Y",
+   "ph": "4.5 ~ 7.5",
+   "material_type": "PC",
+   "material_code": "YU2",
+   "lots": [
+    {
+     "raw_lot": "48PC",
+     "symbol": "U2"
+    }
+   ]
+  },
+  {
+   "name": "58-HT",
+   "seq": 16,
+   "permit_item": "HI-TINT 58",
+   "shelf_years": 8,
+   "uv": "Y",
+   "ph": "4.5 ~ 7.5",
+   "material_type": "PC",
+   "material_code": "YV1",
+   "lots": [
+    {
+     "raw_lot": "58H",
+     "symbol": "V1"
+    }
+   ]
+  },
+  {
+   "name": "58-HR",
+   "seq": 17,
+   "permit_item": "HI-COLOR 58",
+   "shelf_years": 8,
+   "uv": "Y",
+   "ph": "6.0 ~ 8.0",
+   "material_type": "PC",
+   "material_code": "YB1",
+   "lots": [
+    {
+     "raw_lot": "58C",
+     "symbol": "W1"
+    }
+   ]
+  },
+  {
+   "name": "BLS-48",
+   "seq": 18,
+   "permit_item": "Blue Shield 365",
+   "shelf_years": 8,
+   "uv": "Y",
+   "ph": "5.0~8.0",
+   "material_type": "PC",
+   "material_code": "YR1",
+   "lots": [
+    {
+     "raw_lot": "48BS",
+     "symbol": "R1"
+    }
+   ]
+  },
+  {
+   "name": "BLC-48",
+   "seq": 19,
+   "permit_item": "Blue Clear 365",
+   "shelf_years": 8,
+   "uv": "Y",
+   "ph": "5.0~8.0",
+   "material_type": "PC",
+   "material_code": "YR2",
+   "lots": [
+    {
+     "raw_lot": "48BC",
+     "symbol": "R2"
+    }
+   ]
+  },
+  {
+   "name": "MDG-38",
+   "seq": 20,
+   "permit_item": "Shiny color",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "5.0~8.0",
+   "material_type": "HD",
+   "material_code": "YO2",
+   "lots": [
+    {
+     "raw_lot": "38H",
+     "symbol": "E2"
+    }
+   ]
+  },
+  {
+   "name": "BLM-48",
+   "seq": 21,
+   "permit_item": "Blue Shield M",
+   "shelf_years": 8,
+   "uv": "N",
+   "ph": "5.0~8.0",
+   "material_type": "HD",
+   "material_code": "YR1",
+   "lots": [
+    {
+     "raw_lot": "48BS",
+     "symbol": "R3"
+    }
+   ]
+  },
+  {
+   "name": "BR-48",
+   "seq": 22,
+   "permit_item": "Blissful color",
+   "shelf_years": 8,
+   "uv": "Y",
+   "ph": "4.5 ~ 7.5",
+   "material_type": "PC",
+   "material_code": "YU2",
+   "lots": [
+    {
+     "raw_lot": "48PC",
+     "symbol": "U2"
+    }
+   ]
+  },
+  {
+   "name": "JP-A1",
+   "seq": 23,
+   "permit_item": "Purury Oneday",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "일반, MPC",
+   "material_type": "HD",
+   "material_code": "YJ1",
+   "lots": [
+    {
+     "raw_lot": "39JP",
+     "symbol": "J1"
+    }
+   ]
+  },
+  {
+   "name": "JP-AM",
+   "seq": 24,
+   "permit_item": "Purury Monthly",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "일반, MPC",
+   "material_type": "HD",
+   "material_code": "YJ1",
+   "lots": [
+    {
+     "raw_lot": "39JP",
+     "symbol": "J1"
+    }
+   ]
+  },
+  {
+   "name": "JP-W1",
+   "seq": 25,
+   "permit_item": "Venus Eyes Beaute 1day ANW 1day Eve",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "일반",
+   "material_type": "HD",
+   "material_code": "YJ1",
+   "lots": [
+    {
+     "raw_lot": "39JP",
+     "symbol": "J1"
+    }
+   ]
+  },
+  {
+   "name": "JP-WM",
+   "seq": 26,
+   "permit_item": "Venus Eyes Beaute ANW Monthly Eve",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "붕산붕사",
+   "material_type": "HD",
+   "material_code": "YJ1",
+   "lots": [
+    {
+     "raw_lot": "39JP",
+     "symbol": "J1"
+    }
+   ]
+  },
+  {
+   "name": "JP-M1",
+   "seq": 27,
+   "permit_item": "MI 1day plus",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "MPC",
+   "material_type": "HD",
+   "material_code": "YJ2",
+   "lots": [
+    {
+     "raw_lot": "38JP",
+     "symbol": "J2"
+    }
+   ]
+  },
+  {
+   "name": "JP-MM",
+   "seq": 28,
+   "permit_item": "MC-3 Lens",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "일반",
+   "material_type": "HD",
+   "material_code": "YJ2",
+   "lots": [
+    {
+     "raw_lot": "38JP",
+     "symbol": "J2"
+    }
+   ]
+  },
+  {
+   "name": "JP-B1",
+   "seq": 29,
+   "permit_item": "Clear scene 1day",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "일반",
+   "material_type": "HD",
+   "material_code": "YJ1",
+   "lots": [
+    {
+     "raw_lot": "39JP",
+     "symbol": "J1"
+    }
+   ]
+  },
+  {
+   "name": "JP-WU",
+   "seq": 30,
+   "permit_item": "ANW 1day 38 UV",
+   "shelf_years": 8,
+   "uv": "Y",
+   "ph": "일반, 붕산붕사, MPC",
+   "material_type": "HD",
+   "material_code": "YJ3",
+   "lots": [
+    {
+     "raw_lot": "38JU",
+     "symbol": "J3"
+    }
+   ]
+  },
+  {
+   "name": "JP-SU",
+   "seq": 31,
+   "permit_item": "SHOBIDO 38 1day",
+   "shelf_years": 5,
+   "uv": "Y",
+   "ph": "붕산붕사MPC",
+   "material_type": "HD",
+   "material_code": "YJ3",
+   "lots": [
+    {
+     "raw_lot": "38JU",
+     "symbol": "J3"
+    }
+   ]
+  },
+  {
+   "name": "JP-S1",
+   "seq": 32,
+   "permit_item": "Sweet 1day",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "일반, MPC",
+   "material_type": "HD",
+   "material_code": "YJ1",
+   "lots": [
+    {
+     "raw_lot": "39JP",
+     "symbol": "J1"
+    }
+   ]
+  },
+  {
+   "name": "JP-SM",
+   "seq": 33,
+   "permit_item": "Sweet Monthly",
+   "shelf_years": 5,
+   "uv": "N",
+   "ph": "일반, MPC",
+   "material_type": "HD",
+   "material_code": "YJ1",
+   "lots": [
+    {
+     "raw_lot": "39JP",
+     "symbol": "J1"
+    }
+   ]
+  }
+ ]
+}

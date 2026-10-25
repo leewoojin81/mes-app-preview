@@ -39,7 +39,13 @@ const ADMIN_DEFAULT_CODES = new Set([
   "SYS-01",
 ]);
 
+// 개발 중 화면(nav-groups의 devOnly 대분류·화면) — 운영자는 기본 허용(2026-10-23 사용자 요청: "개발할 때 운영자는 권한 자동 부여").
+// 오픈서버(3001) 빌드는 NAV_GROUPS에서 devOnly가 빠지므로 이 목록이 비어 영향이 없다. 정식 오픈하면 devOnly를 떼는 순간
+// 운영자도 기본 거부로 돌아가고(ADMIN_DEFAULT_CODES 규칙), SYS-01 개별 허용이 필요하다.
+const DEV_SCREEN_CODES = new Set(NAV_GROUPS.flatMap((g) => g.children.filter((c) => g.devOnly || c.devOnly).map((c) => c.code)));
+
 export function roleDefaultAllowed(role: Role, code: string): boolean {
+  if (role === "operator" && DEV_SCREEN_CODES.has(code)) return true;
   // 운영자는 관리자와 같은 기본 화면권한(그 위에 기준정보 삭제만 더 가진다)
   if (isAdminRole(role)) return ADMIN_DEFAULT_CODES.has(code);
   return LEADER_DEFAULT_CODES.has(code);
@@ -107,6 +113,7 @@ const CODE_API_PREFIXES: Record<string, string[]> = {
   "BASE-07": ["/api/warehouses"],
   "BASE-08": ["/api/production-calendar", "/api/process-calendar"],
   "BASE-09": ["/api/workers"],
+  "BASE-10": ["/api/common-info"],
   "BASE-20": ["/api/master-data-change-history"],
   "PSN-01": ["/api/work-hours"],
   "PSN-02": ["/api/attendance-card-status"],
@@ -117,6 +124,7 @@ const CODE_API_PREFIXES: Record<string, string[]> = {
   "PSN-07": ["/api/shift-time-slots"],
   "SALES-01": ["/api/sales-monthly-customer-plan"],
   "SALES-03": ["/api/product-shipment"],
+  "SALES-04": ["/api/packing-list"],
   "PLAN-02": ["/api/item-process-routing", "/api/line-capa-plan"],
   "PLAN-03": ["/api/packaging-schedule"],
   "PROD-02": [
@@ -137,6 +145,7 @@ const CODE_API_PREFIXES: Record<string, string[]> = {
   "INV-05": ["/api/warehouse-transfer-status"],
   "INV-06": ["/api/stock-ledger"],
   "INV-07": ["/api/stock-reconcile"],
+  "PROC-06": ["/api/proc/label-schedule"],
   "QC-02": ["/api/bc-distribution", "/api/diameter-distribution", "/api/dosu-distribution"],
   "QC-03": ["/api/qc-incoming"],
   "PUR-01": ["/api/purchase-orders"],

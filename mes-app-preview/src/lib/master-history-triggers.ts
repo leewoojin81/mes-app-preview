@@ -11,7 +11,8 @@ import { ENTITY_TYPE_WORKER, WORKER_TRACKED_FIELDS } from "@/lib/master-data-his
 // 등록/삭제는 field가 '__insert'/'__delete'인 한 행(대상명을 새값/기존값에 적음)으로 남는다.
 
 // 2: 생산 라인(production_lines)·공정의 라인(processes.line_key) 추가(2026-10-22)
-const HISTORY_TRIGGER_VERSION = 2;
+// 3: 공통정보(BASE-10) 형명(model_names)·형명 원료로트(model_name_lots) 추가(2026-10-23)
+const HISTORY_TRIGGER_VERSION = 3;
 const NOW_SEC = "CAST(strftime('%s','now') AS INTEGER)";
 const ACTOR_SQL = `(SELECT CASE WHEN until_sec >= ${NOW_SEC} THEN actor END FROM master_history_ctx WHERE id = 1)`;
 const SKIP_TRACKED_SQL = `COALESCE((SELECT CASE WHEN until_sec >= ${NOW_SEC} THEN skip_tracked END FROM master_history_ctx WHERE id = 1), 0)`;
@@ -131,6 +132,25 @@ const HISTORY_TABLES: HistoryTableDef[] = [
     summary: (r) => `${r}.target_uph`,
     labels: { target_uph: "목표 UPH" },
     skip: ["updated_by"],
+  },
+  {
+    table: "model_names",
+    id: (r) => `${r}.model_name`,
+    type: () => lit("형명"),
+    summary: (r) => `${r}.permit_item`,
+    labels: {
+      list_no: "연번", permit_item: "허가품목", shelf_years: "유효기간(년)", uv_yn: "UV", ph: "pH", material_type: "원료 구분",
+      material_code: "원료 기호", note: "비고", use_yn: "사용여부",
+    },
+    skip: ["updated_by"],
+  },
+  {
+    table: "model_name_lots",
+    id: (r) => `${r}.model_name || ' / ' || ${r}.raw_lot`,
+    type: () => lit("형명 원료로트"),
+    summary: (r) => `'형명식별 ' || ${r}.symbol`,
+    labels: { model_name: "형명", raw_lot: "원료로트 식별", symbol: "형명식별 기호" },
+    skip: ["id", "sort_no"],
   },
   {
     table: "workers",

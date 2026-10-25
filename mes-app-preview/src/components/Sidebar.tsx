@@ -15,13 +15,13 @@ function activeGroupLabel(pathname: string | null): string | null {
 
 // 로그인한 사용자의 최종 허용 화면(역할 기본값 + 사용자계정관리에서 설정한 개별 예외,
 // /api/auth/me의 allowedCodes)만 남긴다 — 그 외 대분류는 자식이 다 걸러져 빈 그룹이
-// 되므로 통째로 안 보인다.
+// 되므로 통째로 안 보인다. 단 원래부터 화면이 없는 대분류(신설 직후)는 "준비중"으로 남긴다.
 function filterByAllowedCodes(groups: NavGroup[], allowedCodes: string[] | null): NavGroup[] {
   if (!allowedCodes) return groups;
   const allowed = new Set(allowedCodes);
   return groups
     .map((g) => ({ ...g, children: g.children.filter((c) => allowed.has(c.code)) }))
-    .filter((g) => g.children.length > 0);
+    .filter((g, i) => g.children.length > 0 || groups[i].children.length === 0);
 }
 
 export default function Sidebar() {

@@ -9,8 +9,6 @@
 #   .next        - 인스턴스별 빌드 캐시(공유하면 두 dev 서버가 충돌함)
 #   data         - 미리보기 전용 DB(data\mes-preview.db)가 들어있어 절대 덮어쓰면 안 됨
 #   .git         - mes-app-preview는 별도 저장소가 아니므로 불필요
-#   src\app\proc, src\app\api\proc - 공정관리(PROC-xx) 작업 중 화면·API — 완료 후 3001 배포 예정(2026-10-23 사용자 요청).
-#                  메뉴는 nav-groups.ts devOnly로 3001 빌드에서 빠지며, 배포할 때 이 제외와 devOnly를 같이 지울 것
 #
 # 안전장치: 실행 전 mes-preview.db의 크기/마지막 수정시각을 보여주고 y/N 확인을 받은
 # 뒤에만 복사하며, 복사가 끝나면 같은 값을 다시 보여줘 데이터가 그대로인지 눈으로
@@ -68,7 +66,7 @@ if (-not $Yes) {
     }
 }
 
-robocopy $src $dst /E /XD node_modules .next data .git (Join-Path $src "src\app\proc") (Join-Path $src "src\app\api\proc") /XF tsconfig.tsbuildinfo .dev-server.out.log /NFL /NDL /NJH /NJS
+robocopy $src $dst /E /XD node_modules .next data .git /XF tsconfig.tsbuildinfo .dev-server.out.log /NFL /NDL /NJH /NJS
 $robocopyExit = $LASTEXITCODE
 # robocopy는 파일을 하나라도 복사하면 exit code 1을 반환한다(정상). 8 이상만 실제 오류.
 if ($robocopyExit -ge 8) {

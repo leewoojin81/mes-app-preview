@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, nextSoNo } from "@/lib/db";
 import { SALES_ORDER_SUM_KEYS } from "@/lib/sales-order-columns";
+import { ensurePackingTables, overlayPackingStatus, packingStatusSql } from "@/lib/packing-list";
 
 export const runtime = "nodejs";
 
@@ -23,7 +24,8 @@ const ORDER_DATE_EXPR = `COALESCE(NULLIF(replace(json_extract(so.detail, '$.수�
 
 // 상태 필터/표시 기준 = 목록 화면에 실제 보이는 값과 동일하게 원본 엑셀 "상태"(수주/Packing/
 // 완료/중단)를 우선하고, detail이 없는 수동 등록분만 내부 워크플로 상태(대기/확정/완료)로 대체한다.
-const STATUS_EXPR = `COALESCE(json_extract(so.detail, '$.상태'), so.status)`;
+// '수주'인데 Packing List(SALES-04)가 확정된 수주는 'Packing'으로 본다(lib/packing-list.ts).
+const STATUS_EXPR = packingStatusSql("so");
 
 function parseDetail<T extends { detail?: string | null }>(r: T) {
   return { ...r, detail: r.detail ? JSON.parse(r.detail) : null };
@@ -31,6 +33,7 @@ function parseDetail<T extends { detail?: string | null }>(r: T) {
 
 export async function GET(req: NextRequest) {
   const db = getDb();
+  ensurePackingTables(db);
   const params = req.nextUrl.searchParams;
   const statusParam = params.get("status");
   const pageParam = params.get("page");
@@ -84,8 +87,9 @@ export async function GET(req: NextRequest) {
         .prepare(
           `${SELECT_JOINED} ${where} ORDER BY so.created_at DESC, so.so_no DESC LIMIT ? OFFSET ?`
         )
-        .all(...args, pageSize, offset) as { detail: string | null }[]
+        .all(...args, pageSize, offset) as { so_no: string; detail: string | null }[]
     ).map(parseDetail);
+    overlayPackingStatus(db, rows);
 
     // 하단 합계 행 — 현재 페이지가 아니라 검색/필터 조건이 적용된 전체 건 기준으로 계산한다.
     const sumSelect = SALES_ORDER_SUM_KEYS.map(
@@ -105,10 +109,11 @@ export async function GET(req: NextRequest) {
 
   const rows = (
     db.prepare(`${SELECT_JOINED} ${where} ORDER BY so.created_at DESC`).all(...args) as {
+      so_no: string;
       detail: string | null;
     }[]
   ).map(parseDetail);
-  return NextResponse.json(rows);
+  return NextResponse.json(overlayPackingStatus(db, rows));
 }
 
 export async function POST(req: NextRequest) {
