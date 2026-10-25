@@ -94,6 +94,7 @@ const ALL_NAV_GROUPS: NavGroup[] = [
   {
     label: "품질관리",
     children: [
+      { href: "/control-plan", label: "Control Plan", code: "QC-00" },
       { href: "/dosu-trend", label: "도수변경현황", code: "QC-01" },
       { href: "/performance-analysis", label: "성능 분석", code: "QC-02" },
       { href: "/qc-incoming", label: "수입검사", code: "QC-03" },
