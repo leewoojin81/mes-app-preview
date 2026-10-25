@@ -941,6 +941,8 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
     .filter((l) => l.model === model)
     .sort((a, b) => (b.power ?? -99) - (a.power ?? -99) || (a.item_code < b.item_code ? -1 : 1));
   const orderedPowers = powers.filter((l) => !l.extra).length;
+  // 과생산분 = 누적주문 − (이재기 ~ 출하포장 재공 + 기초재고)
+  const overOf = (l: DueOrderLine) => l.cum_order - (sum(l.wip.slice(STAGES.indexOf("이재기"))) + l.base_stock);
   const pw = STAGES.map((_, i) => sum(powers.map((l) => l.wip[i])));
   // 상단 요약 칸 — 모델을 열면 그 모델(품목코드) 줄만, 아니면 수주 전체
   const ordered = powers.filter((l) => !l.extra);
@@ -1128,7 +1130,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
               {/* 표 안에서 세로 스크롤 — 열 제목(th sticky)이 위에 고정된다 */}
               <div className="tbl-wrap pwwrap">
                 <table className="pwtbl">
-                  {/* 열 폭 고정: 도수·품목코드는 내용만큼, 주문량~누적주문 / 조립~출고 / 분리부족~출하부족(6열)은 묶음끼리 같은 폭 */}
+                  {/* 열 폭 고정: 도수·품목코드는 내용만큼, 주문량~누적주문 / 조립~출고 / 분리부족~과생산분(6열)은 묶음끼리 같은 폭 */}
                   <colgroup>
                     <col style={{ width: "4.4%" }} />
                     <col style={{ width: "7.2%" }} />
@@ -1143,7 +1145,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r" title="분리3 부족분 = 누적주문 − 기초재고 − 누적출고 − 습윤~출하포장 재공">분리부족</th><th className="r">검사부족</th>
                       <th className="r"><button className="hh" onClick={() => setHelp("swap")} title="누르면 품목변경 계산 기준이 열립니다">품목변경</button></th>
                       <th className="r"><button className="hh" onClick={() => setHelp("dosu")} title="누르면 도수변경 계산 기준이 열립니다">도수변경</button></th>
-                      <th className="r" title="칸을 누르면 투입함(초록 ✓)으로 표시 — 모든 사용자 공유, 다시 누르면 해제. 공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다">조립투입</th><th className="r">출하부족</th>
+                      <th className="r" title="칸을 누르면 투입함(초록 ✓)으로 표시 — 모든 사용자 공유, 다시 누르면 해제. 공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다">조립투입</th><th className="r" title="누적주문 − (이재기 ~ 출하포장 재공 + 기초재고)">과생산분</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1199,7 +1201,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                         ) : (
                           <td className="r num"><Z n={l.assy_in} /></td>
                         )}
-                        <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[9] == null ? <span className="pill p-grn">완료</span> : <span className="pill p-red">{fmt(l.shorts[9])}</span>}</td>
+                        <td className="r">{l.extra ? <span className="zero">-</span> : <span className="num">{fmt(overOf(l))}</span>}</td>
                       </tr>
                     ))}
                     <tr className="tot">
@@ -1215,7 +1217,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       <td />
                       <td className="r num">{fmt(sum(powers.map((l) => l.dosu_changes ?? 0)))}건</td>
                       <td className="r num">{fmt(sum(powers.map((l) => l.assy_in)))}</td>
-                      <td className="r num">{fmt(sum(powers.map((l) => l.shorts[9] ?? 0)))}</td>
+                      <td className="r num">{fmt(sum(powers.filter((l) => !l.extra).map(overOf)))}</td>
                     </tr>
                   </tbody>
                 </table>
