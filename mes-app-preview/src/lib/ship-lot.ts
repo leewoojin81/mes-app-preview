@@ -195,12 +195,18 @@ function ruleFmt(rules: DateRule[], country: string, modelName: string): DateFmt
 
 const splitMos = (s: string | null | undefined) => [...new Set((s ?? "").split(",").map((x) => x.trim()).filter(Boolean))];
 
+/** 자동 출하LOT — 납기 달의 차수 1(같은 달 납기는 같이 출하, 2026-10-26 사용자 "납기 달 기준"). 납기일이 없으면 "" */
+export function autoLotOf(dueDate: string | null | undefined): string {
+  const p = lotPrefix((dueDate ?? "").slice(0, 10));
+  return p ? `${p}1` : "";
+}
+
 /** 발행 창 — 수주의 대표품목(형명·유효기간·규칙 표기·그 줄의 MO)과 기본값(국가·영업 담당자·이미 발행한 값) */
 export function getShipLotSo(db: DatabaseSync, soNo: string) {
   ensureShipLotTables(db);
   const h = db
-    .prepare(`SELECT MIN(customer_code) customer_code, MAX(json_extract(detail, '$."등록자"')) registrant, COUNT(*) n FROM sales_orders WHERE ${SO_SQL} = ? AND ${ALIVE_SQL}`)
-    .get(soNo) as { customer_code: string | null; registrant: string | null; n: number } | undefined;
+    .prepare(`SELECT MIN(customer_code) customer_code, MAX(json_extract(detail, '$."등록자"')) registrant, MIN(due_date) due, COUNT(*) n FROM sales_orders WHERE ${SO_SQL} = ? AND ${ALIVE_SQL}`)
+    .get(soNo) as { customer_code: string | null; registrant: string | null; due: string | null; n: number } | undefined;
   if (!h?.n) return null;
   const c = db.prepare("SELECT customer_name, country FROM customers WHERE customer_code = ?").get(h.customer_code) as
     | { customer_name: string | null; country: string | null }
@@ -247,6 +253,8 @@ export function getShipLotSo(db: DatabaseSync, soNo: string) {
     customer: c?.customer_name ?? h.customer_code ?? "",
     country,
     sales_manager: str(items.find((r) => r.sales_manager)?.sales_manager) || (h.registrant ?? ""),
+    due_date: (h.due ?? "").slice(0, 10),
+    auto_lot: autoLotOf(h.due),
     issued: mapped.some((i) => i.issued),
     items: mapped,
   };
@@ -339,9 +347,9 @@ export function issueShipLots(db: DatabaseSync, b: ShipLotBulkIssue, user: strin
 function writeShipLot(db: DatabaseSync, s: ShipLotIssue, user: string | null): void {
   const lot = s.lot_no.trim().toUpperCase();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s.prod_date)) throw new Error("생산일자를 입력하세요.");
-  const prefix = lotPrefix(s.prod_date);
-  if (!lot.startsWith(prefix) || !/^\d+$/.test(lot.slice(prefix.length))) {
-    throw new Error(`출하LOT은 생산일자 연·월(${prefix})로 시작하고 뒤에 차수 숫자가 와야 합니다(예: ${prefix}1).`);
+  // 출하LOT은 납기 달 기준 자동 부여(2026-10-26 사용자) — 제조일자와 달이 달라도 된다. 형식만 본다: 연도 끝자리 + 월코드(1~9, A~C) + 차수
+  if (!/^\d[1-9A-C]\d+$/.test(lot)) {
+    throw new Error(`출하LOT은 연도 끝자리 + 월(1~9, A~C) + 차수 숫자여야 합니다(예: 6B1). 입력값: ${lot || "(빈 값)"}`);
   }
   const so = getShipLotSo(db, s.so_no);
   if (!so || so.items.length === 0) throw new Error("이 수주에 대표품목이 없습니다.");
@@ -477,6 +485,8 @@ export interface ShipLotGridRow {
   /** 발행 값, 미발행이면 라벨일정에 적혀 있던 값(label_lot) */
   lot_no: string;
   label_lot: string;
+  /** 자동 출하LOT(납기 달 차수 1) — 미발행일 때 기본값 */
+  auto_lot: string;
   prod_text: string;
   expiry_text: string;
   country: string;
@@ -531,6 +541,7 @@ export function shipLotGrid(db: DatabaseSync): ShipLotGridRow[] {
       issued: ls.length > 0,
       lot_no: uniq(ls.map((x) => x.lot_no)),
       label_lot: b?.label.join(",") ?? "",
+      auto_lot: autoLotOf(r.due_date),
       prod_text: uniq(ls.map((x) => x.prod_text)),
       expiry_text: uniq(ls.map((x) => x.expiry_text)),
       country: ls[0]?.country || (b?.country ?? ""),

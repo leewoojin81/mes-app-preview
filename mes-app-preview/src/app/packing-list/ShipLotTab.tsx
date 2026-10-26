@@ -13,10 +13,14 @@ type SoItem = {
   rep_item: string; mos: string[]; model_name: string; shelf_years: number | null; lot_no: string; prod_date: string;
   date_fmt: DateFmt; rule_fmt: DateFmt; issued_by: string; issued_at: string;
 };
-type SoDetail = { so_no: string; mo_nos: string[]; customer: string; country: string; sales_manager: string; issued: boolean; items: SoItem[] };
+type SoDetail = {
+  so_no: string; mo_nos: string[]; customer: string; country: string; sales_manager: string; issued: boolean; items: SoItem[];
+  /** 납기일 · 자동 출하LOT(납기 달 차수 1) */
+  due_date: string; auto_lot: string;
+};
 type GridRow = {
   rank: number; done: boolean; so_no: string; mo_no: string; customer: string; brand: string; order_qty: number; due_date: string;
-  issued: boolean; lot_no: string; label_lot: string; prod_text: string; expiry_text: string; country: string; sales_manager: string;
+  issued: boolean; lot_no: string; label_lot: string; auto_lot: string; prod_text: string; expiry_text: string; country: string; sales_manager: string;
   issued_by: string; issued_at: string;
 };
 type Rule = { country: string; model_name: string; date_fmt: DateFmt };
@@ -24,7 +28,6 @@ type Rule = { country: string; model_name: string; date_fmt: DateFmt };
 const FMT_LABEL: Record<DateFmt, string> = { ymd: "제조년월일", ym: "제조년월" };
 const MONTH_CODE = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C"];
 const prefixOf = (d: string) => (/^\d{4}-\d{2}/.test(d) ? `${Number(d.slice(0, 4)) % 10}${MONTH_CODE[Number(d.slice(5, 7)) - 1]}` : "");
-const today = () => new Date().toLocaleDateString("sv-SE");
 const fmtN = (n: number) => n.toLocaleString("ko-KR");
 function expiryOf(prod: string, years: number | null, fmt: DateFmt): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(prod) || !years) return "";
@@ -155,6 +158,10 @@ export default function ShipLotTab() {
                     <span className="px-1.5 rounded bg-green-100 text-green-700">{r.lot_no}</span>
                   ) : r.label_lot ? (
                     <span className="text-slate-400 font-normal" title="미발행 — 라벨일정(PROC-06)에 적혀 있는 값">{r.label_lot}</span>
+                  ) : r.auto_lot ? (
+                    <span className="text-slate-400 font-normal" title="미발행 — 납기 달 기준 자동 출하LOT. 제조일자를 넣고 발행하면 확정됩니다">
+                      {r.auto_lot} <span className="text-[11px] text-amber-600">자동</span>
+                    </span>
                   ) : (
                     <span className="text-[11px] font-normal text-amber-600">미발행</span>
                   )}
@@ -195,7 +202,7 @@ export default function ShipLotTab() {
 function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () => void; onDone: () => void }) {
   const multi = soNos.length > 1;
   const [ds, setDs] = useState<SoDetail[] | null>(null);
-  const [prod, setProd] = useState(today());
+  const [prod, setProd] = useState("");
   const [lot, setLot] = useState("");
   // 여러 수주 창의 수주별 출하LOT
   const [soLots, setSoLots] = useState<Record<string, string>>({});
@@ -229,9 +236,12 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
   const applyDetails = (list: SoDetail[]) => {
     setDs(list);
     const first = list.flatMap((m) => m.items).find((i) => /^\d{4}-\d{2}-\d{2}$/.test(i.prod_date));
-    setProd(first?.prod_date ?? today());
-    setLot(first?.lot_no ?? list[0]?.items[0]?.lot_no ?? ""); // 미발행이어도 라벨일정에 적혀 있던 출하LOT이 그 달 것이면 그대로
-    setSoLots(Object.fromEntries(list.map((m) => [m.so_no, m.items.find((i) => i.lot_no)?.lot_no ?? ""])));
+    // 제조일자는 사람이 넣는다(2026-10-26 사용자) — 발행했거나 라벨일정에 적혀 있으면 그 값, 아니면 빈칸
+    setProd(first?.prod_date ?? "");
+    // 출하LOT 기본값 = 발행 값 > 라벨일정 값 > 자동(납기 달 차수 1)
+    const lotOf = (m: SoDetail) => m.items.find((i) => i.lot_no)?.lot_no || m.auto_lot || "";
+    setLot(list[0] ? lotOf(list[0]) : "");
+    setSoLots(Object.fromEntries(list.map((m) => [m.so_no, lotOf(m)])));
     setMeta(Object.fromEntries(list.map((m) => [m.so_no, { country: m.country, manager: m.sales_manager }])));
     setFmts(Object.fromEntries(list.flatMap((m) => m.items.map((i) => [`${m.so_no}|${i.rep_item}`, i.date_fmt]))));
   };
@@ -251,17 +261,13 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
     return () => window.removeEventListener("keydown", k);
   }, [onClose]);
 
-  // 생산일자 월이 바뀌거나 MO를 새로 불러오면 그 달 출하LOT 목록과 다음 차수 — 고른 LOT이 그 달 것이 아니면(빈 값 포함) 다음 차수로
-  const prefix = prefixOf(prod);
+  // 출하LOT은 납기 달 기준(제조일자와 따로) — 입력한 LOT 앞 두 자리(연·월)의 이미 쓴 LOT 목록과 다음 차수를 불러와 고를 수 있게 한다
+  const prodPrefix = prefixOf(prod);
+  const prefix = /^\d[1-9A-C]/.exec(lot)?.[0] ?? "";
   useEffect(() => {
     if (!prefix) return;
     let alive = true;
-    call<{ lots: { lot_no: string; sos: string }[]; next: string }>(`${API}?prefix=${prefix}`).then((r) => {
-      if (!alive) return;
-      setLots(r);
-      setLot((cur) => (cur.startsWith(prefix) ? cur : r.next));
-      setSoLots((cur) => Object.fromEntries(Object.entries(cur).map(([so, v]) => [so, v.startsWith(prefix) ? v : r.next])));
-    });
+    call<{ lots: { lot_no: string; sos: string }[]; next: string }>(`${API}?prefix=${prefix}`).then((r) => alive && setLots(r));
     return () => {
       alive = false;
     };
@@ -308,7 +314,9 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
     }, "발행을 취소했습니다(라벨일정은 발행 전 값으로).");
 
   const lotChoices = [...new Set([lots.next, ...lots.lots.map((l) => l.lot_no), lot, ...Object.values(soLots)].filter(Boolean))];
-  const badLot = (v: string) => !v || (!!prefix && !v.startsWith(prefix));
+  const badLot = (v: string) => !/^\d[1-9A-C]\d+$/.test(v);
+  // 제조일자 달과 LOT 달이 다르면 알려만 준다(막지 않음)
+  const monthDiff = (v: string) => !!prodPrefix && /^\d[1-9A-C]/.test(v) && !v.startsWith(prodPrefix);
   const multiBad = multi && soNos.some((so) => badLot(soLots[so] ?? ""));
   const d = ds?.[0];
   const anyIssued = !!ds?.some((m) => m.issued);
@@ -350,27 +358,38 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
           {ds && d && (
             <>
               <div className="flex flex-wrap items-center gap-3">
-                <label className="flex items-center gap-1 whitespace-nowrap">생산일자
-                  <input type="date" className={inp} value={prod} onChange={(e) => setProd(e.target.value)} />
+                <label className="flex items-center gap-1 whitespace-nowrap">제조일자
+                  <input type="date" className={`${inp} ${prod ? "" : "border-red-400"}`} value={prod} onChange={(e) => setProd(e.target.value)} />
+                  {!prod && <span className="text-[12px] text-red-600">입력하세요</span>}
                 </label>
-                {/* 출하LOT — 생산일자 그 달의 다음 차수를 자동으로 넣고, 직접 고쳐 쓰거나 목록에서 이미 쓴 LOT(같이 출하)을 고를 수 있다(2026-10-26) */}
+                {/* 출하LOT — 납기 달 차수 1을 자동으로 넣고(발행·라벨일정 값이 있으면 그 값), 직접 고쳐 쓰거나 이미 쓴 LOT(같이 출하)을 고를 수 있다(2026-10-26) */}
                 <label className="flex items-center gap-1 whitespace-nowrap" title="연도 끝자리 + 월(1~9, A=10월, B=11월, C=12월) + 출하차수 — 직접 고쳐 쓸 수 있고, 같은 달 다른 수주와 같은 LOT을 넣으면 같이 출하">
                   {multi ? "출하LOT 일괄" : "출하LOT"}
                   <input
                     list="ship-lot-choices"
-                    className={`${inp} font-mono w-24 ${lot && prefix && !lot.startsWith(prefix) ? "border-red-400 text-red-700" : ""}`}
+                    className={`${inp} font-mono w-24 ${badLot(lot) ? "border-red-400 text-red-700" : ""}`}
                     value={lot}
                     onChange={(e) => setLot(e.target.value.toUpperCase().replace(/\s/g, ""))}
                   />
                   <datalist id="ship-lot-choices">
                     {lotChoices.map((l) => {
                       const used = lots.lots.find((x) => x.lot_no === l);
-                      return <option key={l} value={l} label={l === lots.next ? "새 차수(자동)" : used ? (used.sos ? `수주 ${used.sos.split(",").length}건과 같이 출하` : "라벨일정에 적힌 LOT") : undefined} />;
+                      return <option key={l} value={l} label={l === d.auto_lot ? "자동(납기 달)" : l === lots.next ? "그 달 새 차수" : used ? (used.sos ? `수주 ${used.sos.split(",").length}건과 같이 출하` : "라벨일정에 적힌 LOT") : undefined} />;
                     })}
                   </datalist>
-                  {lots.next && lot !== lots.next && (
-                    <button type="button" className="px-1.5 py-0.5 rounded border border-slate-300 text-[12px] text-slate-600 hover:bg-slate-50" onClick={() => setLot(lots.next)} title="생산일자 그 달의 다음 차수로 되돌림">
-                      자동 {lots.next}
+                  {!multi && d.auto_lot && lot !== d.auto_lot && (
+                    <button type="button" className="px-1.5 py-0.5 rounded border border-slate-300 text-[12px] text-slate-600 hover:bg-slate-50" onClick={() => setLot(d.auto_lot)} title={`납기일(${d.due_date}) 달의 차수 1로 되돌림`}>
+                      자동 {d.auto_lot}
+                    </button>
+                  )}
+                  {multi && (
+                    <button
+                      type="button"
+                      className="px-1.5 py-0.5 rounded border border-slate-300 text-[12px] text-slate-600 hover:bg-slate-50"
+                      onClick={() => setSoLots(Object.fromEntries(ds.map((m) => [m.so_no, m.auto_lot])))}
+                      title="아래 모든 수주를 각자 납기 달의 차수 1로"
+                    >
+                      모두 자동(납기 달)
                     </button>
                   )}
                   {multi && (
@@ -386,8 +405,9 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
                   )}
                   {!multi && (() => {
                     if (!lot) return <span className="text-[12px] text-red-600">LOT을 넣으세요</span>;
-                    if (prefix && !lot.startsWith(prefix)) return <span className="text-[12px] text-red-600">생산일자 연·월({prefix})로 시작해야 함</span>;
-                    if (lot === lots.next) return <span className="text-[12px] text-green-700">자동(새 차수)</span>;
+                    if (badLot(lot)) return <span className="text-[12px] text-red-600">형식: 연도 끝자리 + 월(1~9, A~C) + 차수 (예: 6B1)</span>;
+                    if (monthDiff(lot)) return <span className="text-[12px] text-amber-700">제조일자 달({prodPrefix})과 LOT 달이 다름</span>;
+                    if (lot === d.auto_lot) return <span className="text-[12px] text-green-700">자동(납기 {d.due_date.slice(5, 7)}월)</span>;
                     const used = lots.lots.find((x) => x.lot_no === lot);
                     if (used?.sos) return <span className="text-[12px] text-amber-700">수주 {used.sos.split(",").length}건과 같이 출하</span>;
                     return <span className="text-[12px] text-slate-500">직접 입력</span>;
@@ -474,8 +494,8 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
         <div className="px-4 py-3 border-t border-slate-200 flex items-center gap-2">
           {!multi && d?.issued && <button className={btn} disabled={busy} onClick={cancel}>발행 취소</button>}
           <button className={`${btn} ml-auto`} onClick={onClose}>닫기</button>
-          {multiBad && <span className="text-[12px] text-red-600">출하LOT이 비었거나 생산일자 연·월({prefix})과 다른 수주가 있습니다</span>}
-          <button className={btnMain} disabled={busy || !ds || !prod || (multi ? multiBad : !lot)} onClick={issue}>
+          {multiBad && <span className="text-[12px] text-red-600">출하LOT 형식이 틀린 수주가 있습니다(예: 6B1)</span>}
+          <button className={btnMain} disabled={busy || !ds || !prod || (multi ? multiBad : badLot(lot))} onClick={issue}>
             {multi ? `${fmtN(soNos.length)}건 ${anyIssued ? "발행(다시 발행 포함)" : "발행"}` : d?.issued ? "다시 발행" : "발행"}
           </button>
         </div>
