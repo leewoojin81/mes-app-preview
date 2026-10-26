@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 // 출하LOT 배포용 엑셀 — GET /api/packing-list/ship-lot/export?q=&unissued=1&hideDone=1  (화면 그리드와 같은 열·조건)
 const COLS: { header: string; key: string; width: number }[] = [
   { header: "순위", key: "rank", width: 6 },
-  { header: "SO번호", key: "so_no", width: 17 },
+  { header: "수주번호", key: "so_no", width: 17 },
   { header: "MO번호", key: "mo_no", width: 14 },
   { header: "고객사", key: "customer", width: 22 },
   { header: "브랜드", key: "brand", width: 18 },
