@@ -130,6 +130,8 @@ const CSS = `
 .po .pwtbl tr.mk{cursor:pointer}
 .po .pwtbl tr.mk:hover td.assy{box-shadow:inset 0 0 0 1px var(--accent)}
 .po .pwtbl tr.marked td{background:#d7f0e0}
+.po tr.oth td{background:var(--amber-bg)}
+.po tr.oth td.code{color:var(--amber);font-weight:700}
 .po .pwtbl tr.marked:hover td{background:#c4e8d2}
 .po .pwtbl td.assy.marked{color:var(--green);font-weight:700}
 .po .pwtbl td.assy.marked::before{content:"✓ ";font-weight:700}
@@ -1011,7 +1013,7 @@ function ItemChangeModal({ line, onClose }: { line: DueOrderLine; onClose: () =>
                 <span className="pill p-grn">합계 {fmt(total)}</span> · 검사부족 <b className="num">{fmt(line.shorts[2] ?? 0)}</b>
                 {data.group.length > 1 && (
                   <>
-                    {" "}· 품목변경 <span className="num" title="모델 · 형명 · 실링지가 같아 재공을 같이 쓸 수 있는 대표품목">{data.group.slice(1).join(", ")}</span>
+                    {" "}· 품목변경 <span className="pill p-amb num" title="모델 · 형명 · 실링지가 같아 재공을 같이 쓸 수 있는 대표품목 — 이 품목코드 줄은 주황색으로 표시">{data.group.slice(1).join(", ")}</span>
                   </>
                 )}
               </small>
@@ -1032,10 +1034,10 @@ function ItemChangeModal({ line, onClose }: { line: DueOrderLine; onClose: () =>
               </thead>
               <tbody>
                 {data.candidates.map((c) => (
-                  <tr key={`${c.item_code}|${c.wo_no}`}>
-                    <td>{c.kind === "도수" ? "도수변경" : <span className="pill p-grn" title="모델 · 형명 · 실링지가 같은 다른 대표품목">{c.kind === "품목" ? "품목변경" : "품목+도수변경"}</span>}</td>
+                  <tr key={`${c.item_code}|${c.wo_no}`} className={c.kind === "도수" ? undefined : "oth"}>
+                    <td>{c.kind === "도수" ? "도수변경" : <span className="pill p-amb" title="모델 · 형명 · 실링지가 같은 다른 대표품목">{c.kind === "품목" ? "품목변경" : "품목+도수변경"}</span>}</td>
                     <td className="num"><b>{powerText(c.power)}</b></td>
-                    <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{c.item_code}</td>
+                    <td className="num code" style={{ fontSize: 12, color: c.kind === "도수" ? "var(--fg-2)" : undefined }} title={c.kind === "도수" ? undefined : `${line.item_code}와 다른 품목코드`}>{c.item_code}</td>
                     <td className="num">{c.wo_no}</td>
                     <td className="num">
                       {c.lot_no ? <button className="cp" onClick={() => copyLot(c.lot_no!)} title="누르면 LOT No가 복사됩니다">{c.lot_no}</button> : "-"}
