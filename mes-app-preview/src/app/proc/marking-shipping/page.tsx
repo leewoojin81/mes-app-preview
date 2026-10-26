@@ -2,13 +2,18 @@
 
 import { useTabState } from "@/lib/use-tab-state";
 import LabelScheduleTab from "./LabelScheduleTab";
+import OrderFormTab from "./OrderFormTab";
 
-type Tab = "label";
+type Tab = "label" | "order";
 
-const TABS: { v: Tab; label: string }[] = [{ v: "label", label: "라벨일정" }];
+const TABS: { v: Tab; label: string }[] = [
+  { v: "label", label: "라벨일정" },
+  { v: "order", label: "오더양식" },
+];
 
 // 공정관리 "마킹출하공정(PROC-06)" — 공정에서 쓰던 업무관리를 탭으로 옮긴다.
 // 라벨일정: 엑셀 "라벨실적 업무.xlsx" 라벨진행현황 시트(2026-10-23)
+// 오더양식: 엑셀 "1 오더양식(ANW) 형명추가ver.xlsx" ANW 본표 + 소/중 박스 라벨(2026-10-26)
 export default function MarkingShippingPage() {
   const [tab, setTab] = useTabState<Tab>("procMsTab", "label");
 
@@ -33,6 +38,7 @@ export default function MarkingShippingPage() {
         </div>
       </div>
       {tab === "label" && <LabelScheduleTab />}
+      {tab === "order" && <OrderFormTab />}
     </div>
   );
 }
