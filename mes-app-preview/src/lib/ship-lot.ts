@@ -198,6 +198,69 @@ export interface ShipLotIssue {
 /** 발행(다시 발행 포함) — MO의 모든 대표품목에 같은 출하LOT·생산일자, 라벨일정 출하LOT·생산일자도 바꾼다 */
 export function issueShipLot(db: DatabaseSync, s: ShipLotIssue, user: string | null): void {
   ensureShipLotTables(db);
+  db.exec("BEGIN");
+  try {
+    writeShipLot(db, s, user);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+
+export interface ShipLotBulkIssue {
+  mo_nos: string[];
+  prod_date: string;
+  /** same: 모두 lot_no 하나(같이 출하) / each: MO마다 그 달 새 차수(고른 순서대로) */
+  mode: "same" | "each";
+  lot_no?: string;
+  /** 이미 발행한 MO도 다시 발행(기본은 건너뜀) */
+  reissue?: boolean;
+}
+
+/**
+ * 여러 MO 일괄 발행(2026-10-26) — 생산일자는 하나, 국가·영업담당자·생산일자 표기는 MO마다 지금 기본값(getShipLotMo) 그대로.
+ * 한 트랜잭션이라 하나라도 틀리면 모두 되돌린다. 돌려주는 값은 MO별 결과(건너뛴 MO 포함).
+ */
+export function issueShipLots(db: DatabaseSync, b: ShipLotBulkIssue, user: string | null): { mo_no: string; lot_no: string; skipped: boolean }[] {
+  ensureShipLotTables(db);
+  const mos = [...new Set(b.mo_nos.map((m) => m.trim()).filter(Boolean))];
+  if (mos.length === 0) throw new Error("발행할 MO를 고르세요.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(b.prod_date)) throw new Error("생산일자를 입력하세요.");
+  const prefix = lotPrefix(b.prod_date);
+  if (b.mode === "same" && !b.lot_no?.trim()) throw new Error("출하LOT을 고르세요.");
+  let seq = Number(monthLots(db, prefix).next.slice(prefix.length));
+  const out: { mo_no: string; lot_no: string; skipped: boolean }[] = [];
+  db.exec("BEGIN");
+  try {
+    for (const moNo of mos) {
+      const mo = getShipLotMo(db, moNo);
+      if (!mo || mo.items.length === 0) throw new Error(`수주에 MO ${moNo}가 없습니다.`);
+      if (mo.issued && !b.reissue) {
+        out.push({ mo_no: moNo, lot_no: mo.items[0]?.lot_no ?? "", skipped: true });
+        continue;
+      }
+      const lot = b.mode === "same" ? b.lot_no!.trim().toUpperCase() : `${prefix}${seq++}`;
+      writeShipLot(
+        db,
+        {
+          mo_no: moNo, lot_no: lot, prod_date: b.prod_date, country: mo.country, sales_manager: mo.sales_manager,
+          fmts: Object.fromEntries(mo.items.map((i) => [i.rep_item, i.date_fmt])),
+        },
+        user
+      );
+      out.push({ mo_no: moNo, lot_no: lot, skipped: false });
+    }
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  return out;
+}
+
+/** 발행 한 건 쓰기(트랜잭션은 부르는 쪽) */
+function writeShipLot(db: DatabaseSync, s: ShipLotIssue, user: string | null): void {
   const lot = s.lot_no.trim().toUpperCase();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s.prod_date)) throw new Error("생산일자를 입력하세요.");
   const prefix = lotPrefix(s.prod_date);
@@ -207,34 +270,27 @@ export function issueShipLot(db: DatabaseSync, s: ShipLotIssue, user: string | n
   const mo = getShipLotMo(db, s.mo_no);
   if (!mo || mo.items.length === 0) throw new Error("수주에 이 MO가 없습니다.");
   const rules = listDateRules(db);
-  db.exec("BEGIN");
-  try {
-    const up = db.prepare(
-      `INSERT INTO ship_lots (mo_no, rep_item, lot_no, so_no, customer, country, sales_manager, model_name, prod_date, date_fmt, issued_by,
-                              prev_ship_lot, prev_prod_date)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-               COALESCE((SELECT ship_lot FROM label_schedule WHERE mo_no = ?1 AND rep_item = ?2), ''),
-               COALESCE((SELECT prod_date FROM label_schedule WHERE mo_no = ?1 AND rep_item = ?2), ''))
-       ON CONFLICT(mo_no, rep_item) DO UPDATE SET lot_no = excluded.lot_no, so_no = excluded.so_no, customer = excluded.customer,
-         country = excluded.country, sales_manager = excluded.sales_manager, model_name = excluded.model_name,
-         prod_date = excluded.prod_date, date_fmt = excluded.date_fmt, issued_by = excluded.issued_by,
-         issued_at = datetime('now','localtime')`
-    );
-    const ls = db.prepare(
-      `INSERT INTO label_schedule (mo_no, rep_item, ship_lot, prod_date, updated_by) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(mo_no, rep_item) DO UPDATE SET ship_lot = excluded.ship_lot, prod_date = excluded.prod_date,
-         updated_at = datetime('now','localtime'), updated_by = excluded.updated_by`
-    );
-    for (const it of mo.items) {
-      const f = s.fmts?.[it.rep_item];
-      const fmt: DateFmt = f === "ym" || f === "ymd" ? f : ruleFmt(rules, s.country, it.model_name);
-      up.run(s.mo_no, it.rep_item, lot, mo.so_no, mo.customer, s.country.trim(), s.sales_manager.trim(), it.model_name, s.prod_date, fmt, user);
-      ls.run(s.mo_no, it.rep_item, lot, s.prod_date, user ? `${user}(출하LOT)` : "출하LOT");
-    }
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
+  const up = db.prepare(
+    `INSERT INTO ship_lots (mo_no, rep_item, lot_no, so_no, customer, country, sales_manager, model_name, prod_date, date_fmt, issued_by,
+                            prev_ship_lot, prev_prod_date)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+             COALESCE((SELECT ship_lot FROM label_schedule WHERE mo_no = ?1 AND rep_item = ?2), ''),
+             COALESCE((SELECT prod_date FROM label_schedule WHERE mo_no = ?1 AND rep_item = ?2), ''))
+     ON CONFLICT(mo_no, rep_item) DO UPDATE SET lot_no = excluded.lot_no, so_no = excluded.so_no, customer = excluded.customer,
+       country = excluded.country, sales_manager = excluded.sales_manager, model_name = excluded.model_name,
+       prod_date = excluded.prod_date, date_fmt = excluded.date_fmt, issued_by = excluded.issued_by,
+       issued_at = datetime('now','localtime')`
+  );
+  const ls = db.prepare(
+    `INSERT INTO label_schedule (mo_no, rep_item, ship_lot, prod_date, updated_by) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(mo_no, rep_item) DO UPDATE SET ship_lot = excluded.ship_lot, prod_date = excluded.prod_date,
+       updated_at = datetime('now','localtime'), updated_by = excluded.updated_by`
+  );
+  for (const it of mo.items) {
+    const f = s.fmts?.[it.rep_item];
+    const fmt: DateFmt = f === "ym" || f === "ymd" ? f : ruleFmt(rules, s.country, it.model_name);
+    up.run(s.mo_no, it.rep_item, lot, mo.so_no, mo.customer, s.country.trim(), s.sales_manager.trim(), it.model_name, s.prod_date, fmt, user);
+    ls.run(s.mo_no, it.rep_item, lot, s.prod_date, user ? `${user}(출하LOT)` : "출하LOT");
   }
 }
 

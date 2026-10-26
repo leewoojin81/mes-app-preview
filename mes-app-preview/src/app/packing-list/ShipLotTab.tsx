@@ -5,6 +5,7 @@ import { useTabState } from "@/lib/use-tab-state";
 
 // Packing List(SALES-04) 출하LOT 탭 — PLAN-04 납기별수주현황처럼 수주 줄(순위 순)에 MO별 출하LOT을 붙여 보여주고,
 // 줄을 누르면 그 MO에 출하LOT을 발행한다(배포는 엑셀). 규칙은 lib/ship-lot.ts.
+// 맨 앞 체크박스로 여러 MO를 골라 "일괄 발행"할 수도 있다(2026-10-26) — 생산일자 하나, 출하LOT은 모두 같게 또는 MO마다 새 차수.
 // 발행하면 라벨일정(PROC-06) 출하LOT·생산일자가 이 값으로 바뀐다.
 
 type DateFmt = "ym" | "ymd";
@@ -65,6 +66,9 @@ export default function ShipLotTab() {
   const [selMo, setSelMo] = useState<string | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(() => {
     call<{ rows: GridRow[] }>(API)
@@ -86,6 +90,19 @@ export default function ShipLotTab() {
   const openCount = (rows ?? []).filter((r) => !r.done).length;
   const exportUrl = `${API}/export?q=${encodeURIComponent(q)}${unissued ? "&unissued=1" : ""}${hideDone ? "&hideDone=1" : ""}`;
 
+  // 체크는 MO 단위(한 MO가 여러 수주 줄에 걸쳐 있으면 같이 체크된다). 고른 순서 = 화면 순서
+  const visibleMos = useMemo(() => [...new Set(visible.map((r) => r.mo_no).filter(Boolean))], [visible]);
+  const allChecked = visibleMos.length > 0 && visibleMos.every((m) => checked.has(m));
+  const toggle = (mo: string) =>
+    setChecked((cur) => {
+      const next = new Set(cur);
+      if (next.has(mo)) next.delete(mo);
+      else next.add(mo);
+      return next;
+    });
+  const toggleAll = () => setChecked(allChecked ? new Set() : new Set(visibleMos));
+  const bulkMos = (rows ?? []).map((r) => r.mo_no).filter((m, i, a) => m && checked.has(m) && a.indexOf(m) === i);
+
   return (
     <div className="px-4 sm:px-6 py-4 space-y-3 text-[13px]">
       <div className="flex flex-wrap items-center gap-2">
@@ -96,18 +113,34 @@ export default function ShipLotTab() {
         <button className={`${btn} ml-auto`} onClick={() => setRulesOpen(true)}>생산일자 표기 규칙</button>
         <a className={btn} href={exportUrl}>엑셀 (배포용)</a>
       </div>
+      {checked.size > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded border border-navy/30 bg-navy/5">
+          <span className="text-navy font-medium">MO {fmtN(checked.size)}건 선택</span>
+          <button className={btnMain} onClick={() => setBulkOpen(true)}>일괄 발행</button>
+          <button className={btn} onClick={() => setChecked(new Set())}>선택 해제</button>
+        </div>
+      )}
+      {notice && (
+        <div className="flex items-center px-3 py-2 rounded bg-green-50 text-green-700">
+          {notice}
+          <button className="ml-auto text-green-700/60 hover:text-green-800" onClick={() => setNotice(null)} aria-label="닫기">×</button>
+        </div>
+      )}
       {err && <div className="px-3 py-2 rounded bg-red-50 text-red-700">{err}</div>}
       <div className="border border-slate-200 rounded bg-white overflow-auto max-h-[calc(100vh-260px)]">
         <table className="w-full">
           <thead className="bg-slate-50 text-slate-600 sticky top-0 z-10">
             <tr>
+              <th className="px-2 py-2 border-b border-slate-200 w-8">
+                <input type="checkbox" checked={allChecked} disabled={visibleMos.length === 0} onChange={toggleAll} title="보이는 MO 전체 선택" />
+              </th>
               {HEADS.map((h) => (
                 <th key={h.label} className={`px-2 py-2 whitespace-nowrap font-semibold border-b border-slate-200 ${h.r ? "text-right" : "text-left"}`}>{h.label}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {!rows && !err && <tr><td colSpan={HEADS.length} className="p-6 text-center text-slate-400">불러오는 중…</td></tr>}
+            {!rows && !err && <tr><td colSpan={HEADS.length + 1} className="p-6 text-center text-slate-400">불러오는 중…</td></tr>}
             {visible.map((r) => (
               <tr
                 key={r.so_no}
@@ -115,6 +148,9 @@ export default function ShipLotTab() {
                 onClick={() => r.mo_no && setSelMo(r.mo_no)}
                 title={r.mo_no ? "누르면 이 MO에 출하LOT을 발행합니다" : "MO번호가 없어 발행할 수 없습니다"}
               >
+                <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                  {r.mo_no && <input type="checkbox" checked={checked.has(r.mo_no)} onChange={() => toggle(r.mo_no)} />}
+                </td>
                 <td className="px-2 py-1.5 text-right">{r.done ? <span className="text-[11px] px-1.5 rounded bg-slate-100">완료</span> : r.rank}</td>
                 <td className="px-2 py-1.5 font-mono text-[12.5px] text-[#2457d6]">{r.so_no}</td>
                 <td className="px-2 py-1.5 font-mono text-[12.5px]">{r.mo_no || "-"}</td>
@@ -139,11 +175,24 @@ export default function ShipLotTab() {
                 <td className="px-2 py-1.5 font-mono text-slate-500">{r.issued_at}</td>
               </tr>
             ))}
-            {rows && visible.length === 0 && <tr><td colSpan={HEADS.length} className="p-6 text-center text-slate-400">표시할 수주가 없습니다.</td></tr>}
+            {rows && visible.length === 0 && <tr><td colSpan={HEADS.length + 1} className="p-6 text-center text-slate-400">표시할 수주가 없습니다.</td></tr>}
           </tbody>
         </table>
       </div>
       {selMo && <IssueModal moNo={selMo} onClose={() => setSelMo(null)} onDone={load} />}
+      {bulkOpen && rows && (
+        <BulkIssueModal
+          moNos={bulkMos}
+          rows={rows}
+          onClose={() => setBulkOpen(false)}
+          onDone={(text) => {
+            setBulkOpen(false);
+            setChecked(new Set());
+            setNotice(text);
+            load();
+          }}
+        />
+      )}
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
     </div>
   );
@@ -317,6 +366,146 @@ function IssueModal({ moNo, onClose, onDone }: { moNo: string; onClose: () => vo
           {d?.issued && <button className={btn} disabled={busy} onClick={cancel}>발행 취소</button>}
           <button className={`${btn} ml-auto`} onClick={onClose}>닫기</button>
           <button className={btnMain} disabled={busy || !d || !lot || !prod} onClick={issue}>{d?.issued ? "다시 발행" : "발행"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 일괄 발행 창 — 생산일자 하나 + 출하LOT(모두 같게 / MO마다 새 차수). 국가·영업담당자·표기는 MO마다 기본값 그대로(서버가 정함) */
+function BulkIssueModal({ moNos, rows, onClose, onDone }: { moNos: string[]; rows: GridRow[]; onClose: () => void; onDone: (text: string) => void }) {
+  const [prod, setProd] = useState(today());
+  const [mode, setMode] = useState<"same" | "each">("same");
+  const [lot, setLot] = useState("");
+  const [reissue, setReissue] = useState(false);
+  const [lots, setLots] = useState<{ lots: { lot_no: string; mos: string }[]; next: string }>({ lots: [], next: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [onClose]);
+
+  const prefix = prefixOf(prod);
+  useEffect(() => {
+    if (!prefix) return;
+    let alive = true;
+    call<{ lots: { lot_no: string; mos: string }[]; next: string }>(`${API}?prefix=${prefix}`).then((r) => {
+      if (!alive) return;
+      setLots(r);
+      setLot((cur) => (cur.startsWith(prefix) ? cur : r.next));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [prefix]);
+
+  // MO별 미리보기 — 첫 수주 줄 기준 표시값
+  const info = moNos.map((mo) => {
+    const mine = rows.filter((r) => r.mo_no === mo);
+    const r = mine[0];
+    return { mo, so: mine.map((x) => x.so_no).join(", "), customer: r?.customer ?? "", country: r?.country ?? "", manager: r?.sales_manager ?? "", issued: mine.some((x) => x.issued), cur: r?.issued ? r.lot_no : "" };
+  });
+  const nextSeq = Number(lots.next.slice(prefix.length)) || 1;
+  let k = 0;
+  const plan = info.map((i) => {
+    if (i.issued && !reissue) return { ...i, newLot: "", skip: true };
+    return { ...i, newLot: mode === "same" ? lot : prefix ? `${prefix}${nextSeq + k++}` : "", skip: false };
+  });
+  const todo = plan.filter((p) => !p.skip).length;
+  const issuedN = info.filter((i) => i.issued).length;
+  const lotChoices = [...new Set([lots.next, ...lots.lots.map((l) => l.lot_no), lot].filter(Boolean))];
+
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await call<{ results: { mo_no: string; lot_no: string; skipped: boolean }[] }>(API, {
+        method: "POST",
+        body: JSON.stringify({ bulk: { mo_nos: moNos, prod_date: prod, mode, lot_no: mode === "same" ? lot : undefined, reissue } }),
+      });
+      const done = r.results.filter((x) => !x.skipped);
+      const skipped = r.results.length - done.length;
+      const lotsText = [...new Set(done.map((x) => x.lot_no))].join(", ");
+      onDone(`MO ${done.length}건 발행했습니다(${lotsText}).${skipped ? ` 이미 발행한 ${skipped}건은 건너뛰었습니다.` : ""} 라벨일정(PROC-06) 출하LOT·생산일자도 바뀌었습니다.`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div className="bg-white rounded shadow-xl w-[860px] max-w-[95vw] max-h-[85vh] flex flex-col text-[13px]" onClick={(e) => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+          <b className="text-navy">출하LOT 일괄 발행</b>
+          <span className="text-slate-500">MO {fmtN(moNos.length)}건</span>
+          <button className="ml-auto text-slate-400 hover:text-slate-700 text-lg" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        <div className="p-4 space-y-3 overflow-y-auto">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-1 whitespace-nowrap">생산일자
+              <input type="date" className={inp} value={prod} onChange={(e) => setProd(e.target.value)} />
+            </label>
+            <label className="flex items-center gap-1 whitespace-nowrap">
+              <input type="radio" checked={mode === "same"} onChange={() => setMode("same")} />
+              모두 같은 출하LOT
+            </label>
+            <select className={`${inp} font-mono w-auto max-w-[220px]`} value={lot} disabled={mode !== "same"} onChange={(e) => setLot(e.target.value)}>
+              {lotChoices.map((l) => {
+                const used = lots.lots.find((x) => x.lot_no === l);
+                return (
+                  <option key={l} value={l}>
+                    {l}{l === lots.next ? " (새 차수)" : used ? ` (MO ${used.mos.split(",").length}건)` : ""}
+                  </option>
+                );
+              })}
+            </select>
+            <label className="flex items-center gap-1 whitespace-nowrap">
+              <input type="radio" checked={mode === "each"} onChange={() => setMode("each")} />
+              MO마다 새 차수
+            </label>
+          </div>
+          {issuedN > 0 && (
+            <label className="flex items-center gap-1 text-amber-700">
+              <input type="checkbox" checked={reissue} onChange={(e) => setReissue(e.target.checked)} />
+              이미 발행한 MO {fmtN(issuedN)}건도 다시 발행 (끄면 건너뜀)
+            </label>
+          )}
+          <table className="w-full">
+            <thead className="bg-slate-50 text-slate-600">
+              <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:text-left">
+                <th>MO번호</th><th>SO번호</th><th>고객사</th><th>국가</th><th>영업담당자</th><th>지금</th><th>발행할 출하LOT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {plan.map((p) => (
+                <tr key={p.mo} className={`border-t border-slate-100 ${p.skip ? "text-slate-400" : ""}`}>
+                  <td className="px-2 py-1 font-mono">{p.mo}</td>
+                  <td className="px-2 py-1 font-mono text-[12px]">{p.so}</td>
+                  <td className="px-2 py-1 truncate max-w-[180px]" title={p.customer}>{p.customer}</td>
+                  <td className="px-2 py-1">{p.country}</td>
+                  <td className="px-2 py-1">{p.manager}</td>
+                  <td className="px-2 py-1 font-mono">{p.issued ? <span className="px-1.5 rounded bg-green-100 text-green-700">{p.cur}</span> : <span className="text-[11px] text-amber-600">미발행</span>}</td>
+                  <td className="px-2 py-1 font-mono font-semibold">{p.skip ? "건너뜀" : p.newLot}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="text-[12px] text-slate-500">
+            국가·영업담당자·생산일자 표기(제조년월/제조년월일)는 MO마다 지금 기본값으로 들어갑니다. 따로 바꿀 MO는 발행한 뒤 그 줄을 눌러 고치세요.
+            하나라도 발행하지 못하면 모두 취소됩니다.
+          </div>
+          {err && <div className="px-3 py-2 rounded bg-red-50 text-red-700">{err}</div>}
+        </div>
+        <div className="px-4 py-3 border-t border-slate-200 flex items-center gap-2">
+          <button className={`${btn} ml-auto`} onClick={onClose}>닫기</button>
+          <button className={btnMain} disabled={busy || todo === 0 || !prod || (mode === "same" && !lot)} onClick={submit}>
+            {busy ? "발행 중…" : `${fmtN(todo)}건 발행`}
+          </button>
         </div>
       </div>
     </div>
