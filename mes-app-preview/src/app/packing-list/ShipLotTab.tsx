@@ -321,18 +321,34 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
                 <label className="flex items-center gap-1 whitespace-nowrap">생산일자
                   <input type="date" className={inp} value={prod} onChange={(e) => setProd(e.target.value)} />
                 </label>
-                <label className="flex items-center gap-1 whitespace-nowrap" title="연도 끝자리 + 월(1~9, A=10월, B=11월, C=12월) + 출하차수 — 같은 달 다른 MO와 같은 LOT을 고르면 같이 출하">
+                {/* 출하LOT — 생산일자 그 달의 다음 차수를 자동으로 넣고, 직접 고쳐 쓰거나 목록에서 이미 쓴 LOT(같이 출하)을 고를 수 있다(2026-10-26) */}
+                <label className="flex items-center gap-1 whitespace-nowrap" title="연도 끝자리 + 월(1~9, A=10월, B=11월, C=12월) + 출하차수 — 직접 고쳐 쓸 수 있고, 같은 달 다른 수주와 같은 LOT을 넣으면 같이 출하">
                   출하LOT
-                  <select className={`${inp} font-mono w-auto max-w-[220px]`} value={lot} onChange={(e) => setLot(e.target.value)}>
+                  <input
+                    list="ship-lot-choices"
+                    className={`${inp} font-mono w-24 ${lot && prefix && !lot.startsWith(prefix) ? "border-red-400 text-red-700" : ""}`}
+                    value={lot}
+                    onChange={(e) => setLot(e.target.value.toUpperCase().replace(/\s/g, ""))}
+                  />
+                  <datalist id="ship-lot-choices">
                     {lotChoices.map((l) => {
                       const used = lots.lots.find((x) => x.lot_no === l);
-                      return (
-                        <option key={l} value={l}>
-                          {l}{l === lots.next ? " (새 차수)" : used ? (used.sos ? ` (수주 ${used.sos.split(",").length}건)` : " (라벨일정)") : ""}
-                        </option>
-                      );
+                      return <option key={l} value={l} label={l === lots.next ? "새 차수(자동)" : used ? (used.sos ? `수주 ${used.sos.split(",").length}건과 같이 출하` : "라벨일정에 적힌 LOT") : undefined} />;
                     })}
-                  </select>
+                  </datalist>
+                  {lots.next && lot !== lots.next && (
+                    <button type="button" className="px-1.5 py-0.5 rounded border border-slate-300 text-[12px] text-slate-600 hover:bg-slate-50" onClick={() => setLot(lots.next)} title="생산일자 그 달의 다음 차수로 되돌림">
+                      자동 {lots.next}
+                    </button>
+                  )}
+                  {(() => {
+                    if (!lot) return <span className="text-[12px] text-red-600">LOT을 넣으세요</span>;
+                    if (prefix && !lot.startsWith(prefix)) return <span className="text-[12px] text-red-600">생산일자 연·월({prefix})로 시작해야 함</span>;
+                    if (lot === lots.next) return <span className="text-[12px] text-green-700">자동(새 차수)</span>;
+                    const used = lots.lots.find((x) => x.lot_no === lot);
+                    if (used?.sos) return <span className="text-[12px] text-amber-700">수주 {used.sos.split(",").length}건과 같이 출하</span>;
+                    return <span className="text-[12px] text-slate-500">직접 입력</span>;
+                  })()}
                 </label>
                 {!multi && (
                   <>
