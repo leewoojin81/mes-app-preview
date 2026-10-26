@@ -41,6 +41,8 @@ export interface DueOrderLine {
   power: number | null;
   item_name: string | null;
   order_qty: number;
+  /** 수주등록(SALES-02) 순번(detail "순번__2") — 같은 품목이 일반·샘플 둘 다 있으면 일반 줄 순번, 같은 구분이 여럿이면 가장 작은 값 */
+  line_no?: number | null;
   cum_order: number;
   wip: number[];
   shipped: number;
@@ -180,6 +182,8 @@ function compute(db: DatabaseSync): Computed {
                 COALESCE(NULLIF(TRIM(cu.short_name), ''), json_extract(s.detail, '$."거래처명"')) cname,
                 json_extract(s.detail, '$."품목군"') grp,
                 CAST(json_extract(s.detail, '$."작업순서"') AS INTEGER) seq,
+                CAST(json_extract(s.detail, '$."순번__2"') AS INTEGER) ln,
+                json_extract(s.detail, '$."샘플구분"') smp,
                 json_extract(it.detail, '$."포장방법"') pm,
                 it.item_name
            FROM s JOIN act ON act.sono = s.sono
@@ -189,7 +193,7 @@ function compute(db: DatabaseSync): Computed {
       )
       .all() as {
       sono: string; item_code: string; qty: number | null; due: string | null; st: string;
-      mo: string | null; cname: string | null; grp: string | null; seq: number | null; pm: string | null; item_name: string | null;
+      mo: string | null; cname: string | null; grp: string | null; seq: number | null; ln: number | null; smp: string | null; pm: string | null; item_name: string | null;
     }[];
 
     const heads = new Map<string, Head>();
@@ -206,13 +210,21 @@ function compute(db: DatabaseSync): Computed {
       h.sts.add(r.st);
       if (r.due && (!h.due || r.due < h.due)) h.due = r.due;
       if (r.seq != null && (h.seq == null || r.seq < h.seq)) h.seq = r.seq;
-      const it = h.items.get(r.item_code) ?? { qty: 0, name: r.item_name };
+      const it = h.items.get(r.item_code) ?? { qty: 0, name: r.item_name, ln: null, lnSample: true };
       it.qty += r.qty ?? 0;
+      // 순번 — 일반 줄이 샘플 줄보다 먼저, 같은 구분끼리는 작은 값
+      if (r.ln != null) {
+        const sample = /sample|샘플/i.test(r.smp ?? ""); // 샘플구분: 일반 · 무상Sample · 유상Sample(비어 있으면 일반으로 본다)
+        if (it.ln == null || (it.lnSample && !sample) || (it.lnSample === sample && r.ln < it.ln)) {
+          it.ln = r.ln;
+          it.lnSample = sample;
+        }
+      }
       h.items.set(r.item_code, it);
     }
     return heads;
   };
-  type Head = { so_no: string; mo: string | null; cname: string | null; grp: string | null; due: string | null; seq: number | null; pm: string | null; sts: Set<string>; items: Map<string, { qty: number; name: string | null }> };
+  type Head = { so_no: string; mo: string | null; cname: string | null; grp: string | null; due: string | null; seq: number | null; pm: string | null; sts: Set<string>; items: Map<string, { qty: number; name: string | null; ln: number | null; lnSample: boolean }> };
   const heads = headsOf(`SUM(CASE WHEN st IN ('수주', 'Packing') THEN 1 ELSE 0 END) > 0`);
   // 순위: 납기일 → 생산순위지정(PLAN-01) 작업순서 → 수주번호 (계획정보 납기진행 탭과 같은 기준)
   const ordered = [...heads.values()].sort((a, b) => {
@@ -305,6 +317,7 @@ function compute(db: DatabaseSync): Computed {
         power: powerOf(code),
         item_name: it.name,
         order_qty: it.qty,
+        line_no: it.ln,
         cum_order: L,
         wip,
         shipped,
@@ -363,6 +376,7 @@ function compute(db: DatabaseSync): Computed {
       power: powerOf(code),
       item_name: it.name,
       order_qty: it.qty,
+      line_no: it.ln,
       cum_order: 0,
       wip: STAGES.map(() => 0),
       shipped: shipMap.get(`${h.so_no}|${code}`) ?? 0,

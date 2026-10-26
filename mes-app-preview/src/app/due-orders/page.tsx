@@ -1340,13 +1340,14 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                   <colgroup>
                     <col style={{ width: "4.4%" }} />
                     <col style={{ width: "7.2%" }} />
+                    <col style={{ width: "2.8%" }} />
                     {[0, 1].map((i) => (<col key={`o${i}`} style={{ width: "4.8%" }} />))}
                     {[...STAGES, "기초재고", "출고"].map((s) => (<col key={s} style={{ width: "3.8%" }} />))}
                     {[0, 1, 2, 3, 4, 5].map((i) => (<col key={`s${i}`} style={{ width: "3.3%" }} />))}
                   </colgroup>
                   <thead>
                     <tr>
-                      <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th>
+                      <th>도수</th><th>품목코드</th><th className="r" title="수주등록(SALES-02) 순번 — 같은 품목이 일반·샘플 둘 다 있으면 일반 순번">순번</th><th className="r">주문량</th><th className="r">누적주문</th>
                       {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r" title="분리3 부족분 = 누적주문 − 기초재고 − 누적출고 − 습윤~출하포장 재공">분리부족</th><th className="r">검사부족</th>
                       <th className="r"><button className="hh" onClick={() => setHelp("swap")} title="누르면 도수변경 계산 기준이 열립니다">도수변경</button></th>
@@ -1375,6 +1376,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       >
                         <td className="num pw">{powerText(l.power)}</td>
                         <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{l.item_code}</td>
+                        <td className="r num" style={{ color: "var(--fg-2)" }}>{l.line_no ?? <span className="zero">-</span>}</td>
                         <td className="r num"><Z n={l.order_qty} /></td>
                         <td className="r num">{l.extra ? <span className="zero">-</span> : <Z n={l.cum_order} />}</td>
                         {l.wip.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
@@ -1423,7 +1425,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       );
                     })}
                     <tr className="tot">
-                      <td colSpan={2}>합계</td>
+                      <td colSpan={3}>합계</td>
                       <td className="r num">{fmt(sum(powers.map((l) => l.order_qty)))}</td>
                       <td />
                       {pw.map((v, i) => (<td key={i} className="r num"><Z n={v} /></td>))}
