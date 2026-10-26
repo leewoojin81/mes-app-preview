@@ -104,12 +104,19 @@ export interface DueOrderRow {
   done?: boolean;
   /** 마지막 출고일(완료 수주만) */
   last_ship?: string | null;
+  /** 공정재공에 더한 품목코드(주문량 있는 줄) — 목록 합계에서 같은 품목을 한 번만 더하려고(DueOrdersResult.item_wip) */
+  items?: string[];
+  /** 착색재고에 더한 모델 — 목록 합계에서 같은 모델을 한 번만 더하려고(DueOrdersResult.model_color) */
+  models?: string[];
 }
 
 export interface DueOrdersResult {
   rows: DueOrderRow[];
   as_of: { sales: string | null; wip: string | null; inventory: string | null; shipment: string | null };
   straight_rate: number;
+  /** 품목코드별 공정재공(STAGES 순서) · 모델별 착색재고(무도수용+유도수용) — 같은 품목·모델이 여러 수주에 겹쳐 보여서 목록 합계는 이걸로 한 번씩만 더한다 */
+  item_wip: Record<string, number[]>;
+  model_color: Record<string, number>;
 }
 
 function soBase(soNo: string): string {
@@ -333,6 +340,8 @@ function compute(db: DatabaseSync): Computed {
       assy_in: ls.reduce((s, l) => s + l.assy_in, 0),
       ship_short,
       ship_rate: order_qty > 0 ? Math.min(1, Math.max(0, shipped / order_qty)) : 0,
+      items: ordered_.map((l) => l.item_code),
+      models: [...new Set(ls.map((l) => l.model))],
     };
   });
 
@@ -404,7 +413,14 @@ function compute(db: DatabaseSync): Computed {
       shipment: one("SELECT MAX(ship_date) v FROM product_shipment_status"),
     },
     straight_rate: STRAIGHT_RATE,
+    item_wip: {},
+    model_color: {},
   };
+  for (const ls of lines.values())
+    for (const l of ls) {
+      if (l.order_qty > 0 && l.wip.some((v) => v)) result.item_wip[l.item_code] ??= l.wip;
+      if (l.model_color_stock) result.model_color[l.model] ??= l.model_color_stock;
+    }
   return { at: Date.now(), result, lines, colors: colorMap };
 }
 
@@ -759,8 +775,20 @@ export function fetchColorStock(db: DatabaseSync, model: string): { model: strin
     const mu = base.length ? base.every(isAuto) : color.some(isAuto);
     return { item_code: s.item_code, item_name: s.item_name, lot_no: s.lot_no, location: s.loc, stock_qty: s.q, use: mu ? "무도수용" : "유도수용", base_lines: base, color_lines: color, pending };
   });
-  lots.sort((a, b) => (a.use !== b.use ? (a.use === "무도수용" ? -1 : 1) : a.item_code !== b.item_code ? (a.item_code < b.item_code ? -1 : 1) : a.lot_no < b.lot_no ? -1 : 1));
+  lots.sort(byLotMade);
   return { model, lots };
+}
+
+/**
+ * 착색 LOT No의 사출 제조일자 순(오래된 것 먼저) — 3~7번째 글자가 년(끝자리)·월(1~9, A~C=10~12월)·일(2자리)·순차.
+ * 예: 056A013G386-08R-725 → 6A013 = 26년 10월 1일 3번째. 글자 순서가 곧 날짜 순서라 문자열로 비교한다.
+ * 같은 날짜·순차면 LOT No 전체로(숫자는 크기순: -4R이 -11R보다 먼저). 화면(ColorStockModal)도 여러 모델을 합친 뒤 같은 규칙으로 다시 정렬한다.
+ */
+function byLotMade(a: { lot_no: string }, b: { lot_no: string }): number {
+  const x = a.lot_no.slice(2, 7);
+  const y = b.lot_no.slice(2, 7);
+  if (x !== y) return x < y ? -1 : 1;
+  return a.lot_no.localeCompare(b.lot_no, "en", { numeric: true });
 }
 
 /** 품목변경 허용오차 — 외관검사 측정 도수(도수1~3)가 모두 목표 도수 ±0.225 안이면 그 도수로 바꿔 쓸 수 있다 */

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, ReactNode } from "react";
 import { useTabState } from "@/lib/use-tab-state";
 import type { AssemblyRecord, ColorStockLot, DueOrderLine, DueOrderRow, DueOrdersResult, ItemChangeCandidate } from "@/lib/due-orders";
@@ -23,9 +23,59 @@ const CSS = `
 .po .crumb{font-size:12px;color:var(--fg-3);margin-bottom:2px}
 .po .meta{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--fg-2);align-items:center}
 .po .meta b{color:var(--fg);font-weight:600}
-.po .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-.po .kpi{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
-.po .kpi .l{font-size:12px;color:var(--fg-3)}.po .kpi .v{font-size:20px;font-weight:600}.po .kpi .s{font-size:11.5px;color:var(--fg-3)}
+.po .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.po .kpi{--tone:#2f6df0;--tone-bg:#eef3ff;position:relative;overflow:hidden;background:linear-gradient(180deg,var(--tone-bg) 0,var(--surface) 46px);border:1px solid var(--line);border-radius:10px;padding:12px 14px 12px;display:flex;flex-direction:column;gap:4px;align-items:center;text-align:center;box-shadow:0 1px 2px rgba(16,32,72,.05);transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
+.po .kpi::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:var(--tone)}
+.po .kpi.k-blue{--tone:#2f6df0;--tone-bg:#eef3ff}
+.po .kpi.k-indigo{--tone:#5b5bd6;--tone-bg:#f1f0ff}
+.po .kpi.k-green{--tone:#1f9d62;--tone-bg:#eaf7f0}
+.po .kpi.k-orange{--tone:#e8742a;--tone-bg:#fff2e8}
+.po .kpi.k-teal{--tone:#0f8b8d;--tone-bg:#e8f6f6}
+.po .kpi.k-red{--tone:#d64545;--tone-bg:#fdeeee}
+.po .kpi.k-red .v{color:#c03030}
+.po .kpi.k-gray{--tone:#9aa3b2;--tone-bg:#f3f5f8}
+.po .kpi .l{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--fg-2);letter-spacing:.01em}
+.po .kpi .l .ic{width:8px;height:8px;border-radius:50%;background:var(--tone);box-shadow:0 0 0 3px color-mix(in srgb,var(--tone) 18%,transparent)}
+.po .kpi .v{font-size:24px;font-weight:700;line-height:1.2;color:var(--fg);letter-spacing:-.01em}
+.po .kpi .v .u{font-style:normal;font-size:13px;font-weight:600;color:var(--fg-3);margin-left:2px}
+.po .kpi .s{font-size:11.5px;color:var(--fg-3);display:flex;flex-direction:column;align-items:center;gap:5px;width:100%}
+.po .kpi .split{display:flex;gap:20px;justify-content:center}.po .kpi .split>span{display:flex;flex-direction:column;align-items:center}
+.po .kpi .split small{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:500;color:var(--fg-3);white-space:nowrap}
+.po .kpi .split.sm{gap:4px 14px;flex-wrap:wrap;font-size:17px}
+.po .kpi .dot{display:inline-block;width:7px;height:7px;border-radius:2px}
+.po .kpi .dot.mu,.po .kpi .stack .mu{background:#1f9d62}
+.po .kpi .dot.yu,.po .kpi .stack .yu{background:#9ad8b8}
+.po .kpi .stack{display:flex;width:100%;max-width:220px;height:6px;border-radius:999px;overflow:hidden;background:var(--line-2)}
+.po .kpi .stack i{display:block;height:100%}
+.po .kpi .hint{white-space:nowrap}
+.po button.kpi.click{font:inherit;color:inherit;cursor:pointer}
+.po button.kpi.click:hover{transform:translateY(-2px);border-color:var(--tone);box-shadow:0 6px 16px rgba(16,32,72,.12)}
+.po button.kpi.click:hover .hint{color:var(--tone)}
+.po button.kpi.click:focus-visible{outline:2px solid var(--tone);outline-offset:2px}
+.po table.pack{table-layout:fixed;font-size:12.5px}
+.po table.pack th,.po table.pack td{padding:6px 7px;border:1px solid var(--line-2)}
+.po table.pack thead th{position:static;color:var(--fg)}
+.po table.pack thead tr.g th{font-size:13px;letter-spacing:.02em}
+.po table.pack thead th.plan{background:#e7efff;color:var(--navy)}
+.po table.pack thead th.wip{background:#e6f4ec;color:#11643a}
+.po table.pack thead tr.s th{background:var(--surface-2)}
+.po table.pack thead tr.s th.plan{background:#eef4ff}
+.po table.pack thead th.seal{background:#fff4c2;color:#7a5a00}
+.po table.pack thead th.sub{background:#ffe7d6;color:#9a4300}
+.po table.pack th.pk{text-align:left;background:var(--surface-2);color:var(--navy);font-weight:600;white-space:nowrap}
+.po table.pack td.q{font-weight:500}
+.po table.pack td.q.strong{font-weight:700}
+.po table.pack td.sh{position:relative;padding:0 6px;text-align:right}
+.po table.pack td.sh .bar{position:absolute;left:4px;right:4px;top:50%;height:16px;margin-top:-8px;border-radius:3px;overflow:hidden}
+.po table.pack td.sh .bar i{display:block;height:100%;border-radius:3px;opacity:.35}
+.po table.pack td.sh .pv{position:relative;font-size:12px;font-weight:600}
+.po table.pack td.t-plan .bar i{background:#2f6df0}
+.po table.pack td.t-wip .bar i{background:#22a06b}
+.po table.pack td.t-seal{background:#fffbe6}.po table.pack td.t-seal .bar i{background:#e0a800}
+.po table.pack td.t-sub{background:#fff6ef}.po table.pack td.t-sub .bar i{background:#e8742a}
+.po table.pack tbody tr:hover td,.po table.pack tbody tr:hover th{background:#dce7ff}
+.po table.pack tr.nil td,.po table.pack tr.nil th{color:var(--fg-3)}
+.po table.pack tfoot th,.po table.pack tfoot td{background:#fde8ec;font-weight:700;border-top:2px solid var(--line)}.po .kpi .s{font-size:11.5px;color:var(--fg-3)}
 .po .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .po .tools input,.po .tools select{font:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--fg);min-width:0}
 .po .tools input[type="search"]{width:220px;max-width:100%}
@@ -73,13 +123,15 @@ const CSS = `
 .po .pwtbl{table-layout:fixed;min-width:1480px}
 .po .pwtbl th,.po .pwtbl td{padding-left:7px;padding-right:7px;overflow:hidden;text-overflow:ellipsis}
 .po .pwwrap{max-height:calc(100vh - 150px)}
-.po .pwtbl tbody tr:not(.tot):hover td:not(.marked){background:#dce7ff}
+.po .pwtbl tbody tr:not(.tot):not(.marked):hover td{background:#dce7ff}
 .po button.fact{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .po button.fact:hover{border-color:var(--accent);background:var(--blue-bg)}
 .po .fact .s{font-size:11px;color:var(--fg-3);margin-top:1px}
-.po .pwtbl td.assy{cursor:pointer}
-.po .pwtbl td.assy:hover{box-shadow:inset 0 0 0 1px var(--accent)}
-.po .pwtbl td.assy.marked{background:#d7f0e0;color:var(--green);font-weight:700}
+.po .pwtbl tr.mk{cursor:pointer}
+.po .pwtbl tr.mk:hover td.assy{box-shadow:inset 0 0 0 1px var(--accent)}
+.po .pwtbl tr.marked td{background:#d7f0e0}
+.po .pwtbl tr.marked:hover td{background:#c4e8d2}
+.po .pwtbl td.assy.marked{color:var(--green);font-weight:700}
 .po .pwtbl td.assy.marked::before{content:"✓ ";font-weight:700}
 .po .modal tr.gh td{background:var(--surface-2);color:var(--navy);font-weight:600;font-size:12.5px;border-top:1px solid var(--line)}
 @keyframes po-slide{from{transform:translateX(24px);opacity:.6}to{transform:none;opacity:1}}
@@ -102,6 +154,7 @@ const CSS = `
 .po .empty{background:var(--surface);border:1px dashed var(--line);border-radius:6px;padding:22px;text-align:center;color:var(--fg-2)}
 .po td.pw{font-weight:600}
 .po tr.tot td{background:var(--surface-2);font-weight:600;border-top:1px solid var(--line)}
+.po tfoot tr.tot td{position:sticky;bottom:0;z-index:1;white-space:nowrap;box-shadow:inset 0 1px 0 var(--line)}
 .po tr.off td{background:#e6e9ef;color:var(--fg-3)}
 .po tr.extra td.pw{font-weight:400;color:var(--fg-2)}
 .po .legend{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--fg-3);font-weight:400}
@@ -144,12 +197,16 @@ const CSS = `
 .po button.qm{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;margin-left:6px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--fg-3);font-size:10px;font-weight:700;line-height:1;cursor:help;vertical-align:1px}
 .po button.qm:hover{color:var(--accent);border-color:var(--accent)}
 .po .note{font-size:12px;color:var(--fg-3);line-height:1.6}
+.po h1 button.ttl{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;display:inline-flex;align-items:center}
+.po h1 button.ttl:hover{color:var(--accent)}
+.po h1 button.ttl .qm{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;margin-left:8px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--fg-3);font-size:11px;font-weight:700;line-height:1}
+.po h1 button.ttl:hover .qm{color:var(--accent);border-color:var(--accent)}
 `;
 
 // 목록 표에서 골라 볼 수 있는 항목(순서 = 표 열 순서). 공정재공은 접기/펼치기 머리글과 함께 한 항목으로 켜고 끈다.
 const GRID_COLS: { key: string; label: string }[] = [
   { key: "rank", label: "순위" },
-  { key: "so", label: "SO번호" },
+  { key: "so", label: "수주번호" },
   { key: "mo", label: "MO번호" },
   { key: "customer", label: "고객사" },
   { key: "brand", label: "브랜드" },
@@ -354,6 +411,14 @@ async function copyText(text: string): Promise<boolean> {
  * 착색 현재고 창 — 도수별 상세 착색재고 칸(모델 1개 + 도수)과 상단 요약 착색재고 칸(수주에 든 모델 전부, power 없음)이 함께 쓴다.
  * 모델이 여럿이면 모델 열을 붙이고, 수주 착색재고처럼 모델별 재고를 그대로 이어 붙인다.
  */
+/** 착색 LOT No 사출 제조일자 순(3~7번째 글자 = 년·월(A~C=10~12월)·일·순차) — lib/due-orders.ts의 byLotMade와 같은 규칙 */
+function byLotMade(a: { lot_no: string }, b: { lot_no: string }): number {
+  const x = a.lot_no.slice(2, 7);
+  const y = b.lot_no.slice(2, 7);
+  if (x !== y) return x < y ? -1 : 1;
+  return a.lot_no.localeCompare(b.lot_no, "en", { numeric: true });
+}
+
 function ColorStockModal({ models, power, onClose }: { models: string[]; power?: number | null; onClose: () => void }) {
   const [data, setData] = useState<{ lots: (ColorStockLot & { model: string })[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -374,7 +439,7 @@ function ColorStockModal({ models, power, onClose }: { models: string[]; power?:
           .then((d: { lots: ColorStockLot[] }) => d.lots.map((l) => ({ ...l, model: m })))
       )
     )
-      .then((all) => alive && setData({ lots: all.flat() }))
+      .then((all) => alive && setData({ lots: all.flat().sort(byLotMade) }))
       .catch(() => alive && setError("착색 현재고를 불러오지 못했습니다."));
     return () => {
       alive = false;
@@ -449,6 +514,136 @@ function ColorStockModal({ models, power, onClose }: { models: string[]; power?:
         </div>
       </div>
     </>
+  );
+}
+
+/** 요약 카드 포장유형 점유율의 색(비율 큰 순) */
+const PACK_COLORS = ["#2f6df0", "#e8742a", "#22a06b", "#9b5de5", "#e0a800", "#8a94a6"];
+
+/** 포장유형 점유율 창의 고정 줄 순서(관리 엑셀 점유율 시트와 같은 순서) — 재공·조립투입이 없어도 0으로 보이고, 그 밖의 포장은 아래에 붙는다 */
+const PACK_ORDER = ["바이알", "물방울", "원데이", "원데이(보석)", "타원", "사각"];
+
+interface PackShare {
+  stages: string[];
+  list: { k: string; qty: number; n: number; byStage: number[]; assy: number; p: number }[];
+  all: number;
+  stageAll: number[];
+  assyAll: number;
+}
+
+/**
+ * 요약 카드 "포장유형 점유율"을 누르면 보여줄 표 — 관리 엑셀 점유율 시트 틀(2026-10-26 사용자 요청, 디자인은 자유).
+ * 생산계획 = 조립투입 수량(목록 조립투입 열과 같은 값), 공정재공 = 조립~실링(품목코드마다 한 번만) + 소계.
+ * 점유율은 모두 그 열(공정) 안에서의 비율.
+ */
+function PackShareModal({ share, onClose }: { share: PackShare; onClose: () => void }) {
+  const byKey = new Map(share.list.map((x) => [x.k, x]));
+  const keys = [...PACK_ORDER, ...share.list.map((x) => x.k).filter((k) => !PACK_ORDER.includes(k))];
+  const empty = (k: string) => ({ k, qty: 0, n: 0, byStage: share.stages.map(() => 0), assy: 0, p: 0 });
+  const lines = keys.map((k) => byKey.get(k) ?? empty(k));
+  const seal = share.stages.indexOf("실링");
+  const Cell = ({ v, all, tone, strong }: { v: number; all: number; tone: string; strong?: boolean }) => {
+    const p = all > 0 ? (v / all) * 100 : 0;
+    return (
+      <>
+        <td className={`r num q${strong ? " strong" : ""}`}><Z n={v} /></td>
+        <td className={`sh ${tone}`}>
+          <span className="bar"><i style={{ width: `${Math.min(100, p)}%` }} /></span>
+          <span className="pv num">{v > 0 ? p.toFixed(1) + "%" : <span className="zero">0.0%</span>}</span>
+        </td>
+      </>
+    );
+  };
+  return (
+    <>
+      <div className="modal-scrim" onClick={onClose} />
+      <div className="modal packm" role="dialog" aria-modal="true" style={{ width: "min(1480px, calc(100% - 32px))" }}>
+        <div className="mh">
+          <h3>
+            포장유형 점유율
+            <small>생산계획 = 조립투입 · 공정재공 = 조립 ~ 실링(같은 품목은 한 번만) · 점유율은 각 열 안에서의 비율</small>
+          </h3>
+          <button className="x" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        <div className="mb">
+          <table className="pack">
+            <colgroup>
+              <col style={{ width: 120 }} />
+              {Array.from({ length: (share.stages.length + 2) * 2 }, (_, i) => (<col key={i} style={i % 2 ? { width: 92 } : undefined} />))}
+            </colgroup>
+            <thead>
+              <tr className="g">
+                <th rowSpan={2} className="pk">포장방법</th>
+                <th colSpan={2} className="plan">생산계획</th>
+                <th colSpan={(share.stages.length + 1) * 2} className="wip">공정재공</th>
+              </tr>
+              <tr className="s">
+                <th colSpan={2} className="plan">조립투입</th>
+                {share.stages.map((s, i) => (<th key={s} colSpan={2} className={i === seal ? "seal" : ""}>{s}</th>))}
+                <th colSpan={2} className="sub">소계</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((x) => (
+                <tr key={x.k} className={x.assy || x.qty ? "" : "nil"}>
+                  <th className="pk">{x.k}</th>
+                  <Cell v={x.assy} all={share.assyAll} tone="t-plan" />
+                  {x.byStage.map((v, i) => (
+                    <Fragment key={i}><Cell v={v} all={share.stageAll[i]} tone={i === seal ? "t-seal" : "t-wip"} strong={i === seal} /></Fragment>
+                  ))}
+                  <Cell v={x.qty} all={share.all} tone="t-sub" strong />
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th className="pk">합계</th>
+                <td className="r num q">{fmt(share.assyAll)}</td><td className="sh"><span className="pv num">100%</span></td>
+                {share.stageAll.map((v, i) => (
+                  <Fragment key={i}><td className="r num q">{fmt(v)}</td><td className="sh"><span className="pv num">{v > 0 ? "100%" : "-"}</span></td></Fragment>
+                ))}
+                <td className="r num q">{fmt(share.all)}</td><td className="sh"><span className="pv num">100%</span></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** 화면 제목(조립투입계획)을 누르면 보여줄 계산 기준 요약 — 예전 목록 아래 안내문을 옮김(2026-10-26 사용자 요청) */
+function PlanSummaryHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <HelpModal title="조립투입계획 요약" onClose={onClose}>
+      <h4>계산식 (엑셀 수주별 시트와 같음)</h4>
+      <ul>
+        <li>공정 부족분 = 누적주문 − 기초재고(제품창고A+조립창고) − 누적출고 − 다음 공정~출하포장 재공</li>
+        <li>조립투입 = 검사부족분 ÷ 직진율 − 조립 − 분리3 − 습윤 − 외관검사×108% (60 단위 올림)</li>
+        <li>공정재공은 품목코드 기준이라 같은 품목을 가진 수주에 똑같이 보입니다.</li>
+      </ul>
+      <h4>진행률</h4>
+      <ul>
+        <li>진행률 = (주문량 − 출하부족) ÷ 주문량</li>
+        <li>공정별 진행률 = (주문량 − 그 공정 부족분) ÷ 주문량</li>
+      </ul>
+      <h4>순위</h4>
+      <ul>
+        <li>납기일 → 생산순위지정(PLAN-01) 작업순서 순입니다.</li>
+      </ul>
+      <h4>목록 하단 합계</h4>
+      <ul>
+        <li>표에 보이는 수주만 더합니다. 착색재고·공정재공은 같은 모델·품목코드를 한 번만 더한 실제 수량입니다.</li>
+      </ul>
+      <h4>도수별 상세</h4>
+      <ul>
+        <li>도수변경 = 최근 1개월(조립일자 기준) 그 도수(이전도수)에서 다른 도수로 변경되어 조립된 작업지시 건수입니다.</li>
+        <li>
+          조립투입이 있는 행을 누르면 &ldquo;투입함&rdquo;으로 행 전체가 초록색 표시되고(모든 사용자 공유), 다시 누르면 풀립니다. 표시는
+          공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다.
+        </li>
+      </ul>
+    </HelpModal>
   );
 }
 
@@ -1145,15 +1340,27 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r" title="분리3 부족분 = 누적주문 − 기초재고 − 누적출고 − 습윤~출하포장 재공">분리부족</th><th className="r">검사부족</th>
                       <th className="r"><button className="hh" onClick={() => setHelp("swap")} title="누르면 품목변경 계산 기준이 열립니다">품목변경</button></th>
                       <th className="r"><button className="hh" onClick={() => setHelp("dosu")} title="누르면 도수변경 계산 기준이 열립니다">도수변경</button></th>
-                      <th className="r" title="칸을 누르면 투입함(초록 ✓)으로 표시 — 모든 사용자 공유, 다시 누르면 해제. 공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다">조립투입</th><th className="r" title="누적주문 − (이재기 ~ 출하포장 재공 + 기초재고)">과생산분</th>
+                      <th className="r" title="행을 누르면 투입함(행 전체 초록, 조립투입 칸 ✓)으로 표시 — 모든 사용자 공유, 다시 누르면 해제. 공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다">조립투입</th><th className="r" title="누적주문 − (이재기 ~ 출하포장 재공 + 기초재고)">과생산분</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {powers.map((l, idx) => (
+                    {powers.map((l, idx) => {
+                      // 조립투입이 있거나 이미 투입함인 행은 행 아무 곳이나 눌러도 투입함 표시/해제(행 안의 다른 버튼·글자 드래그 선택은 제외)
+                      const markable = !l.extra && (l.assy_in > 0 || !!l.assy_mark);
+                      return (
                       <tr
                         key={l.item_code}
-                        className={`${l.use_yn !== "Y" ? "off" : ""}${l.extra ? " extra" : ""}`}
+                        className={`${l.use_yn !== "Y" ? "off" : ""}${l.extra ? " extra" : ""}${markable ? " mk" : ""}${markable && l.assy_mark ? " marked" : ""}`}
                         title={l.use_yn == null ? "BASE-01에 없는 품목코드" : l.use_yn !== "Y" ? "BASE-01 사용여부: 미사용" : l.extra ? "수주에 없는 도수 — 재공·재고만 표시" : undefined}
+                        onClick={
+                          markable
+                            ? (e) => {
+                                if ((e.target as HTMLElement).closest("button, a, input")) return;
+                                if (window.getSelection()?.toString()) return;
+                                toggleAssy(l);
+                              }
+                            : undefined
+                        }
                       >
                         <td className="num pw">{powerText(l.power)}</td>
                         <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{l.item_code}</td>
@@ -1188,12 +1395,11 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                         ) : l.assy_in > 0 || l.assy_mark ? (
                           <td
                             className={`r num assy ${l.assy_mark ? "marked" : l.assy_in > 0 ? "need" : ""}`}
-                            onClick={() => toggleAssy(l)}
                             aria-busy={markBusy === l.item_code}
                             title={
                               l.assy_mark
-                                ? `투입함 — ${l.assy_mark.marked_by ?? ""} ${l.assy_mark.marked_at}${l.assy_mark.qty !== l.assy_in ? ` (표시할 때 ${fmt(l.assy_mark.qty)})` : ""}\n누르면 표시를 풉니다(공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라짐)`
-                                : "누르면 투입함으로 표시합니다(모든 사용자 공유)"
+                                ? `투입함 — ${l.assy_mark.marked_by ?? ""} ${l.assy_mark.marked_at}${l.assy_mark.qty !== l.assy_in ? ` (표시할 때 ${fmt(l.assy_mark.qty)})` : ""}\n행을 누르면 표시를 풉니다(공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라짐)`
+                                : "행을 누르면 투입함으로 표시합니다(모든 사용자 공유)"
                             }
                           >
                             <Z n={l.assy_in} />
@@ -1203,7 +1409,8 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                         )}
                         <td className="r">{l.extra ? <span className="zero">-</span> : <span className="num" style={overOf(l) < 0 ? { color: "var(--red)" } : undefined}>{fmt(overOf(l))}</span>}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                     <tr className="tot">
                       <td colSpan={2}>합계</td>
                       <td className="r num">{fmt(sum(powers.map((l) => l.order_qty)))}</td>
@@ -1302,6 +1509,8 @@ export default function DueOrdersPage() {
   const [matsError, setMatsError] = useState(false);
   const [matOf, setMatOf] = useState<DueOrderRow | null>(null);
   const [matHelp, setMatHelp] = useState(false);
+  const [planHelp, setPlanHelp] = useState(false);
+  const [packOpen, setPackOpen] = useState(false);
 
   const [layout, setLayoutState] = useState<Layout>(DEFAULT_LAYOUT);
   const [layoutReady, setLayoutReady] = useState(false);
@@ -1312,6 +1521,9 @@ export default function DueOrdersPage() {
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 목록 표 높이 — 머리글 + 수주 15행 + 합계 줄이 스크롤 없이 보이도록 실제 행 높이를 재서 맞춘다(2026-10-26 사용자 요청)
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [wrapH, setWrapH] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -1421,11 +1633,12 @@ export default function DueOrdersPage() {
     request(false).then(requestMats);
   }, []);
   useEffect(() => {
-    if (!matOf && !matHelp) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (matHelp ? setMatHelp(false) : setMatOf(null));
+    if (!matOf && !matHelp && !planHelp && !packOpen) return;
+    const onKey = (e: KeyboardEvent) =>
+      e.key === "Escape" && (packOpen ? setPackOpen(false) : planHelp ? setPlanHelp(false) : matHelp ? setMatHelp(false) : setMatOf(null));
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [matOf, matHelp]);
+  }, [matOf, matHelp, planHelp, packOpen]);
 
   const base = today();
   const customers = useMemo(() => [...new Set((data?.rows ?? []).map((r) => r.customer ?? ""))].filter(Boolean).sort(), [data]);
@@ -1442,14 +1655,123 @@ export default function DueOrdersPage() {
     });
   }, [data, search, customer, needOnly, dueSoon, hideDone, base]);
 
+  // 표 하단 합계 — 표에 보이는 수주 전부. 공정재공·착색재고는 품목코드·모델 기준이라 여러 수주에 같은 수량이 겹쳐 보이므로
+  // 같은 품목·모델은 한 번만 더한다(2026-10-26 사용자 선택: 중복 빼고 실제 수량). 주문량·조립투입·부족분은 수주별 값이라 그대로 더한다.
+  const total = useMemo(() => {
+    const items = new Set(rows.flatMap((r) => r.items ?? []));
+    const models = new Set(rows.flatMap((r) => r.models ?? []));
+    const wip = STAGES.map((_, i) => sum([...items].map((c) => data?.item_wip?.[c]?.[i] ?? 0)));
+    const qty = sum(rows.map((r) => r.order_qty));
+    const shorts = STAGE_PROG.map((_, i) => sum(rows.map((r) => (r.shorts ?? [])[i] ?? 0)));
+    const rate = (short: number) => (qty > 0 ? Math.max(0, Math.min(1, (qty - short) / qty)) : 0);
+    // 조립 공정재공(STAGES[0]) — 무도수 = 0.00 품목(코드 끝 -0000)
+    const assyWip = { mu: 0, yu: 0 };
+    for (const c of items) {
+      const v = data?.item_wip?.[c]?.[0] ?? 0;
+      if (c.endsWith("-0000")) assyWip.mu += v;
+      else assyWip.yu += v;
+    }
+    return {
+      qty,
+      assyWip,
+      color: sum([...models].map((m) => data?.model_color?.[m] ?? 0)),
+      wip,
+      assy: sum(rows.map((r) => r.assy_in)),
+      shorts,
+      stagePs: shorts.map(rate),
+      ship: rate(sum(rows.map((r) => r.ship_short))),
+    };
+  }, [rows, data]);
+
   // 요약 카드는 진행 수주만 — 완료 수주(done)는 건수만 따로
   const doneN = rows.filter((r) => r.done).length;
-  const kpis = [
-    ["진행 수주", `${rows.length - doneN}건`, doneN ? `표시 중인 수주 · 완료 ${doneN}건 별도` : "표시 중인 수주"],
-    ["총 주문량", fmt(sum(rows.filter((r) => !r.done).map((r) => r.order_qty))), "렌즈 매수"],
-    ["조립투입 필요", `${rows.filter((r) => r.assy_in > 0).length}건`, `${fmt(sum(rows.map((r) => r.assy_in)))} 매`],
-    ["공정재공", fmt(sum(rows.map((r) => sum(r.wip)))), "조립~출하포장"],
-    ["납기 경과·미출하", `${rows.filter((r) => !r.done && (dday(r.due_date, base) ?? 1) < 0 && r.shipped < r.order_qty).length}건`, "출하부족 남은 수주"],
+  // 포장유형 점유율 — 조립~실링 공정재공 기준, 포장(pack_method)별 비율 큰 순(2026-10-26 사용자 요청).
+  // 실링 CAPA가 포장 사양별 설비·인원으로 정해져서, 실링까지 오고 있는 물량의 포장 구성을 보려는 것.
+  // 공정재공은 품목코드 단위라 품목마다 한 번만 더하고, 그 품목이 든 수주의 포장으로 나눈다
+  // (같은 품목이 포장이 다른 수주에 같이 있으면 순위가 앞선 수주의 포장 — 2026-10 기준 그런 품목 없음).
+  const packShare = (() => {
+    const upto = STAGES.indexOf("실링");
+    const packOf = new Map<string, string>();
+    for (const r of rows) {
+      if (r.done) continue;
+      for (const c of r.items ?? []) if (!packOf.has(c)) packOf.set(c, r.pack_method || "미지정");
+    }
+    const stages = STAGES.slice(0, upto + 1);
+    const m = new Map<string, { qty: number; n: number; byStage: number[]; assy: number }>();
+    for (const r of rows) {
+      if (r.done) continue;
+      const k = r.pack_method || "미지정";
+      const x = m.get(k) ?? { qty: 0, n: 0, byStage: stages.map(() => 0), assy: 0 };
+      x.assy += r.assy_in; // 생산계획(조립투입) — 수주별 값이라 그대로 더한다
+      m.set(k, x);
+    }
+    for (const [c, k] of packOf) {
+      const x = m.get(k)!;
+      const w = (data?.item_wip?.[c] ?? []).slice(0, upto + 1);
+      w.forEach((v, i) => (x.byStage[i] += v));
+      const v = sum(w);
+      x.qty += v;
+      if (v > 0) x.n += 1;
+    }
+    const all = sum([...m.values()].map((x) => x.qty));
+    const list = [...m]
+      .map(([k, x]) => ({ k, ...x, p: all > 0 ? (x.qty / all) * 100 : 0 }))
+      .sort((a, b) => b.qty - a.qty);
+    return { stages, list, all, stageAll: stages.map((_, i) => sum(list.map((x) => x.byStage[i]))), assyAll: sum(list.map((x) => x.assy)) };
+  })();
+  const pct = (p: number) => (p > 0 && p < 1 ? p.toFixed(1) : Math.round(p).toString()) + "%";
+  // 요약 카드 — tone은 왼쪽 위 아이콘 점·윗선 색(2026-10-26 디자인 정리)
+  const lateN = rows.filter((r) => !r.done && (dday(r.due_date, base) ?? 1) < 0 && r.shipped < r.order_qty).length;
+  const unit = (n: ReactNode, u: string) => (<>{n}<em className="u">{u}</em></>);
+  const assyAll = total.assyWip.mu + total.assyWip.yu;
+  const kpis: { l: string; v: ReactNode; s: ReactNode; tone: string; onClick?: () => void }[] = [
+    { l: "진행 수주", v: unit(fmt(rows.length - doneN), "건"), s: doneN ? `완료 ${doneN}건 별도` : "", tone: "blue" },
+    { l: "총 주문량", v: fmt(sum(rows.filter((r) => !r.done).map((r) => r.order_qty))), s: "", tone: "indigo" },
+    // 조립대기 — 조립 공정재공을 무도수(0.00 품목)/유도수로 나눠 보인다. 같은 품목코드는 한 번만(합계 줄과 같은 기준)
+    // (2026-10-26 사용자 요청, 예전 "조립투입 필요 n건")
+    {
+      l: "조립대기",
+      v: (
+        <span className="split">
+          <span><small><i className="dot mu" />무도수</small>{fmt(total.assyWip.mu)}</span>
+          <span><small><i className="dot yu" />유도수</small>{fmt(total.assyWip.yu)}</span>
+        </span>
+      ),
+      s: (
+        <span className="stack" title={`무도수 ${pct(assyAll ? (total.assyWip.mu / assyAll) * 100 : 0)} · 유도수 ${pct(assyAll ? (total.assyWip.yu / assyAll) * 100 : 0)}`}>
+          <i className="mu" style={{ width: `${assyAll ? (total.assyWip.mu / assyAll) * 100 : 0}%` }} />
+          <i className="yu" style={{ width: `${assyAll ? (total.assyWip.yu / assyAll) * 100 : 0}%` }} />
+        </span>
+      ),
+      tone: "green",
+    },
+    {
+      l: "포장유형 점유율",
+      v: packShare.list.length ? (
+        <span className="split sm">
+          {packShare.list.map((x, i) => (
+            <span key={x.k} title={`${x.k} — 조립~실링 재공 ${fmt(x.qty)} · 품목 ${x.n}개`}>
+              <small><i className="dot" style={{ background: PACK_COLORS[i % PACK_COLORS.length] }} />{x.k}</small>
+              {pct(x.p)}
+            </span>
+          ))}
+        </span>
+      ) : (
+        "-"
+      ),
+      s: (
+        <>
+          <span className="stack">
+            {packShare.list.map((x, i) => (<i key={x.k} style={{ width: `${x.p}%`, background: PACK_COLORS[i % PACK_COLORS.length] }} />))}
+          </span>
+          <span className="hint">조립~실링 공정재공 기준 · 누르면 공정별 ›</span>
+        </>
+      ),
+      tone: "orange",
+      onClick: () => setPackOpen(true),
+    },
+    { l: "공정재공", v: fmt(sum(total.wip)), s: "조립~출하포장 · 같은 품목은 한 번만", tone: "teal" },
+    { l: "납기 경과·미출하", v: unit(fmt(lateN), "건"), s: "출하부족 남은 수주", tone: lateN > 0 ? "red" : "gray" },
   ];
 
   const progOpen = layout.progOpen;
@@ -1462,7 +1784,57 @@ export default function DueOrdersPage() {
   const twoRows = threeRows || on("wip") || on("mat") || on("stageprog");
   const rs = threeRows ? 3 : twoRows ? 2 : 1;
   const colCount = cols.reduce((n, k) => n + (k === "wip" ? (wipOpen ? STAGES.length : wipPick.length) : k === "stageprog" ? (progOpen ? STAGE_PROG.length * 2 : progPick.length) : k === "mat" ? (matOpen ? MAT_KINDS.length : matPick.length) : 1), 0);
+  useLayoutEffect(() => {
+    const w = wrapRef.current;
+    const t = w?.querySelector("table");
+    if (!w || !t) return;
+    const trs = [...t.querySelectorAll<HTMLTableRowElement>("tbody tr.row")];
+    if (!trs.length) return;
+    const rowH = trs.slice(0, 15).reduce((h, tr) => h + tr.offsetHeight, 0) / Math.min(trs.length, 15);
+    const head = t.tHead?.offsetHeight ?? 0;
+    const foot = t.tFoot?.offsetHeight ?? 0;
+    const chrome = w.offsetHeight - w.clientHeight; // 테두리 + 가로 스크롤바
+    setWrapH(Math.ceil(head + rowH * 15 + foot + chrome));
+  }, [rows, loading, layout, mats]);
   const dt = (k: string) => (overKey === k ? " dropt" : "");
+
+  // 하단 합계 줄 — 숫자 열만 채우고 나머지는 빈 칸(첫 열에 "합계")
+  const footCell = (k: string, first: boolean) => {
+    const blank = (n: number) => <Fragment key={k}>{Array.from({ length: n }, (_, i) => <td key={i}>{first && i === 0 ? `합계 ${rows.length.toLocaleString("ko-KR")}건` : ""}</td>)}</Fragment>;
+    switch (k) {
+      case "qty":
+        return <td key={k} className="r num">{fmt(total.qty)}</td>;
+      case "color":
+        return <td key={k} className="r num" title="같은 모델은 한 번만 더한 착색재고(무도수용+유도수용)"><Z n={total.color} /></td>;
+      case "wip":
+        return (
+          <Fragment key={k}>
+            {wipOpen
+              ? total.wip.map((v, i) => <td key={i} className="r num" title="같은 품목코드는 한 번만 더한 재공"><Z n={v} /></td>)
+              : wipPick.map((w) => <td key={w} className="r num" title="같은 품목코드는 한 번만 더한 재공"><Z n={w === "합계" ? sum(total.wip) : total.wip[STAGES.indexOf(w)] ?? 0} /></td>)}
+          </Fragment>
+        );
+      case "assy":
+        return <td key={k} className={`r num ${total.assy > 0 ? "need" : ""}`}><Z n={total.assy} /></td>;
+      case "stageprog":
+        return (
+          <Fragment key={k}>
+            {progOpen
+              ? total.stagePs.map((v, i) => (
+                  <Fragment key={i}>
+                    <td className="r num"><Z n={total.shorts[i]} /></td>
+                    <td><PBar small p={v} color={STAGE_COLORS[i]} /></td>
+                  </Fragment>
+                ))
+              : progPick.map((st) => <td key={st}><PBar p={st === "출하" ? total.ship : total.stagePs[STAGE_PROG.indexOf(st)]} /></td>)}
+          </Fragment>
+        );
+      case "mat":
+        return blank(matOpen ? MAT_KINDS.length : matPick.length);
+      default:
+        return blank(1);
+    }
+  };
 
   const headCell = (k: string) => {
     if (k === "wip") {
@@ -1636,7 +2008,11 @@ export default function DueOrdersPage() {
       <div className="head">
         <div>
           <div className="crumb">생산계획 › 조립투입계획</div>
-          <h1>조립투입계획</h1>
+          <h1>
+            <button className="ttl" onClick={() => setPlanHelp(true)} title="누르면 계산 기준 요약이 열립니다">
+              조립투입계획<span className="qm" aria-hidden>?</span>
+            </button>
+          </h1>
         </div>
         <div className="meta">
           <span>PLAN-04</span>
@@ -1648,17 +2024,24 @@ export default function DueOrdersPage() {
       </div>
 
       <div className="kpis">
-        {kpis.map(([l, v, s]) => (
-          <div key={l} className="kpi">
-            <span className="l">{l}</span>
-            <span className="v num">{v}</span>
-            <span className="s">{s}</span>
-          </div>
-        ))}
+        {kpis.map(({ l, v, s, tone, onClick }) => {
+          const body = (
+            <>
+              <span className="l"><i className="ic" />{l}</span>
+              <span className="v num">{v}</span>
+              {s ? <span className="s">{s}</span> : null}
+            </>
+          );
+          return onClick ? (
+            <button key={l} className={`kpi click k-${tone}`} onClick={onClick}>{body}</button>
+          ) : (
+            <div key={l} className={`kpi k-${tone}`}>{body}</div>
+          );
+        })}
       </div>
 
       <div className="tools">
-        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="SO번호·MO·고객·브랜드 검색" aria-label="검색" />
+        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="수주번호·MO·고객·브랜드 검색" aria-label="검색" />
         <select value={customer} onChange={(e) => setCustomer(e.target.value)} aria-label="고객 선택">
           <option value="">전체 고객</option>
           {customers.map((c) => (<option key={c}>{c}</option>))}
@@ -1802,7 +2185,7 @@ export default function DueOrdersPage() {
         )}
       </div>
 
-      <div className="tbl-wrap" style={{ maxHeight: "calc(100vh - 330px)" }}>
+      <div ref={wrapRef} className="tbl-wrap" style={{ maxHeight: wrapH ?? "calc(100vh - 330px)" }}>
         {loading ? (
           <div className="empty" style={{ border: 0 }}>계산 중… (수주·재공·재고·출고를 모두 읽어 몇 초 걸립니다)</div>
         ) : error ? (
@@ -1859,19 +2242,18 @@ export default function DueOrdersPage() {
                 <tr><td colSpan={Math.max(colCount, 1)} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>조건에 맞는 수주가 없습니다. 필터를 해제해 보세요.</td></tr>
               )}
             </tbody>
+            {rows.length > 0 && (
+              <tfoot>
+                <tr className="tot">{cols.map((k, i) => footCell(k, i === 0))}</tr>
+              </tfoot>
+            )}
           </table>
         )}
       </div>
 
-      <p className="note">
-        엑셀 수주별 시트 계산식과 같습니다: 공정 부족분 = 누적주문 − 기초재고(제품창고A+조립창고) − 누적출고 − 다음 공정~출하포장 재공,
-        조립투입 = 검사부족분 ÷ 직진율 − 조립 − 분리3 − 습윤 − 외관검사×108%(60 단위 올림). 공정재공은 품목코드 기준이라 같은 품목을 가진 수주에 똑같이 보입니다.
-        진행률 = (주문량 − 출하부족) ÷ 주문량, 공정별 진행률 = (주문량 − 그 공정 부족분) ÷ 주문량입니다.
-        순위는 납기일 → 생산순위지정(PLAN-01) 작업순서 순입니다.
-        도수별 상세의 도수변경 = 최근 1개월(조립일자 기준) 그 도수(이전도수)에서 다른 도수로 변경되어 조립된 작업지시 건수입니다.
-        조립투입 칸을 누르면 &ldquo;투입함&rdquo;으로 초록색 표시되고(모든 사용자 공유), 다시 누르면 풀립니다. 표시는 공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다.
-      </p>
 
+      {planHelp && <PlanSummaryHelp onClose={() => setPlanHelp(false)} />}
+      {packOpen && <PackShareModal share={packShare} onClose={() => setPackOpen(false)} />}
       {matHelp && <MaterialHelp onClose={() => setMatHelp(false)} />}
       {matOf && <MaterialModal row={matOf} mats={mats?.[matOf.so_no]} onClose={() => setMatOf(null)} onChanged={requestMats} />}
       {selected && (
