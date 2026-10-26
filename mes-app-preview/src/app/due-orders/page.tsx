@@ -733,16 +733,19 @@ function ItemChangeHelp({ onClose }: { onClose: () => void }) {
     <HelpModal title="도수변경 계산 기준" onClose={onClose}>
       <h4>무엇을 보여주나</h4>
       <ul>
-        <li>검사부족이 있는 도수에서, 조립 투입 대신 <b>다른 도수 재공을 도수변경해 채울 수 있는 수량</b>입니다.</li>
+        <li>검사부족이 있는 도수에서, 조립 투입 대신 <b>다른 도수 재공을 도수변경하거나 다른 대표품목 재공을 품목변경해 채울 수 있는 수량</b>입니다.</li>
         <li>검사부족이 없는 도수는 <span className="zero">-</span>로 표시합니다.</li>
       </ul>
       <h4>후보 재공</h4>
       <ul>
-        <li>같은 모델의 다른 도수 중 <b>외관검사를 마친 공정재공</b>(이재기 · 실링 · 멸균 · 입고대기 · 중간창고 · 마킹 · 출하포장)을 작업지시 단위로 봅니다.</li>
+        <li>같은 대표품목의 다른 도수 중 <b>외관검사를 마친 공정재공</b>(이재기 · 실링 · 멸균 · 입고대기 · 중간창고 · 마킹 · 출하포장)을 작업지시 단위로 봅니다.</li>
+        <li><b>품목변경</b> — 같은 모델(예: 33A02)의 다른 대표품목(33A02-001 · 002 · 003) 중 <b>형명과 실링지 품목코드가 모두 같은</b> 대표품목의 재공도 후보에 넣습니다. 같은 도수는 그대로 쓰고, 다른 도수는 아래 판정 조건을 똑같이 봅니다(품목+도수변경).</li>
+        <li>형명은 품목정보의 "형명", 실링지는 대표품목 BOM의 실링지(BFS) 자재로 비교합니다.</li>
       </ul>
       <h4>판정 조건</h4>
       <ul>
-        <li>그 작업지시의 외관검사 측정값 <b>도수1 · 도수2 · 도수3이 모두</b> 목표 도수 <b>±0.225</b> 안에 들어야 합니다.</li>
+        <li>다른 도수는 그 작업지시의 외관검사 측정값 <b>도수1 · 도수2 · 도수3이 모두</b> 목표 도수 <b>±0.225</b> 안에 들어야 합니다.</li>
+        <li>품목변경의 같은 도수는 측정값을 따지지 않습니다.</li>
       </ul>
       <div className="ex">
         예) -2.00이 50개 부족 → 허용 범위 <b className="num">1.775 ~ 2.225</b><br />
@@ -972,7 +975,7 @@ function MaterialHelp({ onClose }: { onClose: () => void }) {
 }
 
 function ItemChangeModal({ line, onClose }: { line: DueOrderLine; onClose: () => void }) {
-  const [data, setData] = useState<{ item_code: string; power: number | null; tolerance: number; candidates: ItemChangeCandidate[] } | null>(null);
+  const [data, setData] = useState<{ item_code: string; power: number | null; tolerance: number; group: string[]; candidates: ItemChangeCandidate[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const copyLot = async (lot: string) => {
@@ -1006,6 +1009,11 @@ function ItemChangeModal({ line, onClose }: { line: DueOrderLine; onClose: () =>
               <small>
                 외관검사 도수1~3이 모두 <b className="num">{(target - data.tolerance).toFixed(3)} ~ {(target + data.tolerance).toFixed(3)}</b>(±{data.tolerance}) · 후보 {data.candidates.length}건 ·{" "}
                 <span className="pill p-grn">합계 {fmt(total)}</span> · 검사부족 <b className="num">{fmt(line.shorts[2] ?? 0)}</b>
+                {data.group.length > 1 && (
+                  <>
+                    {" "}· 품목변경 <span className="num" title="모델 · 형명 · 실링지가 같아 재공을 같이 쓸 수 있는 대표품목">{data.group.slice(1).join(", ")}</span>
+                  </>
+                )}
               </small>
             )}
           </h3>
@@ -1018,13 +1026,14 @@ function ItemChangeModal({ line, onClose }: { line: DueOrderLine; onClose: () =>
             <table>
               <thead>
                 <tr>
-                  <th>현재 도수</th><th>품목코드</th><th>작업지시번호</th><th>LOT No</th><th className="sep">공정(재공)</th><th className="r">수량</th>
+                  <th>구분</th><th>현재 도수</th><th>품목코드</th><th>작업지시번호</th><th>LOT No</th><th className="sep">공정(재공)</th><th className="r">수량</th>
                   <th className="r sep" title="외관검사 측정값(부호 없음)">도수1~3</th>
                 </tr>
               </thead>
               <tbody>
                 {data.candidates.map((c) => (
                   <tr key={`${c.item_code}|${c.wo_no}`}>
+                    <td>{c.kind === "도수" ? "도수변경" : <span className="pill p-grn" title="모델 · 형명 · 실링지가 같은 다른 대표품목">{c.kind === "품목" ? "품목변경" : "품목+도수변경"}</span>}</td>
                     <td className="num"><b>{powerText(c.power)}</b></td>
                     <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{c.item_code}</td>
                     <td className="num">{c.wo_no}</td>
@@ -1034,11 +1043,11 @@ function ItemChangeModal({ line, onClose }: { line: DueOrderLine; onClose: () =>
                     </td>
                     <td className="sep" style={{ fontSize: 12.5 }}>{c.stages.map((s) => `${s.stage} ${fmt(s.qty)}`).join(", ")}</td>
                     <td className="r num">{fmt(c.qty)}</td>
-                    <td className="r num sep">{c.samples.map((v) => v.toFixed(2)).join(" / ")}</td>
+                    <td className="r num sep">{c.samples.length ? c.samples.map((v) => v.toFixed(2)).join(" / ") : "-"}</td>
                   </tr>
                 ))}
                 {data.candidates.length === 0 && (
-                  <tr><td colSpan={7} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>허용오차 안에 드는 다른 도수 재공이 없습니다.</td></tr>
+                  <tr><td colSpan={8} style={{ textAlign: "center", padding: 24, color: "var(--fg-3)" }}>허용오차 안에 드는 다른 도수 재공도, 품목변경할 수 있는 재공도 없습니다.</td></tr>
                 )}
               </tbody>
             </table>

@@ -545,12 +545,13 @@ export function fetchDueOrderLines(
   const marks = assyMarks(db, soNo);
   for (const l of out) l.assy_mark = marks.get(l.item_code) ?? null;
 
-  // 품목변경 — 검사부족이 있는 도수만, 같은 모델의 다른 도수 재공 중 측정 도수가 허용오차 안인 수량
+  // 도수변경(화면 이름, 옛 품목변경) — 검사부족이 있는 도수만, 같은 대표품목의 다른 도수 재공 중 측정 도수가 허용오차 안인 수량
+  //  + 품목변경: 모델·형명·실링지가 같은 다른 대표품목의 재공(같은 도수는 그대로, 다른 도수는 허용오차 안)
   for (const m of models) {
-    const cands = itemChangeCandidates(db, m);
+    const cands = swapGroup(db, m).flatMap((rep) => itemChangeCandidates(db, rep));
     for (const l of out) {
       if (l.model !== m || l.extra || !(l.shorts[2] ?? 0) || l.power == null) continue;
-      l.item_change = cands.filter((x) => fitsPower(x, l.power!)).reduce((s, x) => s + x.qty, 0);
+      l.item_change = cands.filter((x) => fitsPower(x, m, l.power!)).reduce((s, x) => s + x.qty, 0);
     }
   }
   return { row: c.result.rows.find((r) => r.so_no === soNo) ?? null, lines: out, seal };
@@ -806,6 +807,27 @@ export interface ItemChangeCandidate {
   stages: { stage: string; qty: number }[];
   /** 외관검사 측정 도수(도수1~3, 부호 없음 — -2.00 품목은 2.00 근처). 외관검사 실적이 여러 줄이면 모두 모은다 */
   samples: number[];
+  /** 목표 품목과의 관계 — 도수(같은 대표품목 다른 도수) · 품목(다른 대표품목 같은 도수) · 품목+도수. fetchItemChange가 채운다 */
+  kind?: "도수" | "품목" | "품목+도수";
+}
+
+/**
+ * 재공을 서로 바꿔 쓸 수 있는 대표품목 묶음 — 자기 자신 + 같은 모델(앞 5자리, 예: 33A02)의 다른 대표품목 중
+ * 형명(품목 detail "형명")과 실링지(BOM 직접 구성품 BFS 자재 묶음)가 모두 같은 것(2026-10-26 사용자 요청).
+ */
+function swapGroup(db: DatabaseSync, rep: string): string[] {
+  const nameOf = (code: string) =>
+    (db.prepare(`SELECT json_extract(detail, '$."형명"') v FROM items WHERE item_code = ?`).get(code) as { v: string | null } | undefined)?.v ?? null;
+  const sealOf = (code: string) =>
+    (db.prepare("SELECT DISTINCT child_item_code c FROM bom WHERE parent_item_code = ? AND child_item_code LIKE 'BFS%' ORDER BY c").all(code) as { c: string }[]).map((r) => r.c).join(",");
+  const name = nameOf(rep);
+  const seal = sealOf(rep);
+  const out = [rep];
+  if (!name || !seal || rep.length !== 9) return out;
+  for (const r of db.prepare("SELECT item_code FROM items WHERE item_code GLOB ? AND length(item_code) = 9").all(`${rep.slice(0, 5)}-*`) as { item_code: string }[]) {
+    if (r.item_code !== rep && nameOf(r.item_code) === name && sealOf(r.item_code) === seal) out.push(r.item_code);
+  }
+  return out;
 }
 
 /** 모델의 외관검사 이후 재공을 작업지시별로, 그 작업지시의 외관검사 측정값과 함께 — 외관검사 실적이 없는(2025년 이전) 작업지시는 뺀다 */
@@ -828,28 +850,47 @@ function itemChangeCandidates(db: DatabaseSync, model: string): ItemChangeCandid
   for (const r of db.prepare(`SELECT item_code, wo_no, lot_no, ${stageSql} FROM process_wip_status WHERE item_code GLOB ?`).all(glob) as Record<string, string | number | null>[]) {
     const stages = AFTER_INSPECTION.map((stage, i) => ({ stage, qty: Number(r[`s${i}`]) || 0 })).filter((s) => s.qty > 0);
     const qty = stages.reduce((s, x) => s + x.qty, 0);
-    const xs = samples.get(`${r.item_code}|${r.wo_no}`);
-    if (qty <= 0 || !xs?.length) continue;
+    // 측정값이 없으면 다른 도수로는 못 쓰지만, 다른 대표품목의 같은 도수 품목변경 후보로는 쓸 수 있어 남긴다(fitsPower가 가린다)
+    const xs = samples.get(`${r.item_code}|${r.wo_no}`) ?? [];
+    if (qty <= 0) continue;
     const code = String(r.item_code);
     out.push({ item_code: code, power: powerOf(code), wo_no: String(r.wo_no), lot_no: r.lot_no == null ? null : String(r.lot_no), qty, stages, samples: xs });
   }
   return out;
 }
 
-/** 다른 도수의 재공이 목표 도수(power, 예: -2)로 쓸 수 있는지 — 측정값이 모두 |목표| ±0.225(부동소수 오차 감안) */
-function fitsPower(c: ItemChangeCandidate, power: number): boolean {
-  if (c.power === power) return false;
+/**
+ * 재공이 목표(대표품목 rep, 도수 power 예: -2)로 쓸 수 있는지.
+ * 다른 대표품목의 같은 도수는 그대로(품목변경), 다른 도수는 측정값이 모두 |목표| ±0.225 안이어야 한다(부동소수 오차 감안).
+ */
+function fitsPower(c: ItemChangeCandidate, rep: string, power: number): boolean {
+  if (c.power === power) return !c.item_code.startsWith(`${rep}-`);
   const target = -power;
-  return c.samples.every((v) => Math.abs(v - target) <= ITEM_CHANGE_TOLERANCE + 1e-9);
+  return c.samples.length > 0 && c.samples.every((v) => Math.abs(v - target) <= ITEM_CHANGE_TOLERANCE + 1e-9);
 }
 
-/** 도수별 상세의 품목변경 수량을 누르면 보여줄 후보 재공 */
-export function fetchItemChange(db: DatabaseSync, itemCode: string): { item_code: string; power: number | null; tolerance: number; candidates: ItemChangeCandidate[] } {
+/** 도수별 상세의 도수변경(옛 품목변경) 수량을 누르면 보여줄 후보 재공 — 같은 대표품목 먼저, 그다음 품목변경 묶음 */
+export function fetchItemChange(
+  db: DatabaseSync,
+  itemCode: string
+): { item_code: string; power: number | null; tolerance: number; group: string[]; candidates: ItemChangeCandidate[] } {
   const power = powerOf(itemCode);
-  const model = itemCode.length >= 9 ? itemCode.slice(0, 9) : itemCode;
-  const candidates = power == null ? [] : itemChangeCandidates(db, model).filter((c) => fitsPower(c, power));
-  candidates.sort((a, b) => (a.item_code !== b.item_code ? (a.item_code < b.item_code ? -1 : 1) : b.qty - a.qty));
-  return { item_code: itemCode, power, tolerance: ITEM_CHANGE_TOLERANCE, candidates };
+  const rep = itemCode.length >= 9 ? itemCode.slice(0, 9) : itemCode;
+  const group = swapGroup(db, rep);
+  const candidates =
+    power == null
+      ? []
+      : group
+          .flatMap((g) => itemChangeCandidates(db, g))
+          .filter((c) => fitsPower(c, rep, power))
+          .map((c) => ({ ...c, kind: c.item_code.startsWith(`${rep}-`) ? ("도수" as const) : c.power === power ? ("품목" as const) : ("품목+도수" as const) }));
+  candidates.sort((a, b) => {
+    const ka = a.kind === "도수" ? 0 : 1;
+    const kb = b.kind === "도수" ? 0 : 1;
+    if (ka !== kb) return ka - kb;
+    return a.item_code !== b.item_code ? (a.item_code < b.item_code ? -1 : 1) : b.qty - a.qty;
+  });
+  return { item_code: itemCode, power, tolerance: ITEM_CHANGE_TOLERANCE, group, candidates };
 }
 
 /** 자재수급(PUR-03)처럼 수주별 품목 줄까지 한꺼번에 쓰는 화면용 — 같은 30초 캐시를 쓴다 */
