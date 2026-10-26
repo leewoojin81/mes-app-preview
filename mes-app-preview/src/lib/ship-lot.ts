@@ -195,10 +195,73 @@ function ruleFmt(rules: DateRule[], country: string, modelName: string): DateFmt
 
 const splitMos = (s: string | null | undefined) => [...new Set((s ?? "").split(",").map((x) => x.trim()).filter(Boolean))];
 
-/** 자동 출하LOT — 납기 달의 차수 1(같은 달 납기는 같이 출하, 2026-10-26 사용자 "납기 달 기준"). 납기일이 없으면 "" */
-export function autoLotOf(dueDate: string | null | undefined): string {
-  const p = lotPrefix((dueDate ?? "").slice(0, 10));
-  return p ? `${p}1` : "";
+/**
+ * 자동 출하LOT(2026-10-26 사용자 규칙) — 수주(SO)마다
+ *   연·월 = 납기(출하) 달(연도 끝자리 + 월코드 1~9, A~C)
+ *   차수  = 1부터, 같은 달 그 차수를 이미 쓰는 "다른 수주"에 같은 모델(대표품목 앞 5자리)이 있으면 다음 차수.
+ *           출하LOT 풀네임이 차수 + 모델 + 도수(예: 6C1 30A73 00)라 대표품목(001·002)이 안 보여서, 같은 달 같은 모델은 차수로 구분한다.
+ *           예) HMK SO202610220005·SO202610230001 둘 다 30A73 → 6C1, 6C2
+ *   이미 쓴 차수 = 발행한 출하LOT(ship_lots) + 미발행이지만 라벨일정에 적힌 출하LOT. 자동은 그 나머지 미발행 수주를 수주번호 순으로 매긴다.
+ * 돌려주는 값: 수주번호 → 자동 출하LOT(발행했거나 라벨일정 값이 있는 수주는 없음)
+ */
+let autoCache: { db: DatabaseSync; at: number; map: Map<string, string> } | null = null;
+export function autoLots(db: DatabaseSync): Map<string, string> {
+  if (autoCache && autoCache.db === db && Date.now() - autoCache.at < 15_000) return autoCache.map;
+  const sos = new Map<string, { models: Set<string>; reps: Set<string>; mos: Set<string>; due: string }>();
+  for (const r of db
+    .prepare(`SELECT ${SO_SQL} so, json_extract(detail, '$.대표품목') rep, ${MO_SQL} mo, MIN(due_date) due FROM sales_orders WHERE ${ALIVE_SQL} GROUP BY 1, 2, 3`)
+    .all() as { so: string; rep: string | null; mo: string | null; due: string | null }[]) {
+    const x = sos.get(r.so) ?? { models: new Set<string>(), reps: new Set<string>(), mos: new Set<string>(), due: "" };
+    if (r.rep) {
+      x.models.add(r.rep.slice(0, 5));
+      x.reps.add(r.rep);
+    }
+    if (r.mo) x.mos.add(r.mo);
+    const d = (r.due ?? "").slice(0, 10);
+    if (d && (!x.due || d < x.due)) x.due = d;
+    sos.set(r.so, x);
+  }
+  // 출하LOT → 모델 → 그 LOT을 쓰는 수주들
+  const used = new Map<string, Map<string, Set<string>>>();
+  const take = (lot: string, model: string, so: string) => {
+    const m = used.get(lot) ?? new Map<string, Set<string>>();
+    m.set(model, (m.get(model) ?? new Set<string>()).add(so));
+    used.set(lot, m);
+  };
+  const fixed = new Set<string>();
+  for (const r of db.prepare("SELECT so_no, rep_item, lot_no FROM ship_lots").all() as { so_no: string; rep_item: string; lot_no: string }[]) {
+    take(r.lot_no, r.rep_item.slice(0, 5), r.so_no);
+    fixed.add(r.so_no);
+  }
+  // 미발행 수주의 라벨일정 출하LOT(MO × 대표품목)도 이미 쓴 차수로 본다 — 발행한 수주는 발행 값만
+  const moSos = new Map<string, string[]>();
+  for (const [so, x] of sos) for (const mo of x.mos) moSos.set(mo, [...(moSos.get(mo) ?? []), so]);
+  const labelled = new Set<string>();
+  for (const r of db.prepare("SELECT mo_no, rep_item, ship_lot FROM label_schedule WHERE ship_lot <> ''").all() as { mo_no: string; rep_item: string; ship_lot: string }[]) {
+    for (const so of moSos.get(r.mo_no) ?? [`MO:${r.mo_no}`]) {
+      if (fixed.has(so) || (sos.has(so) && !sos.get(so)!.reps.has(r.rep_item))) continue; // 그 수주에 있는 대표품목 줄만
+      take(r.ship_lot, r.rep_item.slice(0, 5), so);
+      labelled.add(so);
+    }
+  }
+  const map = new Map<string, string>();
+  for (const so of [...sos.keys()].sort()) {
+    if (fixed.has(so) || labelled.has(so)) continue;
+    const x = sos.get(so)!;
+    const prefix = lotPrefix(x.due);
+    if (!prefix) continue;
+    for (let n = 1; n < 100; n++) {
+      const lot = `${prefix}${n}`;
+      const m = used.get(lot);
+      const clash = !!m && [...x.models].some((md) => [...(m.get(md) ?? [])].some((o) => o !== so));
+      if (clash) continue;
+      map.set(so, lot);
+      for (const md of x.models) take(lot, md, so);
+      break;
+    }
+  }
+  autoCache = { db, at: Date.now(), map };
+  return map;
 }
 
 /** 발행 창 — 수주의 대표품목(형명·유효기간·규칙 표기·그 줄의 MO)과 기본값(국가·영업 담당자·이미 발행한 값) */
@@ -254,7 +317,7 @@ export function getShipLotSo(db: DatabaseSync, soNo: string) {
     country,
     sales_manager: str(items.find((r) => r.sales_manager)?.sales_manager) || (h.registrant ?? ""),
     due_date: (h.due ?? "").slice(0, 10),
-    auto_lot: autoLotOf(h.due),
+    auto_lot: autoLots(db).get(soNo) ?? "",
     issued: mapped.some((i) => i.issued),
     items: mapped,
   };
@@ -345,6 +408,7 @@ export function issueShipLots(db: DatabaseSync, b: ShipLotBulkIssue, user: strin
 
 /** 발행 한 건 쓰기(트랜잭션은 부르는 쪽) */
 function writeShipLot(db: DatabaseSync, s: ShipLotIssue, user: string | null): void {
+  autoCache = null; // 자동 출하LOT 다시 계산
   const lot = s.lot_no.trim().toUpperCase();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s.prod_date)) throw new Error("생산일자를 입력하세요.");
   // 출하LOT은 납기 달 기준 자동 부여(2026-10-26 사용자) — 제조일자와 달이 달라도 된다. 형식만 본다: 연도 끝자리 + 월코드(1~9, A~C) + 차수
@@ -386,6 +450,7 @@ function writeShipLot(db: DatabaseSync, s: ShipLotIssue, user: string | null): v
 
 /** 발행 취소 — 발행 줄을 지우고, 라벨일정 값이 이 수주가 발행한 값 그대로면 처음 발행 전 값으로 되돌린다 */
 export function cancelShipLot(db: DatabaseSync, soNo: string): void {
+  autoCache = null; // 자동 출하LOT 다시 계산
   ensureShipLotTables(db);
   db.exec("BEGIN");
   try {
@@ -526,6 +591,7 @@ export function shipLotGrid(db: DatabaseSync): ShipLotGridRow[] {
     if (l && !b.label.includes(l)) b.label.push(l);
     base.set(r.so, b);
   }
+  const auto = autoLots(db);
   return fetchDueOrders(db).rows.map((r) => {
     const ls = lots.get(r.so_no) ?? [];
     const b = base.get(r.so_no);
@@ -541,7 +607,7 @@ export function shipLotGrid(db: DatabaseSync): ShipLotGridRow[] {
       issued: ls.length > 0,
       lot_no: uniq(ls.map((x) => x.lot_no)),
       label_lot: b?.label.join(",") ?? "",
-      auto_lot: autoLotOf(r.due_date),
+      auto_lot: auto.get(r.so_no) ?? "",
       prod_text: uniq(ls.map((x) => x.prod_text)),
       expiry_text: uniq(ls.map((x) => x.expiry_text)),
       country: ls[0]?.country || (b?.country ?? ""),

@@ -159,7 +159,7 @@ export default function ShipLotTab() {
                   ) : r.label_lot ? (
                     <span className="text-slate-400 font-normal" title="미발행 — 라벨일정(PROC-06)에 적혀 있는 값">{r.label_lot}</span>
                   ) : r.auto_lot ? (
-                    <span className="text-slate-400 font-normal" title="미발행 — 납기 달 기준 자동 출하LOT. 제조일자를 넣고 발행하면 확정됩니다">
+                    <span className="text-slate-400 font-normal" title="미발행 — 자동 출하LOT: 납기 달 + 차수(같은 달에 같은 모델(앞 5자리)을 쓰는 다른 수주가 그 차수를 쓰고 있으면 다음 차수, 수주번호 순). 제조일자를 넣고 발행하면 확정됩니다">
                       {r.auto_lot} <span className="text-[11px] text-amber-600">자동</span>
                     </span>
                   ) : (
