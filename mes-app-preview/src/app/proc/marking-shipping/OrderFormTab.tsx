@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTabState } from "@/lib/use-tab-state";
 import {
-  anwExpiry,
   buildBlock,
   buildBoxes,
   DEFAULT_LABEL_USE,
@@ -229,7 +228,7 @@ export default function OrderFormTab() {
           {mo && !curMo && <option value={mo}>{mo}</option>}
           {(mos ?? []).map((m) => (
             <option key={m.mo_no} value={m.mo_no}>
-              {m.mo_no} · {m.brand.replace(/_JPN$/, "")} · {m.qty.toLocaleString()}개{m.ship_lot ? ` · ${m.ship_lot}` : " · LOT 없음"}
+              {m.mo_no} · {m.brand.replace(/_JPN$/, "")} · {m.qty.toLocaleString()}개{m.ship_lot ? ` · ${m.ship_lot}` : " · 출하LOT 미발행"}
               {m.saved ? " · 저장됨" : ""}
             </option>
           ))}
@@ -322,11 +321,23 @@ function Sheet({
           <Fact k="관리번호" v={form.mo_no} />
           <Fact k="MES 관리번호" v={form.so_nos.join(", ")} />
           <Fact k="차수" v={f?.ship_lot.slice(2)} />
-          <Fact k="LOT" v={lots.join(" / ")} warn={!f?.ship_lot ? "출하LOT이 없습니다 — SALES-04 출하LOT 발행 또는 라벨일정에서 입력" : lots.length > 1 ? "모델마다 출하LOT이 다릅니다" : undefined} />
+          <Fact
+            k="LOT"
+            v={lots.join(" / ")}
+            warn={
+              !f?.ship_lot
+                ? "출하LOT이 없습니다 — SALES-04 출하LOT 탭에서 발행"
+                : blocks.some((b) => !b.model.issued)
+                  ? "SALES-04 출하LOT 미발행 — 라벨일정 값으로 임시 표시 중입니다. 출하LOT 탭에서 발행하세요"
+                  : lots.length > 1
+                    ? "모델마다 출하LOT이 다릅니다"
+                    : undefined
+            }
+          />
           <Fact k="형명" v={[...new Set(blocks.map((b) => b.model.model_name))].join(" / ")} />
         </div>
         <div>
-          <Fact k="제조" v={prods.map(yymmdd).join(" / ")} warn={!f?.prod_date ? "생산일자가 없습니다 — 라벨일정에서 입력" : undefined} />
+          <Fact k="제조" v={prods.map(yymmdd).join(" / ")} warn={!f?.prod_date ? "제조일자가 없습니다 — SALES-04 출하LOT 탭에서 발행" : undefined} />
           <Fact
             k="유효"
             v={blocks.map((b) => yymmdd(b.expiry)).filter((v, i, a) => a.indexOf(v) === i).join(" / ")}
@@ -425,8 +436,9 @@ function ModelBlock({
           형명 <b>{m.model_name || "-"}</b>
         </span>
         <span>
-          LOT <b className="font-mono">{m.ship_lot || "-"}</b> · 제조 <b className="font-mono">{yyyymm(m.prod_date) || "-"}</b> · 유효기한{" "}
-          <b className="font-mono">{yyyymm(anwExpiry(m.prod_date, m.shelf_years)) || "-"}</b>
+          LOT <b className="font-mono">{m.ship_lot || "-"}</b> · 제조 <b className="font-mono">{m.prod_text || "-"}</b> · 사용기한{" "}
+          <b className="font-mono">{m.expiry || "-"}</b>
+          {!m.issued && <span className="ml-1 px-1.5 rounded bg-amber-100 text-amber-700 text-xs">SALES-04 미발행</span>}
           {m.shelf_years ? <span className="text-xs text-slate-400"> ({m.shelf_years}년)</span> : null}
         </span>
         <span className="text-xs text-slate-500">{m.item_name}</span>

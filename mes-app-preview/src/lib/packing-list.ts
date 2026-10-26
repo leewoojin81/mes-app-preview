@@ -9,8 +9,8 @@ import { shelfYearsOf } from "@/lib/model-names";
 //   도수 순(0.00 → -10.00)으로 소박스를 채우고(소박스 1개 = 한 도수, 끝수는 그 도수만 담은 소박스),
 //   소박스를 차례로 카톤에 담는다. 모델이 바뀌면 새 카톤. 카톤 번호는 리스트 전체에서 이어진다.
 //   기본값: 소박스 팩수 = 품목정보 "1 Box 수량", 카톤당 소박스 = "2 Box 수량" ÷ "1 Box 수량" — 화면에서 바꾼다.
-// LOT = 출하차수(PROC-06 라벨일정 ship_lot, 예 6A1) + 모델 앞 5자리 + 도수코드(0.00→00, -1.25→12, -10.00→A0)
-// 유효기간 = 제조일(라벨일정 생산일자) + 형명별 유효기간(년, 공통정보 BASE-10 형명 표, 없으면 5년) − 1일
+// LOT = 출하LOT(SALES-04 출하LOT 탭 발행 값, 미발행이면 PROC-06 라벨일정 ship_lot, 예 6A1) + 모델 앞 5자리 + 도수코드(0.00→00, -1.25→12, -10.00→A0)
+// 유효기간 = 제조일(출하LOT 발행 생산일자, 미발행이면 라벨일정) + 형명별 유효기간(년, 공통정보 BASE-10 형명 표, 없으면 5년) − 1일
 // 무상·유상 샘플 줄은 기본으로 빼고(기존 DPL과 같음) 화면에서 넣을 수 있다.
 // 확정하면 그 수주의 상태가 ERP 값이 '수주'일 때 MES 화면에서 'Packing'으로 보인다(packingStatusSql) — ERP 업로드가
 // 수주 테이블을 다시 쓰므로 수주 테이블 자체는 고치지 않는다.
@@ -311,7 +311,15 @@ export function createPackingList(db: DatabaseSync, soNo: string, form: PackingF
   const modelCodes = [...new Set(items.map((i) => i.model))];
   let lotPrefix = "";
   let mfg = "";
-  if (mo && tableExists(db, "label_schedule")) {
+  // 출하LOT·제조일자의 원본은 SALES-04 출하LOT 탭 발행 값(ship_lots, 수주×대표품목) — 미발행이면 라벨일정 값(2026-10-26)
+  if (tableExists(db, "ship_lots")) {
+    for (const r of db.prepare("SELECT rep_item, lot_no, prod_date FROM ship_lots WHERE so_no = ? ORDER BY rep_item").all(soNo) as { rep_item: string; lot_no: string; prod_date: string }[]) {
+      if (!modelCodes.includes(r.rep_item)) continue;
+      lotPrefix ||= r.lot_no ?? "";
+      mfg ||= r.prod_date ?? "";
+    }
+  }
+  if (!lotPrefix && mo && tableExists(db, "label_schedule")) {
     for (const r of db.prepare("SELECT rep_item, ship_lot, prod_date FROM label_schedule WHERE mo_no = ?").all(mo) as { rep_item: string; ship_lot: string; prod_date: string }[]) {
       if (!modelCodes.includes(r.rep_item)) continue;
       lotPrefix ||= r.ship_lot ?? "";

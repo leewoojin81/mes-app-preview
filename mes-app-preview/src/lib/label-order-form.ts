@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ensureLabelScheduleTables } from "@/lib/label-schedule";
+import { ensureShipLotTables, expiryText, prodText, type DateFmt } from "@/lib/ship-lot";
 import type { OrderFormData, OrderFormInput, OrderFormLabel, OrderFormMo, OrderFormModel } from "@/lib/label-order-form-shared";
 import { guessBrand, guessColor, powerOf } from "@/lib/label-order-form-shared";
 
@@ -8,7 +9,8 @@ import { guessBrand, guessColor, powerOf } from "@/lib/label-order-form-shared";
 //   업체/관리번호/MES 관리번호   거래처 약칭 · MO-번호 · 수주번호
 //   형명·B.C·DIA·입수·JAN        제품정보(BASE-01) — 대표품목(형명·B.C·DIA·포장단위수량), 도수 품목코드(JAN 코드)
 //   샘플/오더                    수주현황 같은 MO×품목코드의 샘플구분 Sample / 일반 수량
-//   LOT·제조                     라벨일정(PROC-06)의 출하LOT·생산일자 (SALES-04 출하LOT 발행이 채움)
+//   출하LOT·제조일자·사용기한    SALES-04 출하LOT 탭 발행 값(ship_lots, 수주×대표품목)이 원본 — 다른 화면은 이 값을 가져다 쓴다(2026-10-26 사용자).
+//                                미발행이면 라벨일정(PROC-06) 출하LOT·생산일자로 임시 표시하고 화면에 "미발행"을 띄운다
 //   라벨코드                     BOM(BASE-03) 대표품목의 BIL 라벨 자재
 //   유효기간(년)                 공통정보(BASE-10) 형명
 // 저장하는 값(label_order_forms.data JSON)은 일련번호 · 라벨 사용량 · 불량 · 박스 라벨 설정(브랜드 · Color · 박스 종류 · 행 · 박스당 SET)뿐이다.
@@ -24,6 +26,7 @@ const ensured = new WeakSet<DatabaseSync>();
 
 function ensureTables(db: DatabaseSync): void {
   ensureLabelScheduleTables(db);
+  ensureShipLotTables(db);
   if (ensured.has(db)) return;
   db.exec(`
     CREATE TABLE IF NOT EXISTS label_order_forms (
@@ -49,7 +52,7 @@ export function listOrderFormMos(db: DatabaseSync, q: string): OrderFormMo[] {
        )
        SELECT so.mo_no, group_concat(DISTINCT so.so_no) so_nos, group_concat(DISTINCT so.brand) brand, group_concat(DISTINCT so.rep) reps,
               SUM(so.order_qty) qty, MIN(so.od) od,
-              (SELECT group_concat(DISTINCT ship_lot) FROM label_schedule ls WHERE ls.mo_no = so.mo_no AND ls.ship_lot <> '') ship_lot,
+              (SELECT group_concat(DISTINCT lot_no) FROM ship_lots sl WHERE instr(',' || REPLACE(sl.mo_nos, ' ', '') || ',', ',' || so.mo_no || ',') > 0) ship_lot,
               EXISTS(SELECT 1 FROM label_order_forms f WHERE f.mo_no = so.mo_no) saved
          FROM so WHERE so.mo_no IS NOT NULL AND so.mo_no <> ''
         GROUP BY so.mo_no
@@ -103,6 +106,7 @@ export function getOrderForm(db: DatabaseSync, moNo: string): OrderFormData | nu
       ORDER BY CASE WHEN bi.item_name LIKE '%단상자%' THEN 0 ELSE 1 END, b.child_item_code`
   );
   const lsStmt = db.prepare("SELECT ship_lot, prod_date, worker FROM label_schedule WHERE mo_no = ? AND rep_item = ?");
+  const slStmt = db.prepare("SELECT lot_no, prod_date, date_fmt FROM ship_lots WHERE so_no = ? AND rep_item = ?");
   const yearsStmt = db.prepare("SELECT shelf_years FROM model_names WHERE model_name = ?");
 
   const reps = [...new Set(lines.map((l) => l.rep ?? (l.item_code.length >= 9 ? l.item_code.slice(0, 9) : l.item_code)))].sort();
@@ -119,6 +123,11 @@ export function getOrderForm(db: DatabaseSync, moNo: string): OrderFormData | nu
     const modelName = String(d["형명"] ?? "");
     const ls = lsStmt.get(moNo, rep) as { ship_lot: string; prod_date: string; worker: string } | undefined;
     const years = modelName ? (yearsStmt.get(modelName) as { shelf_years: number | null } | undefined)?.shelf_years ?? null : null;
+    const sl = [...new Set(lines.filter((l) => (l.rep ?? "") === rep).map((l) => l.so_no))]
+      .map((so) => slStmt.get(so, rep) as { lot_no: string; prod_date: string; date_fmt: DateFmt } | undefined)
+      .find(Boolean);
+    const prod = sl?.prod_date ?? ls?.prod_date ?? "";
+    const dfmt: DateFmt = sl?.date_fmt ?? "ymd";
     const ml = lines
       .filter((l) => (l.rep ?? "") === rep)
       .map((l) => {
@@ -140,8 +149,11 @@ export function getOrderForm(db: DatabaseSync, moNo: string): OrderFormData | nu
       box1: num(d["1 Box 수량"]),
       box2: num(d["2 Box 수량"]),
       labels: labelStmt.all(rep) as unknown as OrderFormLabel[],
-      ship_lot: ls?.ship_lot ?? "",
-      prod_date: ls?.prod_date ?? "",
+      ship_lot: sl?.lot_no ?? ls?.ship_lot ?? "",
+      prod_date: prod,
+      expiry: prod ? expiryText(prod, years, dfmt) : "",
+      prod_text: prod ? prodText(prod, dfmt) : "",
+      issued: !!sl,
       worker: ls?.worker ?? "",
       shelf_years: years,
       lines: ml,

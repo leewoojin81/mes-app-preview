@@ -38,9 +38,15 @@ export interface OrderFormModel {
   box2: number | null;
   /** BOM 라벨 자재(BIL, 품명에 "라벨") — 단상자 라벨이 앞 */
   labels: OrderFormLabel[];
-  /** 라벨일정(PROC-06)의 출하LOT·생산일자·작업자 */
+  /** 출하LOT·제조일자·사용기한 — SALES-04 출하LOT 발행 값(원본). 미발행이면 라벨일정(PROC-06) 값으로 임시 표시 */
   ship_lot: string;
   prod_date: string;
+  /** 사용기한 — SALES-04 표기(년월일 YYYY-MM-DD / 년월 YYYY-MM) 그대로 */
+  expiry: string;
+  /** 제조일자 표기 — SALES-04 date_fmt(년월이면 제조도 YYYY-MM) */
+  prod_text: string;
+  issued: boolean;
+  /** 라벨일정 작업자 */
   worker: string;
   /** 형명 유효기간(년) — 공통정보(BASE-10) */
   shelf_years: number | null;
@@ -134,27 +140,9 @@ export function diaCode(dia: number | null): string {
   return String(Math.round((dia - 7) * 10)).padStart(2, "0");
 }
 
-/** 엑셀 EDATE — 말일 넘침은 그 달 말일 */
-function edate(iso: string, months: number): Date | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  if (!m) return null;
-  const y = Number(m[1]), mo = Number(m[2]) - 1 + months, d = Number(m[3]);
-  const ty = y + Math.floor(mo / 12), tm = ((mo % 12) + 12) % 12;
-  const last = new Date(Date.UTC(ty, tm + 1, 0)).getUTCDate();
-  return new Date(Date.UTC(ty, tm, Math.min(d, last)));
-}
-
-/** 유효(F39) — EDATE(제조, 유효기간년×12 − 1) − 1일 (5년 → 59개월, 8년 → 95개월). 라벨일정 유통기한(+n년 − 1일)과 한 달 다르다 */
-export function anwExpiry(prodDate: string, years: number | null): string {
-  if (!years) return "";
-  const t = edate(prodDate, years * 12 - 1);
-  if (!t) return "";
-  t.setUTCDate(t.getUTCDate() - 1);
-  return t.toISOString().slice(0, 10);
-}
-
-/** 2026-10-15 → 261015 (제조 D38 · 유효 D39) */
-export const yymmdd = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.slice(2, 4) + iso.slice(5, 7) + iso.slice(8, 10) : "");
+/** 2026-10-15 → 261015, 2031-09 → 3109 (제조 D38 · 유효 D39) */
+export const yymmdd = (iso: string) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.slice(2, 4) + iso.slice(5, 7) + iso.slice(8, 10) : /^\d{4}-\d{2}$/.test(iso) ? iso.slice(2, 4) + iso.slice(5, 7) : "";
 /** 2026-10-15 → 2026/10 (제조 H · 유효기한 I) */
 export const yyyymm = (iso: string) => (/^\d{4}-\d{2}/.test(iso) ? `${iso.slice(0, 4)}/${iso.slice(5, 7)}` : "");
 
@@ -198,7 +186,7 @@ export interface OrderFormBlock {
 export function buildBlock(m: OrderFormModel, input: OrderFormInput): OrderFormBlock {
   const unit = m.pack_unit && m.pack_unit > 0 ? m.pack_unit : 1;
   const labelUse = input.label_use ?? DEFAULT_LABEL_USE;
-  const expiry = anwExpiry(m.prod_date, m.shelf_years);
+  const expiry = m.expiry; // SALES-04 출하LOT 탭이 정한 사용기한
   const qrHead = `00${yymmdd(expiry).slice(0, 4)}${m.ship_lot}${m.model}`;
   const qrTail = `${bcCode(m.bc)}${diaCode(m.dia)}`;
   const rows = m.lines.map((l): OrderFormRow => {
