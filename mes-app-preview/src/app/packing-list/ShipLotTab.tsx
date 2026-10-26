@@ -294,7 +294,7 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div className={`bg-white rounded shadow-xl ${multi ? "w-[1120px]" : "w-[900px]"} max-w-[95vw] max-h-[85vh] flex flex-col text-[13px]`} onClick={(e) => e.stopPropagation()}>
+      <div className={`bg-white rounded shadow-xl ${multi ? "w-[1000px]" : "w-[860px]"} max-w-[95vw] max-h-[85vh] flex flex-col text-[13px]`} onClick={(e) => e.stopPropagation()}>
         <div className="px-4 py-3 border-b border-slate-200 flex flex-wrap items-center gap-x-4 gap-y-1">
           {multi ? (
             <>
@@ -340,7 +340,7 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
                       <input className={`${inp} w-28`} value={meta[d.so_no]?.country ?? ""} onChange={(e) => setMoMeta(d.so_no, "country", e.target.value)} />
                     </label>
                     <label className="flex items-center gap-1 whitespace-nowrap">영업담당자
-                      <input className={`${inp} w-56`} value={meta[d.so_no]?.manager ?? ""} onChange={(e) => setMoMeta(d.so_no, "manager", e.target.value)} />
+                      <input className={`${inp} w-28`} value={meta[d.so_no]?.manager ?? ""} onChange={(e) => setMoMeta(d.so_no, "manager", e.target.value)} />
                     </label>
                   </>
                 )}
@@ -366,7 +366,7 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
                               <input className={`${inp} w-24`} value={meta[m.so_no]?.country ?? ""} onChange={(e) => setMoMeta(m.so_no, "country", e.target.value)} />
                             </label>
                             <label className="flex items-center gap-1 whitespace-nowrap">영업담당자
-                              <input className={`${inp} w-52`} value={meta[m.so_no]?.manager ?? ""} onChange={(e) => setMoMeta(m.so_no, "manager", e.target.value)} />
+                              <input className={`${inp} w-24`} value={meta[m.so_no]?.manager ?? ""} onChange={(e) => setMoMeta(m.so_no, "manager", e.target.value)} />
                             </label>
                           </div>
                         </td>
