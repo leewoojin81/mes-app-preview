@@ -637,7 +637,7 @@ function PlanSummaryHelp({ onClose }: { onClose: () => void }) {
       </ul>
       <h4>도수별 상세</h4>
       <ul>
-        <li>도수변경 = 최근 1개월(조립일자 기준) 그 도수(이전도수)에서 다른 도수로 변경되어 조립된 작업지시 건수입니다.</li>
+        <li>PPT(도수변경) = 최근 1개월(조립일자 기준) 그 도수(이전도수)에서 다른 도수로 변경되어 조립된 작업지시 건수입니다.</li>
         <li>
           조립투입이 있는 행을 누르면 &ldquo;투입함&rdquo;으로 행 전체가 초록색 표시되고(모든 사용자 공유), 다시 누르면 풀립니다. 표시는
           공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다.
@@ -698,7 +698,7 @@ function ColorStockHelp({ onClose }: { onClose: () => void }) {
 /** 도수변경 계산 기준 — 계산은 lib/due-orders.ts의 DOSU_CHANGE_COND(ASSY_IN_WINDOW·CHANGED), 창은 fetchAssemblyRecords */
 function DosuChangeHelp({ onClose }: { onClose: () => void }) {
   return (
-    <HelpModal title="도수변경 계산 기준" onClose={onClose}>
+    <HelpModal title="PPT(도수변경) 계산 기준" onClose={onClose}>
       <h4>무엇을 보여주나</h4>
       <ul>
         <li>최근 1개월 동안 <b>이 도수(이전도수)로 지시했다가 다른 도수로 변경해 조립한 작업지시 건수</b>입니다(도수변경현황 QC-01 기준).</li>
@@ -1339,7 +1339,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r" title="분리3 부족분 = 누적주문 − 기초재고 − 누적출고 − 습윤~출하포장 재공">분리부족</th><th className="r">검사부족</th>
                       <th className="r"><button className="hh" onClick={() => setHelp("swap")} title="누르면 품목변경 계산 기준이 열립니다">품목변경</button></th>
-                      <th className="r"><button className="hh" onClick={() => setHelp("dosu")} title="누르면 도수변경 계산 기준이 열립니다">도수변경</button></th>
+                      <th className="r"><button className="hh" onClick={() => setHelp("dosu")} title="PPT = 도수변경 건수. 누르면 계산 기준이 열립니다">PPT</button></th>
                       <th className="r" title="행을 누르면 투입함(행 전체 초록, 조립투입 칸 ✓)으로 표시 — 모든 사용자 공유, 다시 누르면 해제. 공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다">조립투입</th><th className="r" title="누적주문 − (이재기 ~ 출하포장 재공 + 기초재고)">과생산분</th>
                     </tr>
                   </thead>
