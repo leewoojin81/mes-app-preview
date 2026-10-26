@@ -346,7 +346,7 @@ function DosuChangeModal({ itemCode, power, near, onClose }: { itemCode: string;
                   <tr
                     key={r.wo_no}
                     className={r.from_here ? "chg" : ""}
-                    title={r.from_here ? `${powerText(power)}에서 ${powerText(r.power)}(으)로 도수변경 — ${powerText(power)} 줄 도수변경 건수에 들어감` : r.changed ? `${powerText(r.prev_power)}에서 변경된 건(그 도수 줄에 셈)` : undefined}
+                    title={r.from_here ? `${powerText(power)}에서 ${powerText(r.power)}(으)로 도수변경 — ${powerText(power)} 줄 PPT 건수에 들어감` : r.changed ? `${powerText(r.prev_power)}에서 변경된 건(그 도수 줄에 셈)` : undefined}
                   >
                     <td className="num">{r.wo_no}</td>
                     <td className="num" style={{ fontSize: 12, color: "var(--fg-2)" }}>{r.lot_no ?? "-"}</td>
@@ -637,7 +637,7 @@ function PlanSummaryHelp({ onClose }: { onClose: () => void }) {
       </ul>
       <h4>도수별 상세</h4>
       <ul>
-        <li>PPT(도수변경) = 최근 1개월(조립일자 기준) 그 도수(이전도수)에서 다른 도수로 변경되어 조립된 작업지시 건수입니다.</li>
+        <li>PPT = 최근 1개월(조립일자 기준) 그 도수(이전도수)에서 다른 도수로 변경되어 조립된 작업지시 건수입니다.</li>
         <li>
           조립투입이 있는 행을 누르면 &ldquo;투입함&rdquo;으로 행 전체가 초록색 표시되고(모든 사용자 공유), 다시 누르면 풀립니다. 표시는
           공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다.
@@ -698,7 +698,7 @@ function ColorStockHelp({ onClose }: { onClose: () => void }) {
 /** 도수변경 계산 기준 — 계산은 lib/due-orders.ts의 DOSU_CHANGE_COND(ASSY_IN_WINDOW·CHANGED), 창은 fetchAssemblyRecords */
 function DosuChangeHelp({ onClose }: { onClose: () => void }) {
   return (
-    <HelpModal title="PPT(도수변경) 계산 기준" onClose={onClose}>
+    <HelpModal title="PPT 계산 기준" onClose={onClose}>
       <h4>무엇을 보여주나</h4>
       <ul>
         <li>최근 1개월 동안 <b>이 도수(이전도수)로 지시했다가 다른 도수로 변경해 조립한 작업지시 건수</b>입니다(도수변경현황 QC-01 기준).</li>
@@ -714,7 +714,7 @@ function DosuChangeHelp({ onClose }: { onClose: () => void }) {
         <li>이전도수가 실제도수와 같은 행(이전 품목이 자기 자신)과 이전도수가 깨진 값인 행은 뺍니다.</li>
       </ul>
       <div className="ex">
-        예) -4.25로 지시했다가 -4.00으로 조립 → <b>-4.25 줄</b> 도수변경 1건<br />
+        예) -4.25로 지시했다가 -4.00으로 조립 → <b>-4.25 줄</b> PPT 1건<br />
         이전도수가 실제도수와 같음 → 제외
       </div>
       <h4>참고</h4>
@@ -730,10 +730,10 @@ function DosuChangeHelp({ onClose }: { onClose: () => void }) {
 /** 품목변경 계산 기준 — 계산은 lib/due-orders.ts의 itemChangeCandidates·fitsPower(허용오차 ITEM_CHANGE_TOLERANCE) */
 function ItemChangeHelp({ onClose }: { onClose: () => void }) {
   return (
-    <HelpModal title="품목변경 계산 기준" onClose={onClose}>
+    <HelpModal title="도수변경 계산 기준" onClose={onClose}>
       <h4>무엇을 보여주나</h4>
       <ul>
-        <li>검사부족이 있는 도수에서, 조립 투입 대신 <b>다른 도수 재공을 품목변경해 채울 수 있는 수량</b>입니다.</li>
+        <li>검사부족이 있는 도수에서, 조립 투입 대신 <b>다른 도수 재공을 도수변경해 채울 수 있는 수량</b>입니다.</li>
         <li>검사부족이 없는 도수는 <span className="zero">-</span>로 표시합니다.</li>
       </ul>
       <h4>후보 재공</h4>
@@ -746,7 +746,7 @@ function ItemChangeHelp({ onClose }: { onClose: () => void }) {
       </ul>
       <div className="ex">
         예) -2.00이 50개 부족 → 허용 범위 <b className="num">1.775 ~ 2.225</b><br />
-        -2.25 작업지시의 측정값이 2.12 / 2.12 / 2.12 → 세 값 모두 범위 안 → 그 재공 수량이 -2.00 품목변경으로 잡힘<br />
+        -2.25 작업지시의 측정값이 2.12 / 2.12 / 2.12 → 세 값 모두 범위 안 → 그 재공 수량이 -2.00 도수변경으로 잡힘<br />
         -1.75 작업지시의 측정값이 1.75 / 1.87 / 2.00 → 1.75가 범위 밖 → 제외
       </div>
       <h4>빠지는 재고</h4>
@@ -757,7 +757,7 @@ function ItemChangeHelp({ onClose }: { onClose: () => void }) {
       <h4>참고</h4>
       <ul>
         <li>후보 재공이 원래 도수의 수주에 필요한지는 따지지 않은 전체 수량입니다.</li>
-        <li>품목변경 수량은 조립투입 계산에 반영하지 않습니다.</li>
+        <li>도수변경 수량은 조립투입 계산에 반영하지 않습니다.</li>
         <li>한 재공이 여러 도수의 후보가 될 수 있어 합계 줄은 비워 둡니다.</li>
         <li>숫자를 누르면 후보 작업지시 · LOT · 공정 · 측정값을 볼 수 있습니다.</li>
       </ul>
@@ -986,7 +986,7 @@ function ItemChangeModal({ line, onClose }: { line: DueOrderLine; onClose: () =>
     fetch(`/api/due-orders?swap=${encodeURIComponent(line.item_code)}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d) => alive && setData(d))
-      .catch(() => alive && setError("품목변경 후보를 불러오지 못했습니다."));
+      .catch(() => alive && setError("도수변경 후보를 불러오지 못했습니다."));
     return () => {
       alive = false;
     };
@@ -1000,7 +1000,7 @@ function ItemChangeModal({ line, onClose }: { line: DueOrderLine; onClose: () =>
       <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(1200px, calc(100% - 32px))" }}>
         <div className="mh">
           <h3>
-            <span className="num">{powerText(line.power)}</span> 품목변경 후보
+            <span className="num">{powerText(line.power)}</span> 도수변경 후보
             <span className="num" style={{ fontSize: 12.5, color: "var(--fg-2)", fontWeight: 400 }}>{line.item_code}</span>
             {data && target != null && (
               <small>
@@ -1338,8 +1338,8 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                       <th>도수</th><th>품목코드</th><th className="r">주문량</th><th className="r">누적주문</th>
                       {STAGES.map((s) => (<th key={s} className="r">{s}</th>))}
                       <th className="r">기초재고</th><th className="r">출고</th><th className="r" title="분리3 부족분 = 누적주문 − 기초재고 − 누적출고 − 습윤~출하포장 재공">분리부족</th><th className="r">검사부족</th>
-                      <th className="r"><button className="hh" onClick={() => setHelp("swap")} title="누르면 품목변경 계산 기준이 열립니다">품목변경</button></th>
-                      <th className="r"><button className="hh" onClick={() => setHelp("dosu")} title="PPT = 도수변경 건수. 누르면 계산 기준이 열립니다">PPT</button></th>
+                      <th className="r"><button className="hh" onClick={() => setHelp("swap")} title="누르면 도수변경 계산 기준이 열립니다">도수변경</button></th>
+                      <th className="r"><button className="hh" onClick={() => setHelp("dosu")} title="누르면 PPT 계산 기준이 열립니다">PPT</button></th>
                       <th className="r" title="행을 누르면 투입함(행 전체 초록, 조립투입 칸 ✓)으로 표시 — 모든 사용자 공유, 다시 누르면 해제. 공정재공현황·현재고현황이 새로 업데이트되면 자동으로 사라집니다">조립투입</th><th className="r" title="누적주문 − (이재기 ~ 출하포장 재공 + 기초재고)">과생산분</th>
                     </tr>
                   </thead>
@@ -1371,7 +1371,7 @@ function DetailPanel({ soNo, onClose, base, wipOpen, setWipOpen }: { soNo: strin
                         <td className="r num"><Z n={l.shipped} /></td>
                         <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[0] == null ? <span className="pill p-grn">완료</span> : <span className="num">{fmt(l.shorts[0])}</span>}</td>
                         <td className="r">{l.extra ? <span className="zero">-</span> : l.shorts[2] == null ? <span className="pill p-grn">완료</span> : <span className="num">{fmt(l.shorts[2])}</span>}</td>
-                        <td className="r">{l.item_change ? <button className="pill p-grn" onClick={() => setSwapOf(l)} title="누르면 품목변경할 수 있는 다른 도수 재공이 열립니다">{fmt(l.item_change)}</button> : <span className="zero">-</span>}</td>
+                        <td className="r">{l.item_change ? <button className="pill p-grn" onClick={() => setSwapOf(l)} title="누르면 도수변경할 수 있는 다른 도수 재공이 열립니다">{fmt(l.item_change)}</button> : <span className="zero">-</span>}</td>
                         <td className="r">
                           {l.dosu_changes ? (
                             <button
