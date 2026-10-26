@@ -283,9 +283,14 @@ export interface ShipLotBulkIssue {
   lot_no?: string;
   /** 이미 발행한 수주도 다시 발행(기본은 건너뜀) */
   reissue?: boolean;
-  /** 수주별로 고친 국가·영업담당자·대표품목별 표기(없으면 그 수주 기본값) */
-  per?: Record<string, { country?: string; sales_manager?: string; fmts?: Record<string, DateFmt> }>;
+  /** 수주별로 고친 출하LOT·국가·영업담당자·대표품목별 표기(없으면 그 수주 기본값, 출하LOT은 mode대로) */
+  per?: Record<string, { lot_no?: string; country?: string; sales_manager?: string; fmts?: Record<string, DateFmt> }>;
 }
+
+const perLot = (b: ShipLotBulkIssue, so: string) => {
+  const v = b.per?.[so]?.lot_no;
+  return typeof v === "string" ? v.trim() : "";
+};
 
 /**
  * 여러 수주 한 번에 발행(2026-10-26) — 생산일자는 하나, 국가·영업담당자·생산일자 표기는 per로 수주별로 고칠 수 있고 없으면 그 수주 기본값.
@@ -297,7 +302,7 @@ export function issueShipLots(db: DatabaseSync, b: ShipLotBulkIssue, user: strin
   if (sos.length === 0) throw new Error("발행할 수주를 고르세요.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(b.prod_date)) throw new Error("생산일자를 입력하세요.");
   const prefix = lotPrefix(b.prod_date);
-  if (b.mode === "same" && !b.lot_no?.trim()) throw new Error("출하LOT을 고르세요.");
+  if (b.mode === "same" && !b.lot_no?.trim() && !sos.every((so) => perLot(b, so))) throw new Error("출하LOT을 고르세요.");
   let seq = Number(monthLots(db, prefix).next.slice(prefix.length));
   const out: { so_no: string; lot_no: string; skipped: boolean }[] = [];
   db.exec("BEGIN");
@@ -309,8 +314,9 @@ export function issueShipLots(db: DatabaseSync, b: ShipLotBulkIssue, user: strin
         out.push({ so_no: soNo, lot_no: so.items[0]?.lot_no ?? "", skipped: true });
         continue;
       }
-      const lot = b.mode === "same" ? b.lot_no!.trim().toUpperCase() : `${prefix}${seq++}`;
       const p = b.per?.[soNo];
+      // 수주별 출하LOT(2026-10-26 — 같은 창에서 수주마다 다른 LOT) > 공통 LOT > 수주마다 새 차수
+      const lot = perLot(b, soNo) ? perLot(b, soNo).toUpperCase() : b.mode === "same" ? b.lot_no!.trim().toUpperCase() : `${prefix}${seq++}`;
       writeShipLot(
         db,
         {

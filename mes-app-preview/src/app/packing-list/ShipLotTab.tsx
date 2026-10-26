@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTabState } from "@/lib/use-tab-state";
 
 // Packing List(SALES-04) 출하LOT 탭 — PLAN-04 납기별수주현황처럼 수주 줄(순위 순)에 MO별 출하LOT을 붙여 보여주고,
@@ -188,7 +188,8 @@ export default function ShipLotTab() {
 
 /**
  * 출하LOT 발행 창 — 줄을 누르면 그 수주 하나, 체크한 뒤 "선택한 수주 발행"을 누르면 고른 수주 여러 개를 한 창에서(2026-10-26).
- * 생산일자·출하LOT은 하나(같이 출하), 국가·영업담당자·제조일자 표기는 수주별로 고친다.
+ * 생산일자는 하나, 출하LOT·국가·영업담당자·제조일자 표기는 수주별로 고친다(출하LOT 기본값 = 그 수주의 발행 값 또는 라벨일정 값 — 2026-10-26).
+ * 창은 제목 줄을 끌어 옮길 수 있다.
  * 기본값: 발행했으면 발행 값, 아니면 라벨일정 출하LOT·생산일자(없으면 오늘)·거래처 국가·수주 등록자
  */
 function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () => void; onDone: () => void }) {
@@ -196,6 +197,27 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
   const [ds, setDs] = useState<SoDetail[] | null>(null);
   const [prod, setProd] = useState(today());
   const [lot, setLot] = useState("");
+  // 여러 수주 창의 수주별 출하LOT
+  const [soLots, setSoLots] = useState<Record<string, string>>({});
+  // 창 옮기기 — 제목 줄을 끈 거리만큼 이동. 끌다가 바깥에서 놓았을 때 창이 닫히지 않게 dragged로 막는다
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const dragged = useRef(false);
+  const startDrag = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest("button, input, select, a")) return;
+    e.preventDefault();
+    const sx = e.clientX - pos.x, sy = e.clientY - pos.y;
+    const move = (ev: MouseEvent) => {
+      dragged.current = true;
+      setPos({ x: ev.clientX - sx, y: ev.clientY - sy });
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      window.setTimeout(() => (dragged.current = false), 0);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
   const [lots, setLots] = useState<{ lots: { lot_no: string; sos: string }[]; next: string }>({ lots: [], next: "" });
   // 수주별 국가·영업담당자, 수주|대표품목별 표기
   const [meta, setMeta] = useState<Record<string, { country: string; manager: string }>>({});
@@ -209,6 +231,7 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
     const first = list.flatMap((m) => m.items).find((i) => /^\d{4}-\d{2}-\d{2}$/.test(i.prod_date));
     setProd(first?.prod_date ?? today());
     setLot(first?.lot_no ?? list[0]?.items[0]?.lot_no ?? ""); // 미발행이어도 라벨일정에 적혀 있던 출하LOT이 그 달 것이면 그대로
+    setSoLots(Object.fromEntries(list.map((m) => [m.so_no, m.items.find((i) => i.lot_no)?.lot_no ?? ""])));
     setMeta(Object.fromEntries(list.map((m) => [m.so_no, { country: m.country, manager: m.sales_manager }])));
     setFmts(Object.fromEntries(list.flatMap((m) => m.items.map((i) => [`${m.so_no}|${i.rep_item}`, i.date_fmt]))));
   };
@@ -237,6 +260,7 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
       if (!alive) return;
       setLots(r);
       setLot((cur) => (cur.startsWith(prefix) ? cur : r.next));
+      setSoLots((cur) => Object.fromEntries(Object.entries(cur).map(([so, v]) => [so, v.startsWith(prefix) ? v : r.next])));
     });
     return () => {
       alive = false;
@@ -269,10 +293,12 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
         applyDetails([r]);
         return;
       }
-      const per = Object.fromEntries(ds.map((m) => [m.so_no, { country: meta[m.so_no]?.country ?? "", sales_manager: meta[m.so_no]?.manager ?? "", fmts: fmtsOf(m) }]));
+      const per = Object.fromEntries(
+        ds.map((m) => [m.so_no, { lot_no: soLots[m.so_no] || lot, country: meta[m.so_no]?.country ?? "", sales_manager: meta[m.so_no]?.manager ?? "", fmts: fmtsOf(m) }])
+      );
       await call(API, { method: "POST", body: JSON.stringify({ bulk: { so_nos: soNos, prod_date: prod, mode: "same", lot_no: lot, reissue: true, per } }) });
       applyDetails(await fetchAll(soNos));
-    }, `${multi ? `수주 ${soNos.length}건에 ` : ""}${lot} 발행했습니다. 라벨일정(PROC-06) 출하LOT·생산일자도 바뀌었습니다.`);
+    }, `${multi ? `수주 ${soNos.length}건에 ${[...new Set(soNos.map((so) => soLots[so] || lot))].join(", ")}` : lot} 발행했습니다. 라벨일정(PROC-06) 출하LOT·생산일자도 바뀌었습니다.`);
   const cancel = () =>
     ds &&
     !multi &&
@@ -281,7 +307,9 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
       applyDetails(await fetchAll(soNos));
     }, "발행을 취소했습니다(라벨일정은 발행 전 값으로).");
 
-  const lotChoices = [...new Set([lots.next, ...lots.lots.map((l) => l.lot_no), lot].filter(Boolean))];
+  const lotChoices = [...new Set([lots.next, ...lots.lots.map((l) => l.lot_no), lot, ...Object.values(soLots)].filter(Boolean))];
+  const badLot = (v: string) => !v || (!!prefix && !v.startsWith(prefix));
+  const multiBad = multi && soNos.some((so) => badLot(soLots[so] ?? ""));
   const d = ds?.[0];
   const anyIssued = !!ds?.some((m) => m.issued);
   const setMoMeta = (mo: string, k: "country" | "manager", v: string) => setMeta((cur) => ({ ...cur, [mo]: { ...cur[mo], [k]: v } }));
@@ -293,9 +321,13 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
     );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div className={`bg-white rounded shadow-xl ${multi ? "w-[1000px]" : "w-[860px]"} max-w-[95vw] max-h-[85vh] flex flex-col text-[13px]`} onClick={(e) => e.stopPropagation()}>
-        <div className="px-4 py-3 border-b border-slate-200 flex flex-wrap items-center gap-x-4 gap-y-1">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => !dragged.current && onClose()}>
+      <div
+        className={`bg-white rounded shadow-xl ${multi ? "w-[1000px]" : "w-[860px]"} max-w-[95vw] max-h-[85vh] flex flex-col text-[13px]`}
+        style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-4 py-3 border-b border-slate-200 flex flex-wrap items-center gap-x-4 gap-y-1 cursor-move select-none" onMouseDown={startDrag} title="끌어서 창을 옮길 수 있습니다">
           {multi ? (
             <>
               <b>출하LOT 발행</b>
@@ -323,7 +355,7 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
                 </label>
                 {/* 출하LOT — 생산일자 그 달의 다음 차수를 자동으로 넣고, 직접 고쳐 쓰거나 목록에서 이미 쓴 LOT(같이 출하)을 고를 수 있다(2026-10-26) */}
                 <label className="flex items-center gap-1 whitespace-nowrap" title="연도 끝자리 + 월(1~9, A=10월, B=11월, C=12월) + 출하차수 — 직접 고쳐 쓸 수 있고, 같은 달 다른 수주와 같은 LOT을 넣으면 같이 출하">
-                  출하LOT
+                  {multi ? "출하LOT 일괄" : "출하LOT"}
                   <input
                     list="ship-lot-choices"
                     className={`${inp} font-mono w-24 ${lot && prefix && !lot.startsWith(prefix) ? "border-red-400 text-red-700" : ""}`}
@@ -341,7 +373,18 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
                       자동 {lots.next}
                     </button>
                   )}
-                  {(() => {
+                  {multi && (
+                    <button
+                      type="button"
+                      className="px-1.5 py-0.5 rounded border border-navy text-[12px] text-navy hover:bg-slate-50 disabled:opacity-40"
+                      disabled={badLot(lot)}
+                      onClick={() => setSoLots(Object.fromEntries(soNos.map((so) => [so, lot])))}
+                      title="아래 모든 수주의 출하LOT을 이 값으로 바꿉니다"
+                    >
+                      모든 수주에 적용
+                    </button>
+                  )}
+                  {!multi && (() => {
                     if (!lot) return <span className="text-[12px] text-red-600">LOT을 넣으세요</span>;
                     if (prefix && !lot.startsWith(prefix)) return <span className="text-[12px] text-red-600">생산일자 연·월({prefix})로 시작해야 함</span>;
                     if (lot === lots.next) return <span className="text-[12px] text-green-700">자동(새 차수)</span>;
@@ -378,7 +421,15 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
                             <span className="font-mono text-slate-600">{m.mo_nos.join(", ") || "MO 없음"}</span>
                             <span className="truncate max-w-[220px]" title={m.customer}>{m.customer}</span>
                             {statusPill(m)}
-                            <label className="flex items-center gap-1 whitespace-nowrap ml-auto">국가
+                            <label className="flex items-center gap-1 whitespace-nowrap ml-auto" title="이 수주의 출하LOT — 기본값은 발행 값 또는 라벨일정 값">출하LOT
+                              <input
+                                list="ship-lot-choices"
+                                className={`${inp} font-mono w-20 ${badLot(soLots[m.so_no] ?? "") ? "border-red-400 text-red-700" : ""}`}
+                                value={soLots[m.so_no] ?? ""}
+                                onChange={(e) => setSoLots((cur) => ({ ...cur, [m.so_no]: e.target.value.toUpperCase().replace(/\s/g, "") }))}
+                              />
+                            </label>
+                            <label className="flex items-center gap-1 whitespace-nowrap">국가
                               <input className={`${inp} w-24`} value={meta[m.so_no]?.country ?? ""} onChange={(e) => setMoMeta(m.so_no, "country", e.target.value)} />
                             </label>
                             <label className="flex items-center gap-1 whitespace-nowrap">영업담당자
@@ -403,7 +454,7 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
                               ))}
                             </select>
                           </td>
-                          <td className="px-2 py-1 text-center font-mono">{lot}</td>
+                          <td className="px-2 py-1 text-center font-mono">{multi ? soLots[m.so_no] : lot}</td>
                           <td className="px-2 py-1 text-center font-mono">{fmt === "ym" ? prod.slice(0, 7) : prod}</td>
                           <td className="px-2 py-1 text-center font-mono">{expiryOf(prod, it.shelf_years, fmt) || "-"}</td>
                         </tr>
@@ -423,7 +474,8 @@ function IssueModal({ soNos, onClose, onDone }: { soNos: string[]; onClose: () =
         <div className="px-4 py-3 border-t border-slate-200 flex items-center gap-2">
           {!multi && d?.issued && <button className={btn} disabled={busy} onClick={cancel}>발행 취소</button>}
           <button className={`${btn} ml-auto`} onClick={onClose}>닫기</button>
-          <button className={btnMain} disabled={busy || !ds || !lot || !prod} onClick={issue}>
+          {multiBad && <span className="text-[12px] text-red-600">출하LOT이 비었거나 생산일자 연·월({prefix})과 다른 수주가 있습니다</span>}
+          <button className={btnMain} disabled={busy || !ds || !prod || (multi ? multiBad : !lot)} onClick={issue}>
             {multi ? `${fmtN(soNos.length)}건 ${anyIssued ? "발행(다시 발행 포함)" : "발행"}` : d?.issued ? "다시 발행" : "발행"}
           </button>
         </div>
