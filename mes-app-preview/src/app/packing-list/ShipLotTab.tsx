@@ -51,7 +51,7 @@ const inp = "border border-slate-300 rounded px-1.5 py-0.5 text-[13px] bg-white 
 const btn = "px-3 py-1.5 text-[13px] rounded border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50";
 const btnMain = "px-3 py-1.5 text-[13px] rounded bg-navy text-white hover:opacity-90 disabled:opacity-50";
 const chip = (on: boolean) =>
-  `px-3 py-1.5 rounded-md border text-[13px] transition-colors ${on ? "border-navy bg-navy/5 text-navy font-medium" : "border-slate-300 bg-white text-slate-600 hover:border-navy"}`;
+  `px-3 py-1.5 rounded-md border text-[13px] transition-colors ${on ? "border-navy bg-navy text-white font-medium" : "border-slate-300 bg-white text-slate-600 hover:border-navy"}`;
 const HEADS: { label: string; r?: boolean }[] = [
   { label: "순위", r: true }, { label: "수주번호" }, { label: "MO번호" }, { label: "고객사" }, { label: "브랜드" }, { label: "주문량", r: true },
   { label: "납기일자" }, { label: "출하LOT" }, { label: "제조일자" }, { label: "사용기한" }, { label: "국가" }, { label: "영업담당자" },
