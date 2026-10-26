@@ -221,7 +221,7 @@ const GRID_COLS: { key: string; label: string }[] = [
   { key: "wip", label: "공정재공" },
   { key: "assy", label: "조립투입" },
   { key: "stageprog", label: "진행률" },
-  { key: "open", label: "상세" },
+  { key: "open", label: "진행상태" }, // 키는 저장된 열 배치 때문에 옛 "상세" 그대로
 ];
 
 const STAGES = ["조립", "분리3", "습윤", "외관검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "마킹", "출하포장"];
@@ -628,6 +628,7 @@ function PlanSummaryHelp({ onClose }: { onClose: () => void }) {
       <ul>
         <li>진행률 = (주문량 − 출하부족) ÷ 주문량</li>
         <li>공정별 진행률 = (주문량 − 그 공정 부족분) ÷ 주문량</li>
+        <li>진행상태 = 부족분이 0인 마지막 공정을 "○○완료"로 표시(예: 마킹완료 = 마킹 공정까지 부족분 없음, 출하포장완료 = 기초재고·출고로 주문량을 채움). 주문량을 모두 출고하면 출하완료, 분리3 부족분이 남으면 조립중</li>
       </ul>
       <h4>순위</h4>
       <ul>
@@ -1498,6 +1499,17 @@ function sanitizeLayout(v: unknown): Layout {
 
 // 공정별 색 — 진행률 펼침 때 막대와 공정명 머리글에 쓴다(흰 글씨가 읽히는 진한 색)
 const STAGE_COLORS = ["#2f6df0", "#0e9aa7", "#7c4dff", "#d6409f", "#e8590c", "#2b9348", "#b8860b", "#8a5a44", "#c92a2a", "#364fc7"];
+// 진행상태 열 — 공정 부족분(STAGE_PROG 순서)이 0인 마지막 공정을 "○○완료"로. 이름은 공정재공 공정 이름(검사→외관검사, 완검→마킹, 출하→출하포장)
+const DONE_NAMES = ["분리3", "습윤", "외관검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "마킹", "출하포장"];
+function doneStage(r: DueOrderRow): { label: string; color: string | null; title: string } {
+  if (r.done || (r.order_qty > 0 && r.shipped >= r.order_qty)) return { label: "출하완료", color: null, title: "주문량을 모두 출고함" };
+  const sh = r.shorts ?? [];
+  let k = -1;
+  for (let i = 0; i < DONE_NAMES.length; i++) if ((sh[i] ?? 0) <= 0) k = i;
+  if (k < 0) return { label: "조립중", color: null, title: "분리3 부족분이 남아 있음 — 조립~분리3 단계" };
+  const next = k + 1 < DONE_NAMES.length ? ` · 다음 ${DONE_NAMES[k + 1]} 부족 ${fmt(sh[k + 1] ?? 0)}` : " · 기초재고·출고로 주문량을 채움";
+  return { label: `${DONE_NAMES[k]}완료`, color: STAGE_COLORS[k], title: `${DONE_NAMES[k]}까지 부족분 0${next}` };
+}
 
 function PBar({ p, small, color }: { p: number; small?: boolean; color?: string }) {
   const pct = Math.round(p * 100);
@@ -2008,8 +2020,14 @@ export default function DueOrdersPage() {
             })}
           </Fragment>
         );
-      case "open":
-        return <td key={k}><span className="pill p-grn">열기</span></td>;
+      case "open": {
+        const d = doneStage(r);
+        return (
+          <td key={k} title={`${d.title} — 줄을 누르면 상세가 열립니다`} style={{ whiteSpace: "nowrap" }}>
+            {d.color ? <><span style={{ color: d.color }}>●</span> <b style={{ color: d.color }}>{d.label}</b></> : <span style={{ color: "var(--fg-3)" }}>{d.label}</span>}
+          </td>
+        );
+      }
       default:
         return null;
     }
