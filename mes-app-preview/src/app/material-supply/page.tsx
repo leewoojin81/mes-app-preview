@@ -110,13 +110,13 @@ function Pill({ c }: { c: MaterialCell }) {
   return <span className="pill p-red" title="미입고 발주로도 모자랍니다">발주필요 {fmt(c.order_qty)}</span>;
 }
 
-// 모든 탭 공통 앞 열 — NO. · SO번호 · MO번호 · 고객사 · 브랜드 · 대표품목 · 수주량 · 납기일자(SALES-02) · 비고
+// 모든 탭 공통 앞 열 — NO. · 수주번호 · MO번호 · 고객사 · 브랜드 · 대표품목 · 수주량 · 납기일자(SALES-02) · 비고
 const LEAD_COLS = 9;
 function LeadHead() {
   return (
     <>
       <th className="r">NO.</th>
-      <th>SO번호</th>
+      <th>수주번호</th>
       <th>MO번호</th>
       <th>고객사</th>
       <th>브랜드</th>
@@ -252,7 +252,7 @@ export default function MaterialSupplyPage() {
       </div>
 
       <div className="tools">
-        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="SO번호·MO·고객·브랜드·모델·자재코드 검색" aria-label="검색" />
+        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="수주번호·MO·고객·브랜드·모델·자재코드 검색" aria-label="검색" />
         <select value={customer} onChange={(e) => setCustomer(e.target.value)} aria-label="고객 선택">
           <option value="">전체 고객</option>
           {customers.map((c) => (<option key={c}>{c}</option>))}
