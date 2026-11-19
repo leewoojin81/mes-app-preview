@@ -2,7 +2,8 @@
 /* eslint-disable @next/next/no-img-element -- 촬영 직후 blob: 미리보기·로그인 필요한 사진 API라 next/image를 쓰지 않는다 */
 
 // 모바일 불량입력(/m/defect) — 공정이동표 QR(작업지시번호) 촬영 → 자동 조회 → 불량유형·수량·사진 입력 → 저장.
-// 휴대폰 세로 390px 기준, 주요 버튼은 화면 아래. 루트 레이아웃의 사이드바·탭바는 고정 오버레이로 덮는다
+// 휴대폰 세로 390px 기준, 주요 버튼은 화면 아래(sticky — fixed는 일부 휴대폰 브라우저에서 스크롤 컨테이너 안에서 사라져 2026-11-20 교체).
+// 저장 버튼은 하단 바와 메모 아래 두 곳에 둔다. 루트 레이아웃의 사이드바·탭바는 고정 오버레이로 덮는다
 // (기존 공용 파일을 고치지 않기 위해 — src/lib/mobile-defect.ts 머리 주석 참고).
 //
 // 1단계(http): <input capture>로 사진을 찍어 브라우저에서 판독(jsQR, public/vendor).
@@ -206,6 +207,8 @@ export default function MobileDefectPage() {
   const qtyNum = parseInt(qty, 10) || 0;
   const typeName = types.find((t) => t.type_code === typeCode)?.type_name ?? "";
   const canSave = !!wo && !!proc && !!typeCode && qtyNum >= 1 && !busy;
+  const need = !proc ? "공정을 선택하세요" : !typeCode ? "불량 유형을 선택하세요" : qtyNum < 1 ? "수량을 입력하세요" : "";
+  const saveLabel = busy ? "저장 중…" : need ? `저장 — ${need}` : `저장 (${typeName} ${qtyNum}개 · 사진 ${photos.length}장)`;
 
   async function save() {
     if (!canSave || !wo) return;
@@ -249,7 +252,7 @@ export default function MobileDefectPage() {
           )}
         </header>
 
-        <main className="flex-1 px-4 pt-3.5 pb-44 flex flex-col gap-3">
+        <main className="flex-1 px-4 pt-3.5 pb-6 flex flex-col gap-3">
           {view === "scan" && (
             <>
               <div className={card}>
@@ -306,8 +309,8 @@ export default function MobileDefectPage() {
                 </dl>
                 <p className="text-xs text-slate-400">{method === "QR" ? "QR 판독" : "직접 입력"} · 조회: {wo.source}</p>
               </div>
-              <div className={card}>
-                <div className={lbl}>공정</div>
+              <div className={`${card} ${proc ? "" : "!border-red-500 !border-2"}`}>
+                <div className={lbl}>공정{!proc && <span className="text-red-600 font-bold">먼저 선택하세요</span>}</div>
                 <div className="flex flex-wrap gap-2">
                   {PROCESSES.map((p) => (
                     <button key={p} type="button" aria-pressed={proc === p} onClick={() => { setProc(p); setTypeCode(""); lsSet(LS_PROC, p); }}
@@ -360,6 +363,9 @@ export default function MobileDefectPage() {
                   className="min-h-[72px] border border-slate-300 rounded-xl px-3 py-2.5 text-[15px] bg-white" />
               </div>
               {saveErr && <div className="rounded-xl bg-red-50 text-red-600 text-sm px-3 py-2.5">{saveErr}</div>}
+              <button type="button" disabled={!canSave} onClick={save} className={`${btn} ${canSave ? "bg-red-600 text-white" : "bg-slate-200 text-red-600 disabled:opacity-100 text-base"}`}>
+                {saveLabel}
+              </button>
             </>
           )}
 
@@ -401,7 +407,7 @@ export default function MobileDefectPage() {
           )}
         </main>
 
-        <div className="fixed inset-x-0 bottom-0 z-10 bg-white border-t border-slate-200 px-4 pt-3" style={{ paddingBottom: "calc(14px + env(safe-area-inset-bottom))" }}>
+        <div className="sticky bottom-0 z-10 bg-white border-t border-slate-200 px-4 pt-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]" style={{ paddingBottom: "calc(14px + env(safe-area-inset-bottom))" }}>
           <div className="max-w-[398px] mx-auto flex flex-col gap-2.5">
             {view === "scan" && (
               <>
@@ -412,8 +418,8 @@ export default function MobileDefectPage() {
               </>
             )}
             {view === "input" && (
-              <button type="button" disabled={!canSave} onClick={save} className={`${btn} bg-red-600 text-white`}>
-                {busy ? "저장 중…" : !proc ? "공정을 선택하세요" : !typeCode ? "불량 유형을 선택하세요" : qtyNum < 1 ? "수량을 입력하세요" : `저장 (${typeName} ${qtyNum}개 · 사진 ${photos.length}장)`}
+              <button type="button" disabled={!canSave} onClick={save} className={`${btn} ${canSave ? "bg-red-600 text-white" : "bg-slate-200 text-red-600 disabled:opacity-100 text-base"}`}>
+                {saveLabel}
               </button>
             )}
             {view === "input" && <button type="button" className={`${btn} min-h-12 text-base bg-slate-100 text-navy`} onClick={() => { resetInput(); go("scan"); }}>취소하고 다시 스캔</button>}
