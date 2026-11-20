@@ -113,15 +113,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "사진 저장에 실패해 입력을 취소했습니다. 다시 저장해 주세요." }, { status: 500 });
   }
 
-  // 마킹이면 PROC-06-02 불량이력관리(같은 작업지시의 마킹 실적 줄)에 바로 붙여 본다 — 실적이 아직 없으면 대기
+  // PROC-06-02 불량이력관리(같은 작업지시의 마킹 실적 줄)에 바로 붙여 본다 — 실적이 아직 없으면 대기
   let linked = false;
-  if (processName === "마킹") {
-    try {
-      linkPendingMobileDefects(db);
-      linked = !!(db.prepare("SELECT linked_key FROM mobile_defect_entries WHERE id = ?").get(id) as { linked_key: string | null }).linked_key;
-    } catch (e) {
-      console.error("[모바일 불량입력] 연결 실패", e);
-    }
+  try {
+    linkPendingMobileDefects(db);
+    linked = !!(db.prepare("SELECT linked_key FROM mobile_defect_entries WHERE id = ?").get(id) as { linked_key: string | null }).linked_key;
+  } catch (e) {
+    console.error("[모바일 불량입력] 연결 실패", e);
   }
   return NextResponse.json({ id, wo_no: woNo, type_name: type.type_name, qty, photos: photos.length, linked, process: processName }, { status: 201 });
 }

@@ -206,13 +206,14 @@ export type EntryRow = {
 // 사진(defect_history_media, 파일은 data/defect-media)을 붙인다. 휴대폰에서 공정 "마킹"으로 저장한 건은 같은 작업지시의 P400 줄에
 //  - 불량 내용에 한 줄 덧붙이고: [휴대폰 11-20 10:27 이우진] 이물1 75개 · 메모
 //  - 사진은 defect-media에 복사해 사진 목록에 넣는다.
-// 붙일 줄: 같은 작업지시·같은 날짜의 P400 실적. 그날 실적이 아직 ERP에서 안 올라왔으면 기다린다(대기). 이틀이 지나도 그날 줄이 없으면
-// 날짜가 가장 가까운 P400 줄에 붙인다. 대기 건은 PROC-06-02 목록·휴대폰 내역·모바일 조회를 열 때마다 다시 붙여 본다.
+// 붙일 줄(2026-11-20 수정본 5): 같은 작업지시의 P400 실적 중 입력일과 날짜가 가장 가까운 줄에 바로 붙인다(공정 구분 없이 — 어느 공정에서
+// 입력했든 불량이력관리에서 보이게, 마킹 외 공정은 내용에 공정명을 함께 적는다). 그 작업지시의 마킹 실적이 아직 없으면 대기하고,
+// 대기 건은 PROC-06-02 목록·휴대폰 내역·모바일 조회를 열 때마다 다시 붙여 본다.
 const MARKING_PROCESS_NAME = "마킹";
 const MARKING_PROCESS_CODE = "P400";
 
 type PendingRow = {
-  id: number; wo_no: string; defect_type_name: string; qty: number; memo: string | null; created_at: string;
+  id: number; wo_no: string; process_name: string; defect_type_name: string; qty: number; memo: string | null; created_at: string;
   username: string; display_name: string | null; photo1: string | null; photo2: string | null; photo3: string | null;
 };
 
@@ -228,29 +229,26 @@ function findMarkingRow(db: DatabaseSync, woNo: string, day: string): string | n
   } catch {
     return null; // daily_work_status가 없는 DB
   }
-  if (!rows.length) return null;
-  if (rows[0].work_date === day) return rows[0].record_key;
-  const today = new Date().toLocaleDateString("sv-SE");
-  const age = (Date.parse(today) - Date.parse(day)) / 86400e3;
-  return age >= 2 ? rows[0].record_key : null;
+  return rows.length ? rows[0].record_key : null;
 }
 
 function noteLine(r: PendingRow): string {
   const when = r.created_at.slice(5, 16);
   const who = r.display_name || r.username;
-  return `[휴대폰 ${when} ${who}] ${r.defect_type_name} ${r.qty}개${r.memo ? ` · ${r.memo.replace(/\s+/g, " ")}` : ""}`;
+  const proc = r.process_name && r.process_name !== MARKING_PROCESS_NAME ? ` · ${r.process_name}` : "";
+  return `[휴대폰 ${when} ${who}${proc}] ${r.defect_type_name} ${r.qty}개${r.memo ? ` · ${r.memo.replace(/\s+/g, " ")}` : ""}`;
 }
 
-/** 아직 PROC-06-02에 안 붙은 휴대폰 마킹 불량을 붙인다. 붙인 건수를 돌려준다. 실패한 건은 다음에 다시 시도한다. */
+/** 아직 PROC-06-02에 안 붙은 휴대폰 불량(전 공정)을 붙인다. 붙인 건수를 돌려준다. 실패한 건은 다음에 다시 시도한다. */
 export function linkPendingMobileDefects(db: DatabaseSync): number {
   ensureMobileDefectTables(db);
   ensureDefectHistoryTables(db);
   const pending = db
     .prepare(
-      `SELECT id, wo_no, defect_type_name, qty, memo, created_at, username, display_name, photo1, photo2, photo3
-       FROM mobile_defect_entries WHERE deleted_at IS NULL AND linked_key IS NULL AND process_name = ? ORDER BY id`
+      `SELECT id, wo_no, process_name, defect_type_name, qty, memo, created_at, username, display_name, photo1, photo2, photo3
+       FROM mobile_defect_entries WHERE deleted_at IS NULL AND linked_key IS NULL ORDER BY id`
     )
-    .all(MARKING_PROCESS_NAME) as PendingRow[];
+    .all() as PendingRow[];
   let linked = 0;
   for (const r of pending) {
     const key = findMarkingRow(db, r.wo_no, r.created_at.slice(0, 10));

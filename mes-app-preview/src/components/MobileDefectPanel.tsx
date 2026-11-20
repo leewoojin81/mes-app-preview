@@ -171,7 +171,7 @@ export default function MobileDefectPanel({ fixedProcess, showTitle = false }: P
                   <td className={`${td} whitespace-nowrap`}>{r.display_name || r.username}</td>
                   <td className={`${td} whitespace-nowrap text-xs`}>{r.deleted_at ? "취소" : r.input_method}</td>
                   <td className={`${td} whitespace-nowrap text-xs`} title={r.linked_at ? `반영 ${r.linked_at}` : undefined}>
-                    {r.process_name !== "마킹" || r.deleted_at ? <span className="text-slate-300">-</span> : r.linked_key ? <span className="px-1.5 py-0.5 rounded bg-green-50 text-green-700">반영</span> : <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">대기</span>}
+                    {r.deleted_at ? <span className="text-slate-300">-</span> : r.linked_key ? <span className="px-1.5 py-0.5 rounded bg-green-50 text-green-700">반영</span> : <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">대기</span>}
                   </td>
                 </tr>
               );

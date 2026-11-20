@@ -375,11 +375,9 @@ export default function MobileDefectPage() {
                 <div className="rounded-xl bg-green-600 text-white p-4 font-bold">
                   ✔ 저장되었습니다
                   <span className="block font-normal text-sm">{saved.wo_no} · {saved.type_name} {saved.qty}개 · 사진 {saved.photos}장</span>
-                  {saved.process === "마킹" && (
-                    <span className="block font-normal text-[13px] mt-1 opacity-90">
-                      {saved.linked ? "PC 마킹(PROC-06-02) 불량이력관리에 반영했습니다." : "마킹 실적이 ERP에서 올라오면 PC 마킹(PROC-06-02) 화면에 자동으로 붙습니다."}
-                    </span>
-                  )}
+                  <span className="block font-normal text-[13px] mt-1 opacity-90">
+                    {saved.linked ? "PC 마킹(PROC-06-02) 불량이력관리에 반영했습니다." : "이 작업지시의 마킹 실적이 ERP에서 올라오면 PC 마킹(PROC-06-02) 불량이력관리에 자동으로 붙습니다."}
+                  </span>
                 </div>
               )}
               <div className={card}>
@@ -392,9 +390,7 @@ export default function MobileDefectPage() {
                       <span className="text-slate-500 text-[13px] tabular-nums">{e.created_at.slice(11, 16)}</span>
                       <span className="min-w-0">
                         <b>{e.wo_no}</b><br />{e.process_name} · {e.defect_type_name} {e.qty}{e.input_method === "수동" ? " · 직접입력" : ""}
-                        {e.process_name === "마킹" && (
-                          <span className={`ml-1 text-[11px] px-1.5 py-0.5 rounded ${e.linked_key ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>{e.linked_key ? "PC 반영" : "반영 대기"}</span>
-                        )}
+                        <span className={`ml-1 text-[11px] px-1.5 py-0.5 rounded ${e.linked_key ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>{e.linked_key ? "PC 반영" : "반영 대기"}</span>
                         {e.memo && <span className="block text-slate-500 text-[13px] break-all">{e.memo}</span>}
                         {ps.length > 0 && (
                           <span className="flex gap-1.5 mt-1">
