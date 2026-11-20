@@ -1,5 +1,7 @@
 "use client";
 
+import MobileDefectTabs from "@/components/MobileDefectTabs";
+
 import { useEffect, useState } from "react";
 import { postImport } from "@/lib/import-upload";
 import DateSegmentInput from "@/components/DateSegmentInput";
@@ -30,7 +32,7 @@ function firstDayOfMonth(): string {
   return toLocalDateStr(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 
-export default function DefectTypeStatusPage() {
+function ErpDefectTypeStatusPage() {
   const [rows, setRows] = useState<DefectTypeStatusRow[]>([]);
   const [total, setTotal] = useState(0);
   const [uploadedAt, setUploadedAt] = useState<string | null>(null);
@@ -448,4 +450,9 @@ function UploadModal({
       </div>
     </div>
   );
+}
+
+// 2026-11-20 mobile defect tab
+export default function DefectTypeStatusPage() {
+  return <MobileDefectTabs erp={<ErpDefectTypeStatusPage />} />;
 }
