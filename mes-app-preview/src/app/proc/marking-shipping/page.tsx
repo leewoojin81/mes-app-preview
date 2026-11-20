@@ -1,17 +1,14 @@
 "use client";
 
-import MobileDefectPanel from "@/components/MobileDefectPanel";
-
 import { useTabState } from "@/lib/use-tab-state";
 import LabelScheduleTab from "./LabelScheduleTab";
 import OrderFormTab from "./OrderFormTab";
 
-type Tab = "mobile" | "label" | "order";
+type Tab = "label" | "order";
 
 const TABS: { v: Tab; label: string }[] = [
   { v: "label", label: "라벨일정" },
   { v: "order", label: "오더양식" },
-  { v: "mobile", label: "모바일 불량" },
 ];
 
 // 공정관리 "마킹출하공정(PROC-06)" — 공정에서 쓰던 업무관리를 탭으로 옮긴다.
@@ -42,7 +39,6 @@ export default function MarkingShippingPage() {
       </div>
       {tab === "label" && <LabelScheduleTab />}
       {tab === "order" && <OrderFormTab />}
-      {tab === "mobile" && <MobileDefectPanel fixedProcess="마킹" />}
     </div>
   );
 }
