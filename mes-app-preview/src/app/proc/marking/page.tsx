@@ -2,13 +2,18 @@
 
 import { useTabState } from "@/lib/use-tab-state";
 import DefectHistoryTab from "./DefectHistoryTab";
+import MobileDefectPanel from "@/components/MobileDefectPanel";
 
-type Tab = "defect";
+type Tab = "defect" | "mobile";
 
-const TABS: { v: Tab; label: string }[] = [{ v: "defect", label: "불량이력관리" }];
+const TABS: { v: Tab; label: string }[] = [
+  { v: "defect", label: "불량이력관리" },
+  { v: "mobile", label: "모바일 입력" },
+];
 
 // 공정관리 "마킹(PROC-06-02)" — 마킹출하공정(PROC-06) 아래 별도 메뉴(2026-11-09 추가).
 // 불량이력관리 탭(2026-11-17): 일일작업현황 마킹(P400) 실적에 불량 내용·사진·동영상을 붙인다.
+// 모바일 입력 탭(2026-11-20): 휴대폰(/m/defect)에서 마킹으로 저장한 불량 — 마킹 실적이 올라오면 불량이력관리에도 자동으로 붙는다(반영/대기 표시).
 export default function MarkingPage() {
   const [tab, setTab] = useTabState<Tab>("procMarkingTab", "defect");
   return (
@@ -31,6 +36,7 @@ export default function MarkingPage() {
         </div>
       </div>
       {tab === "defect" && <DefectHistoryTab />}
+      {tab === "mobile" && <MobileDefectPanel fixedProcess="마킹" />}
     </div>
   );
 }

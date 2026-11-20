@@ -7,6 +7,7 @@ import {
   ensureMobileDefectTables,
   extractWoNo,
   isJpeg,
+  linkPendingMobileDefects,
   lookupWorkOrder,
   savePhoto,
   type EntryRow,
@@ -22,10 +23,15 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   const db = getDb();
   ensureMobileDefectTables(db);
+  try {
+    linkPendingMobileDefects(db); // 마킹 실적이 그사이 올라왔으면 PROC-06-02에 붙인다
+  } catch (e) {
+    console.error("[모바일 불량입력] 연결 실패", e);
+  }
   const rows = db
     .prepare(
       `SELECT id, wo_no, lot_no, item_info, process_name, defect_type_name, qty, memo,
-              photo1, photo2, photo3, input_method, created_at
+              photo1, photo2, photo3, input_method, created_at, linked_key, linked_at
        FROM mobile_defect_entries
        WHERE username = ? AND deleted_at IS NULL AND date(created_at) = date('now','localtime')
        ORDER BY id DESC`
@@ -107,5 +113,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "사진 저장에 실패해 입력을 취소했습니다. 다시 저장해 주세요." }, { status: 500 });
   }
 
-  return NextResponse.json({ id, wo_no: woNo, type_name: type.type_name, qty, photos: photos.length }, { status: 201 });
+  // 마킹이면 PROC-06-02 불량이력관리(같은 작업지시의 마킹 실적 줄)에 바로 붙여 본다 — 실적이 아직 없으면 대기
+  let linked = false;
+  if (processName === "마킹") {
+    try {
+      linkPendingMobileDefects(db);
+      linked = !!(db.prepare("SELECT linked_key FROM mobile_defect_entries WHERE id = ?").get(id) as { linked_key: string | null }).linked_key;
+    } catch (e) {
+      console.error("[모바일 불량입력] 연결 실패", e);
+    }
+  }
+  return NextResponse.json({ id, wo_no: woNo, type_name: type.type_name, qty, photos: photos.length, linked, process: processName }, { status: 201 });
 }

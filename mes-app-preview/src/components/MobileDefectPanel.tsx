@@ -13,7 +13,7 @@ type Row = {
   id: number; created_at: string; wo_no: string; lot_no: string | null; item_code: string | null; item_info: string | null;
   process_name: string; defect_type_code: string; defect_type_name: string; qty: number; memo: string | null;
   photo1: string | null; photo2: string | null; photo3: string | null; input_method: string;
-  username: string; display_name: string | null; deleted_at: string | null;
+  username: string; display_name: string | null; deleted_at: string | null; linked_key?: string | null; linked_at?: string | null;
 };
 
 const today = () => new Date().toLocaleDateString("sv-SE");
@@ -140,12 +140,12 @@ export default function MobileDefectPanel({ fixedProcess, showTitle = false }: P
             <tr>
               <th className={th}>입력일시</th><th className={th}>공정</th><th className={th}>작업지시</th><th className={th}>LOT</th>
               <th className={th}>품목</th><th className={th}>불량유형</th><th className={`${th} text-right`}>수량</th><th className={th}>메모</th>
-              <th className={th}>사진</th><th className={th}>입력자</th><th className={th}>방식</th>
+              <th className={th}>사진</th><th className={th}>입력자</th><th className={th}>방식</th><th className={th}>PROC-06-02</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && !loading && (
-              <tr><td colSpan={11} className="px-3 py-10 text-center text-slate-400">이 기간에 휴대폰으로 등록한 불량이 없습니다.</td></tr>
+              <tr><td colSpan={12} className="px-3 py-10 text-center text-slate-400">이 기간에 휴대폰으로 등록한 불량이 없습니다.</td></tr>
             )}
             {rows.map((r) => {
               const ps = [r.photo1, r.photo2, r.photo3].map((p, i) => (p ? i + 1 : 0)).filter(Boolean);
@@ -170,6 +170,9 @@ export default function MobileDefectPanel({ fixedProcess, showTitle = false }: P
                   </td>
                   <td className={`${td} whitespace-nowrap`}>{r.display_name || r.username}</td>
                   <td className={`${td} whitespace-nowrap text-xs`}>{r.deleted_at ? "취소" : r.input_method}</td>
+                  <td className={`${td} whitespace-nowrap text-xs`} title={r.linked_at ? `반영 ${r.linked_at}` : undefined}>
+                    {r.process_name !== "마킹" || r.deleted_at ? <span className="text-slate-300">-</span> : r.linked_key ? <span className="px-1.5 py-0.5 rounded bg-green-50 text-green-700">반영</span> : <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">대기</span>}
+                  </td>
                 </tr>
               );
             })}

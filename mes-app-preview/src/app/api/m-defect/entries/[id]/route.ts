@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
-import { ensureMobileDefectTables } from "@/lib/mobile-defect";
+import { ensureMobileDefectTables, unlinkMobileDefect } from "@/lib/mobile-defect";
 
 export const runtime = "nodejs";
 
@@ -22,6 +22,12 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     .run(Number(id), session.u);
   if (r.changes === 0) {
     return NextResponse.json({ error: "오늘 내가 입력한 건만 취소할 수 있습니다." }, { status: 404 });
+  }
+  // PROC-06-02에 붙어 있었으면 붙였던 내용 줄·사진을 뺀다
+  try {
+    unlinkMobileDefect(db, Number(id));
+  } catch (e) {
+    console.error("[모바일 불량입력] 연결 해제 실패", e);
   }
   return NextResponse.json({ ok: true });
 }

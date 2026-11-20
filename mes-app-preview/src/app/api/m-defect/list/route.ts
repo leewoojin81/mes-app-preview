@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { ensureMobileDefectTables } from "@/lib/mobile-defect";
+import { ensureMobileDefectTables, linkPendingMobileDefects } from "@/lib/mobile-defect";
 
 export const runtime = "nodejs";
 
@@ -27,10 +27,15 @@ export async function GET(req: NextRequest) {
 
   const db = getDb();
   ensureMobileDefectTables(db);
+  try {
+    linkPendingMobileDefects(db);
+  } catch (e) {
+    console.error("[모바일 불량입력] 연결 실패", e);
+  }
   const rows = db
     .prepare(
       `SELECT id, created_at, wo_no, lot_no, item_code, item_info, process_name, defect_type_code, defect_type_name,
-              qty, memo, photo1, photo2, photo3, input_method, username, display_name, deleted_at
+              qty, memo, photo1, photo2, photo3, input_method, username, display_name, deleted_at, linked_key, linked_at
        FROM mobile_defect_entries WHERE ${where.join(" AND ")}
        ORDER BY id DESC LIMIT 5000`
     )

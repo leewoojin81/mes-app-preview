@@ -10,6 +10,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { ensureDefectHistoryTables, ensureMediaDir, mediaPath } from "@/lib/defect-history";
 
 export const MD_PROCESSES = [
   "조립", "분리3", "습윤", "외관검사", "이재기", "실링", "멸균", "입고대기", "중간창고", "마킹", "출하포장",
@@ -67,6 +69,11 @@ export function ensureMobileDefectTables(db: DatabaseSync): void {
       "INSERT OR IGNORE INTO defect_type_master (type_code, type_name, process_name, sort_order) VALUES (?, ?, ?, ?)"
     );
     for (const [c, n, p, s] of SEED_TYPES) ins.run(c, n, p, s);
+  }
+  // 2026-11-20 마킹(PROC-06-02) 불량이력관리 연결용 칸(ALTER ADD만) — 붙인 실적 줄·붙인 시각·만든 사진 id·적어 넣은 줄
+  const cols = new Set((db.prepare("PRAGMA table_info(mobile_defect_entries)").all() as { name: string }[]).map((c) => c.name));
+  for (const c of ["linked_key", "linked_at", "linked_media", "note_line"]) {
+    if (!cols.has(c)) db.exec(`ALTER TABLE mobile_defect_entries ADD COLUMN ${c} TEXT`);
   }
   ensured.add(db);
 }
@@ -190,4 +197,140 @@ export type EntryRow = {
   photo3: string | null;
   input_method: string;
   created_at: string;
+  linked_key?: string | null;
+  linked_at?: string | null;
 };
+
+// ── 마킹(PROC-06-02) 불량이력관리에 붙이기 ─────────────────────────────────────
+// PROC-06-02 화면은 일일작업현황(daily_work_status) 마킹(P400) 실적 한 줄(record_key)에 불량 내용(defect_history_notes)과
+// 사진(defect_history_media, 파일은 data/defect-media)을 붙인다. 휴대폰에서 공정 "마킹"으로 저장한 건은 같은 작업지시의 P400 줄에
+//  - 불량 내용에 한 줄 덧붙이고: [휴대폰 11-20 10:27 이우진] 이물1 75개 · 메모
+//  - 사진은 defect-media에 복사해 사진 목록에 넣는다.
+// 붙일 줄: 같은 작업지시·같은 날짜의 P400 실적. 그날 실적이 아직 ERP에서 안 올라왔으면 기다린다(대기). 이틀이 지나도 그날 줄이 없으면
+// 날짜가 가장 가까운 P400 줄에 붙인다. 대기 건은 PROC-06-02 목록·휴대폰 내역·모바일 조회를 열 때마다 다시 붙여 본다.
+const MARKING_PROCESS_NAME = "마킹";
+const MARKING_PROCESS_CODE = "P400";
+
+type PendingRow = {
+  id: number; wo_no: string; defect_type_name: string; qty: number; memo: string | null; created_at: string;
+  username: string; display_name: string | null; photo1: string | null; photo2: string | null; photo3: string | null;
+};
+
+function findMarkingRow(db: DatabaseSync, woNo: string, day: string): string | null {
+  let rows: { record_key: string; work_date: string }[];
+  try {
+    rows = db
+      .prepare(
+        `SELECT record_key, work_date FROM daily_work_status WHERE process_code = ? AND wo_no = ?
+         ORDER BY ABS(julianday(work_date) - julianday(?)), work_date DESC, json_extract(detail, '$."등록시각"') DESC`
+      )
+      .all(MARKING_PROCESS_CODE, woNo, day) as typeof rows;
+  } catch {
+    return null; // daily_work_status가 없는 DB
+  }
+  if (!rows.length) return null;
+  if (rows[0].work_date === day) return rows[0].record_key;
+  const today = new Date().toLocaleDateString("sv-SE");
+  const age = (Date.parse(today) - Date.parse(day)) / 86400e3;
+  return age >= 2 ? rows[0].record_key : null;
+}
+
+function noteLine(r: PendingRow): string {
+  const when = r.created_at.slice(5, 16);
+  const who = r.display_name || r.username;
+  return `[휴대폰 ${when} ${who}] ${r.defect_type_name} ${r.qty}개${r.memo ? ` · ${r.memo.replace(/\s+/g, " ")}` : ""}`;
+}
+
+/** 아직 PROC-06-02에 안 붙은 휴대폰 마킹 불량을 붙인다. 붙인 건수를 돌려준다. 실패한 건은 다음에 다시 시도한다. */
+export function linkPendingMobileDefects(db: DatabaseSync): number {
+  ensureMobileDefectTables(db);
+  ensureDefectHistoryTables(db);
+  const pending = db
+    .prepare(
+      `SELECT id, wo_no, defect_type_name, qty, memo, created_at, username, display_name, photo1, photo2, photo3
+       FROM mobile_defect_entries WHERE deleted_at IS NULL AND linked_key IS NULL AND process_name = ? ORDER BY id`
+    )
+    .all(MARKING_PROCESS_NAME) as PendingRow[];
+  let linked = 0;
+  for (const r of pending) {
+    const key = findMarkingRow(db, r.wo_no, r.created_at.slice(0, 10));
+    if (!key) continue;
+    const copied: string[] = [];
+    try {
+      ensureMediaDir();
+      const media: { file: string; orig: string; size: number }[] = [];
+      [r.photo1, r.photo2, r.photo3].forEach((rel, i) => {
+        const src = rel ? photoAbsPath(rel) : null;
+        if (!src || !fs.existsSync(src)) return;
+        const file = `${randomUUID()}.jpg`;
+        fs.copyFileSync(src, mediaPath(file));
+        copied.push(file);
+        media.push({ file, orig: `휴대폰_${r.id}_${i + 1}.jpg`, size: fs.statSync(src).size });
+      });
+      const line = noteLine(r);
+      db.exec("BEGIN");
+      try {
+        db.prepare(
+          `INSERT INTO defect_history_notes (record_key, content, updated_by, updated_at)
+           VALUES (?, ?, ?, datetime('now','localtime'))
+           ON CONFLICT(record_key) DO UPDATE SET
+             content = CASE WHEN TRIM(content) = '' THEN excluded.content ELSE content || char(10) || excluded.content END,
+             updated_by = excluded.updated_by, updated_at = excluded.updated_at`
+        ).run(key, line, r.username);
+        const ins = db.prepare(
+          "INSERT INTO defect_history_media (record_key, kind, file_name, orig_name, mime, size, created_by) VALUES (?, 'photo', ?, ?, 'image/jpeg', ?, ?)"
+        );
+        const ids = media.map((m) => Number(ins.run(key, m.file, m.orig, m.size, r.username).lastInsertRowid));
+        db.prepare(
+          "UPDATE mobile_defect_entries SET linked_key = ?, linked_at = datetime('now','localtime'), linked_media = ?, note_line = ? WHERE id = ? AND linked_key IS NULL"
+        ).run(key, JSON.stringify(ids), line, r.id);
+        db.exec("COMMIT");
+        linked++;
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      }
+    } catch (e) {
+      for (const f of copied) fs.rmSync(mediaPath(f), { force: true });
+      console.error("[모바일 불량입력] PROC-06-02 연결 실패", r.id, e);
+    }
+  }
+  return linked;
+}
+
+/** 휴대폰에서 취소한 건이 PROC-06-02에 붙어 있으면, 붙였던 내용 줄과 사진을 뺀다(PC에서 고친 내용은 그대로 둔다). */
+export function unlinkMobileDefect(db: DatabaseSync, id: number): void {
+  ensureMobileDefectTables(db);
+  const r = db.prepare("SELECT linked_key, linked_media, note_line FROM mobile_defect_entries WHERE id = ?").get(id) as
+    | { linked_key: string | null; linked_media: string | null; note_line: string | null }
+    | undefined;
+  if (!r?.linked_key) return;
+  ensureDefectHistoryTables(db);
+  let ids: number[] = [];
+  try {
+    ids = JSON.parse(r.linked_media ?? "[]");
+  } catch {
+    ids = [];
+  }
+  for (const mid of ids) {
+    const m = db.prepare("SELECT file_name FROM defect_history_media WHERE id = ? AND record_key = ?").get(mid, r.linked_key) as
+      | { file_name: string }
+      | undefined;
+    if (!m) continue;
+    db.prepare("DELETE FROM defect_history_media WHERE id = ?").run(mid);
+    fs.rmSync(mediaPath(m.file_name), { force: true });
+  }
+  if (r.note_line) {
+    const n = db.prepare("SELECT content FROM defect_history_notes WHERE record_key = ?").get(r.linked_key) as { content: string } | undefined;
+    if (n) {
+      const next = n.content
+        .split("\n")
+        .filter((l) => l !== r.note_line)
+        .join("\n")
+        .trim();
+      if (next) db.prepare("UPDATE defect_history_notes SET content = ?, updated_at = datetime('now','localtime') WHERE record_key = ?").run(next, r.linked_key);
+      else db.prepare("DELETE FROM defect_history_notes WHERE record_key = ?").run(r.linked_key);
+    }
+  }
+  db.prepare("UPDATE mobile_defect_entries SET linked_key = NULL, linked_at = NULL, linked_media = NULL, note_line = NULL WHERE id = ?").run(id);
+}

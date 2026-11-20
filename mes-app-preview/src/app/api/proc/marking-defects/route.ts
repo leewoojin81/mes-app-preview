@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { COOKIE_NAME, verifySession } from "@/lib/auth";
 import { listDefectRows, saveNote, workRowExists } from "@/lib/defect-history";
+import { linkPendingMobileDefects } from "@/lib/mobile-defect";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,12 @@ export async function GET(req: NextRequest) {
   const from = ymd.test(sp.get("from") ?? "") ? sp.get("from")! : weekAgo;
   const to = ymd.test(sp.get("to") ?? "") ? sp.get("to")! : today;
   const db = getDb();
+  // 휴대폰(/m/defect)에서 마킹 공정으로 저장한 불량 중 아직 안 붙은 건을 같은 작업지시의 마킹 실적 줄에 붙인다(2026-11-20)
+  try {
+    linkPendingMobileDefects(db);
+  } catch (e) {
+    console.error("[모바일 불량입력] PROC-06-02 연결 실패", e);
+  }
   const r = listDefectRows(db, { processCode: PROCESS, from, to, onlyBad: sp.get("all") !== "1" });
   const latest = (db.prepare("SELECT MAX(work_date) d FROM daily_work_status WHERE process_code = ?").get(PROCESS) as { d: string | null }).d;
   return NextResponse.json({ from, to, latest, ...r });
