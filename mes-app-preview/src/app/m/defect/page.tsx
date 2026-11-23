@@ -7,7 +7,8 @@
 // (기존 공용 파일을 고치지 않기 위해 — src/lib/mobile-defect.ts 머리 주석 참고).
 //
 // 1단계(http): <input capture>로 사진을 찍어 브라우저에서 판독(jsQR, public/vendor).
-// 2단계(https): 실시간 카메라 스캔은 decodeQrFromImage 대신 다른 스캐너를 붙이면 되도록 판독부를 분리해 두었다.
+// 2단계(2026-11-23): 보안 연결(https, 또는 갤럭시 크롬에서 이 주소를 보안으로 취급하도록 설정)이면 카메라 화면에서 실시간으로 읽는다(LiveScanner).
+//   실시간을 못 쓰는 폰(아이폰 http 등)은 지금처럼 사진 방식으로 자동 전환.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -69,6 +70,82 @@ function decodeQrFromImage(jsQR: JsQR, img: HTMLImageElement): string | null {
   return null;
 }
 
+// ── 실시간 QR 스캔(보안 연결에서만 카메라 화면을 쓸 수 있다) ───────────────────
+function canLiveScan(): boolean {
+  return typeof window !== "undefined" && window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
+}
+
+function LiveScanner({ onResult, onClose }: { onResult: (raw: string) => void; onClose: (err?: string) => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    let timer = 0;
+    let stopped = false;
+    const c = document.createElement("canvas");
+    const x = c.getContext("2d", { willReadFrequently: true });
+    const stop = () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      stream?.getTracks().forEach((t) => t.stop());
+    };
+    (async () => {
+      try {
+        const [jsQR, s] = await Promise.all([
+          loadJsQR(),
+          navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }),
+        ]);
+        stream = s;
+        if (stopped) { stop(); return; }
+        const v = videoRef.current!;
+        v.srcObject = s;
+        await v.play();
+        setReady(true);
+        const tick = () => {
+          if (stopped) return;
+          const W = v.videoWidth, H = v.videoHeight;
+          if (W && H && x) {
+            // 가운데 정사각형(짧은 변의 75%)만 640px로 줄여 판독 — 빠르고, 화면 안내 틀과 맞춘다
+            const side = Math.min(W, H) * 0.75;
+            c.width = c.height = Math.min(640, Math.round(side));
+            x.drawImage(v, (W - side) / 2, (H - side) / 2, side, side, 0, 0, c.width, c.height);
+            const r = jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: "dontInvert" });
+            if (r?.data) {
+              navigator.vibrate?.(80);
+              stop();
+              onResult(r.data);
+              return;
+            }
+          }
+          timer = window.setTimeout(tick, 150);
+        };
+        tick();
+      } catch (e) {
+        stop();
+        const name = (e as { name?: string })?.name;
+        onClose(name === "NotAllowedError" ? "카메라 권한이 막혀 있습니다. 브라우저 설정에서 카메라를 허용하거나, 아래 '사진으로 찍기'를 쓰세요." : "카메라를 열지 못했습니다. 아래 '사진으로 찍기'를 쓰세요.");
+      }
+    })();
+    return stop;
+  }, [onResult, onClose]);
+  return (
+    <div className="fixed inset-0 z-30 bg-black flex flex-col">
+      <div className="relative flex-1 overflow-hidden">
+        <video ref={videoRef} playsInline muted className="absolute inset-0 w-full h-full object-cover" />
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="w-[70vmin] h-[70vmin] rounded-2xl border-4 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]" />
+        </div>
+        <div className="absolute top-0 inset-x-0 p-4 text-center text-white text-base font-bold" style={{ paddingTop: "calc(16px + env(safe-area-inset-top))" }}>
+          {ready ? "라벨 QR을 네모 칸 안에 맞추세요" : "카메라 여는 중…"}
+        </div>
+      </div>
+      <div className="p-4 bg-black" style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))" }}>
+        <button type="button" onClick={() => onClose()} className="w-full min-h-14 rounded-xl bg-white text-navy text-lg font-bold">닫기</button>
+      </div>
+    </div>
+  );
+}
+
 // ── 불량 사진: 긴 변 1600px JPG로 변환 ─────────────────────────────────────
 async function toJpeg(file: File): Promise<Photo> {
   const heic = /heic|heif/i.test(file.type) || /\.(heic|heif)$/i.test(file.name);
@@ -125,6 +202,7 @@ export default function MobileDefectPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [viewPhoto, setViewPhoto] = useState<string | null>(null);
   const thumbRef = useRef<string | null>(null);
+  const [live, setLive] = useState(false);
 
   const loadEntries = useCallback(async () => {
     const r = await fetch("/api/m-defect/entries", { cache: "no-store" });
@@ -165,6 +243,7 @@ export default function MobileDefectPage() {
     setPhotos([]); setTypeCode(""); setQty("1"); setMemo(""); setPhotoMsg(""); setSaveErr("");
   };
 
+  const lookupRef = useRef<(raw: string, m: "QR" | "수동") => Promise<void>>(async () => {});
   async function lookup(raw: string, m: "QR" | "수동") {
     setBusy(true);
     try {
@@ -176,6 +255,26 @@ export default function MobileDefectPage() {
       setScanMsg({ kind: "err", text: "서버에 연결하지 못했습니다. Wi-Fi를 확인하고 다시 시도하세요." });
     } finally { setBusy(false); }
   }
+
+  // QR 스캔 버튼: 실시간이 되면 카메라 화면, 아니면 label 기본 동작(사진 찍기)
+  function onScanClick(e: React.MouseEvent) {
+    if (busy || !canLiveScan()) return;
+    e.preventDefault();
+    if (thumbRef.current) URL.revokeObjectURL(thumbRef.current);
+    thumbRef.current = null;
+    setScanMsg(null);
+    setLive(true);
+  }
+  const onLiveResult = useCallback((raw: string) => {
+    setLive(false);
+    void lookupRef.current(raw, "QR");
+  }, []);
+  const onLiveClose = useCallback((err?: string) => {
+    setLive(false);
+    if (err) setScanMsg({ kind: "err", text: err });
+  }, []);
+
+  useEffect(() => { lookupRef.current = lookup; });
 
   async function onQrFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -277,7 +376,10 @@ export default function MobileDefectPage() {
                   </div>
                 </div>
               )}
-              <label htmlFor="md-qr-album" className="text-center text-sm text-navy underline min-h-10 leading-10">카메라가 안 열리면: 앨범에서 QR 사진 고르기</label>
+              <div className="flex justify-center gap-4 text-sm">
+                <label htmlFor="md-qr" className="text-navy underline min-h-10 leading-10">사진으로 찍기</label>
+                <label htmlFor="md-qr-album" className="text-navy underline min-h-10 leading-10">앨범에서 고르기</label>
+              </div>
             </>
           )}
 
@@ -415,7 +517,7 @@ export default function MobileDefectPage() {
           <div className="max-w-[398px] mx-auto flex flex-col gap-2.5">
             {view === "scan" && (
               <>
-                <label htmlFor="md-qr" aria-disabled={busy} className={`${btn} min-h-16 text-xl bg-navy text-white ${busy ? "opacity-50 pointer-events-none" : ""}`}>
+                <label htmlFor="md-qr" onClick={onScanClick} aria-disabled={busy} className={`${btn} min-h-16 text-xl bg-navy text-white ${busy ? "opacity-50 pointer-events-none" : ""}`}>
                   {busy ? "판독·조회 중…" : "📷 공정표 QR 스캔"}
                 </label>
                 <button type="button" className={`${btn} min-h-12 text-base bg-slate-100 text-navy`} onClick={() => { setDigits(""); go("manual"); }}>⌨ 작업지시번호 직접 입력</button>
@@ -428,11 +530,13 @@ export default function MobileDefectPage() {
             )}
             {view === "input" && <button type="button" className={`${btn} min-h-12 text-base bg-slate-100 text-navy`} onClick={() => { resetInput(); go("scan"); }}>취소하고 다시 스캔</button>}
             {view === "done" && (
-              <button type="button" className={`${btn} bg-navy text-white`} onClick={() => { setSaved(null); setScanMsg(null); go("scan"); }}>📷 다음 공정표 스캔</button>
+              <button type="button" className={`${btn} bg-navy text-white`} onClick={() => { setSaved(null); setScanMsg(null); go("scan"); if (canLiveScan()) setLive(true); }}>📷 다음 공정표 스캔</button>
             )}
           </div>
         </div>
       </div>
+
+      {live && <LiveScanner onResult={onLiveResult} onClose={onLiveClose} />}
 
       {viewPhoto && (
         <button type="button" className="fixed inset-0 z-20 bg-black/85 flex items-center justify-center p-4" onClick={() => setViewPhoto(null)} aria-label="사진 닫기">
